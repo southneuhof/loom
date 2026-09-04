@@ -1,0 +1,331 @@
+@import url('./themes/light.css');
+@import url('./themes/dark.css');
+@import url('./themes/light-extension.css');
+@import url('./themes/dark-extension.css');
+@import url('./state-layers.css');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.vfade-enter-active,
+.vfade-leave-active {
+  transition: all 0.2s ease;
+}
+
+.vfade-enter-from,
+.vfade-leave-to {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.vfade-enter-to,
+.vfade-leave-from {
+  opacity: 1;
+  transform: translateY(0%);
+}
+
+span a,
+.rich-text-content a {
+  text-decoration: underline;
+  color: rgb(var(--md-sys-color-info));
+}
+
+.dp--menu-wrapper {
+  /* position: absolute; */
+  z-index: 999999;
+  pointer-events: auto;
+}
+
+.hfade-enter-active,
+.hfade-leave-active {
+  transition: all 0.2s ease;
+}
+
+.hfade-enter-from {
+  opacity: 0;
+  transform: translateX(-8px);
+}
+
+.hfade-leave-to {
+  opacity: 0;
+  transform: translateX(8px);
+}
+
+.hfade-enter-to,
+.hfade-leave-from {
+  opacity: 1;
+  transform: translateX(0%);
+}
+
+
+@layer components {
+  .overlay {
+    @apply relative;
+  }
+
+  .overlay::after {
+    content: '';
+    @apply pointer-events-none absolute inset-0 block rounded-[inherit] opacity-0;
+  }
+
+  .overlay:hover::after,
+  .overlay:focus-visible::after,
+  .overlay:has(:focus-visible)::after,
+  .overlay:active::after {
+    opacity: 1;
+  }
+
+
+  .bg-muted {
+    @apply bg-on-surface/[38%];
+  }
+
+  .stroke-muted {
+    @apply border-outline/[38%] stroke-outline/[38%] outline-outline/[38%];
+  }
+}
+
+hr {
+  @apply border-outline/[38%] w-full;
+}
+
+.tox-promotion {
+  display: none;
+}
+
+.tox-statusbar__branding {
+  display: none;
+}
+
+/* TinyMCE Dialog Compatibility */
+/* Ensure TinyMCE dialogs, menus, and auxiliary elements appear above Reka dialogs */
+
+/* When a TinyMCE dialog is open, disable pointer events on the Reka overlay */
+/* This allows clicks to pass through to TinyMCE dialogs */
+body:has(.tox-dialog-wrap) [data-reka-dialog-overlay] {
+  pointer-events: none !important;
+}
+
+.tox-tinymce-aux {
+  z-index: 13000 !important;
+  pointer-events: auto !important;
+}
+
+.tox-tinymce-aux .tox-dialog-wrap {
+  z-index: 13001 !important;
+  pointer-events: auto !important;
+}
+
+.tox-tinymce-aux .tox-dialog-wrap__backdrop {
+  z-index: 13000 !important;
+}
+
+.tox-tinymce-aux .tox-dialog {
+  z-index: 13002 !important;
+  pointer-events: auto !important;
+}
+
+/* Ensure all TinyMCE input elements are interactive */
+.tox-tinymce-aux .tox-textfield,
+.tox-tinymce-aux .tox-listbox,
+.tox-tinymce-aux .tox-textarea,
+.tox-tinymce-aux .tox-button,
+.tox-tinymce-aux input,
+.tox-tinymce-aux select,
+.tox-tinymce-aux textarea,
+.tox-tinymce-aux button {
+  pointer-events: auto !important;
+  position: relative;
+  z-index: 13003 !important;
+}
+
+/* TinyMCE menus (dropdowns, color pickers, etc) */
+.tox .tox-menu {
+  z-index: 13010 !important;
+  pointer-events: auto !important;
+}
+
+.tox .tox-collection__item {
+  pointer-events: auto !important;
+}
+
+#mapDiv {
+  width: 100px !important;
+  height: 100px !important;
+  outline: 2px solid green !important;
+}
+
+/* #tinymce */
+@layer base {
+  @font-face {
+    font-family: "Geist Sans";
+    font-style: normal;
+    font-weight: 100;
+    src: url("/src/assets/fonts/Geist-Thin.otf") format("opentype");
+  }
+
+  @font-face {
+    font-family: "Geist Sans";
+    font-style: normal;
+    font-weight: 200;
+    src: url("/src/assets/fonts/Geist-UltraLight.otf") format("opentype");
+  }
+
+  @font-face {
+    font-family: "Geist Sans";
+    font-style: normal;
+    font-weight: 300;
+    src: url("/src/assets/fonts/Geist-Light.otf") format("opentype");
+  }
+
+  @font-face {
+    font-family: "Geist Sans";
+    font-style: normal;
+    font-weight: 400;
+    src: url("/src/assets/fonts/Geist-Regular.otf") format("opentype");
+  }
+
+  @font-face {
+    font-family: "Geist Sans";
+    font-style: normal;
+    font-weight: 500;
+    src: url("/src/assets/fonts/Geist-Medium.otf") format("opentype");
+  }
+
+  @font-face {
+    font-family: "Geist Sans";
+    font-style: normal;
+    font-weight: 600;
+    src: url("/src/assets/fonts/Geist-SemiBold.otf") format("opentype");
+  }
+
+  @font-face {
+    font-family: "Geist Sans";
+    font-style: normal;
+    font-weight: 700;
+    src: url("/src/assets/fonts/Geist-Bold.otf") format("opentype");
+  }
+
+  @font-face {
+    font-family: "Geist Sans";
+    font-style: normal;
+    font-weight: 800;
+    src: url("/src/assets/fonts/Geist-Black.otf") format("opentype");
+  }
+
+  @font-face {
+    font-family: "Geist Sans";
+    font-style: normal;
+    font-weight: 900;
+    src: url("/src/assets/fonts/Geist-UltraBlack.otf") format("opentype");
+  }
+}
+
+.material-symbols-outlined {
+  font-family: 'Material Symbols Outlined';
+  font-weight: normal;
+  font-style: normal;
+  font-size: 24px;
+  line-height: 1;
+  letter-spacing: normal;
+  text-transform: none;
+  display: inline-block;
+  white-space: nowrap;
+  word-wrap: normal;
+  direction: ltr;
+  -moz-font-feature-settings: 'liga';
+  font-feature-settings: 'liga';
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* * {
+  box-sizing: border-box;
+  outline: 1px solid green !important;
+}
+
+html {
+  font-size: 16px;
+} */
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: all 0.1s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+  transform: translateY(2%);
+}
+
+.fade-enter-to,
+.fade-leave-from {
+  opacity: 1;
+  transform: translateY(0%);
+}
+
+.spinner {
+  animation: rotate 2s linear infinite;
+  z-index: 2;
+  width: 20px;
+  height: 20px;
+}
+
+.spinner .path {
+  stroke-linecap: round;
+  animation: dash 1.5s ease-in-out infinite;
+}
+
+.dp__theme_light,
+.dp__theme_dark {
+  --dp-background-color: rgb(var(--md-sys-color-surface-container));
+  --dp-text-color: rgb(var(--md-sys-color-on-surface));
+  --dp-hover-color: rgb(var(--md-sys-color-primary) / 12%);
+  --dp-hover-text-color: rgb(var(--md-sys-color-on-surface));
+  --dp-hover-icon-color: rgb(var(--md-sys-color-primary));
+  --dp-primary-color: rgb(var(--md-sys-color-primary));
+  --dp-primary-text-color: rgb(var(--md-sys-color-on-primary));
+  --dp-secondary-color: rgb(var(--md-sys-color-on-surface-variant) / 38%);
+  --dp-border-color: rgb(var(--md-sys-color-outline) / 38%);
+  --dp-menu-border-color: rgb(var(--md-sys-color-outline) / 38%);
+  --dp-border-color-hover: rgb(var(--md-sys-color-primary));
+  --dp-disabled-color: rgb(var(--md-sys-color-on-surface) / 12%);
+  --dp-scroll-bar-background: rgb(var(--md-sys-color-surface-container-high));
+  --dp-scroll-bar-color: rgb(var(--md-sys-color-on-surface-variant) / 38%);
+  --dp-success-color: rgb(var(--md-sys-color-primary));
+  --dp-success-color-disabled: rgb(var(--md-sys-color-primary) / 38%);
+  --dp-icon-color: rgb(var(--md-sys-color-on-surface-variant));
+  --dp-danger-color: rgb(var(--md-sys-color-error));
+  --dp-highlight-color: rgb(var(--md-sys-color-primary) / 12%);
+}
+
+@keyframes rotate {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes dash {
+  0% {
+    stroke-dasharray: 1, 150;
+    stroke-dashoffset: 0;
+  }
+
+  50% {
+    stroke-dasharray: 90, 150;
+    stroke-dashoffset: -35;
+  }
+
+  100% {
+    stroke-dasharray: 90, 150;
+    stroke-dashoffset: -124;
+  }
+}
+
+@media print {
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+}

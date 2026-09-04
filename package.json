@@ -1,0 +1,65 @@
+{
+  "name": "@southneuhof/loom",
+  "private": false,
+  "version": "2.0.0",
+  "type": "module",
+  "description": "Vue application framework components and patterns for South Neuhof information systems.",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/southneuhof/loom.git"
+  },
+  "exports": {
+    ".": "./src/index.ts",
+    "./services": "./src/services/index.ts",
+    "./adapters/*": "./src/adapters/*",
+    "./components/*": "./src/components/*",
+    "./renderers/*": "./src/renderers/*",
+    "./utilities/*": "./src/utilities/*",
+    "./styles/*": "./src/styles/*",
+    "./router/*": "./src/router/*",
+    "./file-manager": "./src/file-manager/index.ts"
+  },
+  "peerDependencies": {
+    "vue": "^3.5.39",
+    "vue-router": "^5.1.0"
+  },
+  "dependencies": {
+    "@southneuhof/utilities": "workspace:^",
+    "@tanstack/vue-query": "5.101.4",
+    "@tanstack/vue-table": "8.21.3",
+    "@tinymce/tinymce-vue": "^6.0.1",
+    "@vuepic/vue-datepicker": "^11.0.3",
+    "@vueuse/core": "^12.5.0",
+    "date-fns": "^4.1.0",
+    "reka-ui": "^2.9.8",
+    "tailwind-merge": "^1.13.1",
+    "tinymce": "^7.2.1",
+    "uuid": "^11.0.2",
+    "vaul-vue": "^0.3.0",
+    "vue-sonner": "^2.0.1",
+    "vue-tippy": "^6.7.1",
+    "vue-to-print": "^1.2.1",
+    "vue3-google-map": "^0.15.0",
+    "vuedraggable": "^4.1.0",
+    "xlsx": "^0.18.5",
+    "zod": "^4.5.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@vitejs/plugin-vue": "^6.0.7",
+    "@vitest/browser-playwright": "4.1.10",
+    "jsdom": "^20.0.3",
+    "playwright": "^1.62.0",
+    "typescript": "6.0.2",
+    "vitest": "^4.1.10",
+    "vue": "^3.5.39",
+    "vue-router": "^5.1.0",
+    "vue-tsc": "^3.3.11"
+  },
+  "scripts": {
+    "build": "pnpm run type-check",
+    "type-check": "NODE_OPTIONS=--max-old-space-size=4096 vue-tsc --noEmit --incremental -p tsconfig.json",
+    "test": "NODE_ENV=test vitest run --environment jsdom",
+    "test:browser": "vitest run --config vitest.browser.config.ts"
+  }
+}

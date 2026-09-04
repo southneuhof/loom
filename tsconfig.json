@@ -1,0 +1,63 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": false,
+    "strict": true,
+    "module": "esnext",
+    "resolvePackageJsonExports": false,
+    "resolvePackageJsonImports": false,
+    "paths": {
+      "@southneuhof/loom": [
+        "./src/index.ts"
+      ],
+      "@southneuhof/loom/*": [
+        "./src/*"
+      ],
+      "@southneuhof/api": [
+        "./../../apps/api/src/index.ts"
+      ],
+      "@southneuhof/api/*": [
+        "./../../apps/api/src/*"
+      ],
+      "@southneuhof/sdk": [
+        "./../sdk/src/index.ts"
+      ],
+      "@southneuhof/sdk/*": [
+        "./../sdk/src/*"
+      ],
+      "@southneuhof/sprindle": [
+        "./../sprindle/src/index.ts"
+      ],
+      "@southneuhof/sprindle/*": [
+        "./../sprindle/src/*"
+      ],
+      "@southneuhof/utilities": [
+        "./../utilities/src/index.ts"
+      ],
+      "@southneuhof/utilities/*": [
+        "./../utilities/src/*"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*",
+    "src/**/*.vue",
+    "env.d.ts",
+    "../utilities/src/**/*"
+  ],
+  "exclude": [
+    "src/**/__tests__/**",
+    "src/**/*.spec.*",
+    "src/**/*.test.*",
+    "../utilities/src/**/__tests__/**"
+  ],
+  "vueCompilerOptions": {
+    "strictTemplates": true,
+    "checkUnknownProps": false,
+    "checkUnknownEvents": false,
+    "checkUnknownDirectives": false,
+    "checkUnknownComponents": false,
+    "checkUnknownSlots": false,
+    "checkUnknownAttributes": false
+  }
+}
