@@ -58,7 +58,7 @@
   },
   "scripts": {
     "build": "pnpm run type-check",
-    "type-check": "NODE_OPTIONS=--max-old-space-size=4096 vue-tsc --noEmit --incremental -p tsconfig.json",
+    "type-check": "vue-tsc --noEmit --incremental -p tsconfig.json",
     "test": "NODE_ENV=test vitest run --environment jsdom",
     "test:browser": "vitest run --config vitest.browser.config.ts"
   }
