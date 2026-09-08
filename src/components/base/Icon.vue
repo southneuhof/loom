@@ -38,5 +38,5 @@ const boxSizeClassMap: any = {
 
 <template>
   <!-- {{remixiconTags}} -->
-  <i :class="`ri-${props.name}-${props.fill ? 'fill' : 'line'} ${boxSizeClassMap[props.size]}`" class="inline-flex items-center justify-center leading-none"></i>
+  <i :class="[`ri-${props.name}-${props.fill ? 'fill' : 'line'}`, `ri-${props.name}`, boxSizeClassMap[props.size]]" class="inline-flex items-center justify-center leading-none"></i>
 </template>
