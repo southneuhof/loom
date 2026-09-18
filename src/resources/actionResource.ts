@@ -29,6 +29,7 @@ import { readFieldReference } from '../fields/defineFields'
 import { resolveFields } from '../fields/resolve'
 import { invalidateResourceData } from '../query/client'
 import { stableValue } from '../query/keys'
+import { checkIdentityDeclaration, checkIdentityValue } from './identity'
 import { useResourceRuntime } from './runtime'
 import type { RouteLocationRaw, RouteMap } from 'vue-router'
 import { registerResourceAction } from './routeAccess'
@@ -142,7 +143,136 @@ export interface DeleteResourceAction<TIdentity extends RecordIdentity> extends 
   permission: string | null
 }
 
-export type ResourceCustomAction = { run: (...args: any[]) => any }
+export type ResourceCustomPermission<TRun extends (...args: any[]) => unknown> =
+  | string
+  | readonly string[]
+  | ((...args: Parameters<TRun>) => string | readonly string[] | null)
+  | null
+
+export type ResourceCustomAction<TRun extends (...args: any[]) => unknown = (...args: any[]) => unknown> = {
+  run: TRun
+  /** Required client rule: nonempty code(s), resolver over run args, or null. */
+  permission: ResourceCustomPermission<TRun>
+}
+
+type CustomPermissionValue = string | readonly string[] | null
+
+type CustomPermissionInput = string | readonly string[] | ((...args: never[]) => unknown) | null
+
+type StandardActionContracts<
+  TRecord extends object,
+  TQuery extends object,
+  TCreate extends object,
+  TUpdate extends object,
+  TIdentity extends RecordIdentity,
+  TSchema extends WebResourceSchemaBoundary,
+> = {
+  list: ListResourceAction<TRecord, TQuery, TIdentity, TSchema>
+  detail: DetailResourceAction<TRecord, TIdentity, TSchema>
+  create: CreateResourceAction<TRecord, TCreate, TIdentity, TSchema>
+  update: UpdateResourceAction<TRecord, TUpdate, TIdentity, TSchema>
+  delete: DeleteResourceAction<TIdentity>
+}
+
+type StandardActionName = 'list' | 'detail' | 'create' | 'update' | 'delete'
+
+type StandardKeys<
+  TRecord extends object,
+  TQuery extends object,
+  TCreate extends object,
+  TUpdate extends object,
+  TIdentity extends RecordIdentity,
+  TSchema extends WebResourceSchemaBoundary,
+  TName extends StandardActionName,
+> = keyof StandardActionContracts<TRecord, TQuery, TCreate, TUpdate, TIdentity, TSchema>[TName]
+
+type ExtraKeys<TActual, TAllowed extends PropertyKey> = Exclude<keyof TActual, TAllowed>
+
+type CheckedStandardEntry<
+  TRecord extends object,
+  TQuery extends object,
+  TCreate extends object,
+  TUpdate extends object,
+  TIdentity extends RecordIdentity,
+  TSchema extends WebResourceSchemaBoundary,
+  TName extends StandardActionName,
+  TActual,
+> = string extends keyof TActual
+  ? unknown
+  : [ExtraKeys<TActual, StandardKeys<TRecord, TQuery, TCreate, TUpdate, TIdentity, TSchema, TName>>] extends [never]
+    ? unknown
+    : { readonly __invalidActionOption__: never }
+
+type NarrowCustomPermission<TRun extends (...args: never[]) => unknown, TPermission> = TPermission extends CustomPermissionInput
+  ? TPermission extends (...args: never[]) => unknown
+    ? [Parameters<TPermission>] extends [Parameters<TRun>]
+      ? [ReturnType<TPermission>] extends [CustomPermissionValue]
+        ? TPermission
+        : never
+      : never
+    : TPermission extends string
+      ? TPermission extends ''
+        ? never
+        : TPermission
+      : TPermission extends readonly string[]
+        ? TPermission extends readonly []
+          ? never
+          : TPermission
+        : TPermission
+  : never
+
+type CheckedCustomEntry<TActual> = string extends keyof TActual
+  ? unknown
+  : [TActual] extends [{ run: infer TRun }]
+    ? [TRun] extends [(...args: never[]) => unknown]
+      ? Exclude<keyof TActual, 'run' | 'permission'> extends never
+        ? 'permission' extends keyof TActual
+          ? { permission: NarrowCustomPermission<TRun, [TActual] extends [{ permission: infer TPermission }] ? TPermission : never> }
+          : { readonly __customPermissionRequired__: never }
+        : { readonly __invalidActionOption__: never }
+      : unknown
+    : unknown
+
+type CheckedActions<
+  TRecord extends object,
+  TQuery extends object,
+  TCreate extends object,
+  TUpdate extends object,
+  TIdentity extends RecordIdentity,
+  TSchema extends WebResourceSchemaBoundary,
+  TActions,
+> = {
+  [TKey in keyof TActions]: string extends TKey
+    ? unknown
+    : [TKey] extends [StandardActionName]
+      ? TKey extends 'list'
+        ? CheckedStandardEntry<TRecord, TQuery, TCreate, TUpdate, TIdentity, TSchema, 'list', TActions[TKey]>
+        : TKey extends 'detail'
+          ? CheckedStandardEntry<TRecord, TQuery, TCreate, TUpdate, TIdentity, TSchema, 'detail', TActions[TKey]>
+          : TKey extends 'create'
+            ? CheckedStandardEntry<TRecord, TQuery, TCreate, TUpdate, TIdentity, TSchema, 'create', TActions[TKey]>
+            : TKey extends 'update'
+              ? CheckedStandardEntry<TRecord, TQuery, TCreate, TUpdate, TIdentity, TSchema, 'update', TActions[TKey]>
+              : TKey extends 'delete'
+                ? CheckedStandardEntry<TRecord, TQuery, TCreate, TUpdate, TIdentity, TSchema, 'delete', TActions[TKey]>
+                : CheckedCustomEntry<TActions[TKey]>
+      : CheckedCustomEntry<TActions[TKey]>
+}
+
+export type CheckedDefinition<
+  TRecord extends object,
+  TQuery extends object,
+  TCreate extends object,
+  TUpdate extends object,
+  TIdentity extends RecordIdentity,
+  TSchema extends WebResourceSchemaBoundary,
+  TActions,
+> = {
+  key: string
+  actions: TActions
+} & {
+  actions: CheckedActions<TRecord, TQuery, TCreate, TUpdate, TIdentity, TSchema, NoInfer<TActions>>
+}
 
 export type ResourceActionDefinitions<
   TRecord extends object,
@@ -157,7 +287,20 @@ export type ResourceActionDefinitions<
   create?: CreateResourceAction<TRecord, TCreate, TIdentity, TSchema>
   update?: UpdateResourceAction<TRecord, TUpdate, TIdentity, TSchema>
   delete?: DeleteResourceAction<TIdentity>
-} & Record<string, ResourceCustomAction>
+  // Index reads reach any action name; exact writes go through defineResource.
+  // The loose members keep invalid option and permission shapes inside the
+  // constraint so the definition guard reports them with exact messages.
+  [action: string]:
+    | ListResourceAction<TRecord, TQuery, TIdentity, TSchema>
+    | DetailResourceAction<TRecord, TIdentity, TSchema>
+    | CreateResourceAction<TRecord, TCreate, TIdentity, TSchema>
+    | UpdateResourceAction<TRecord, TUpdate, TIdentity, TSchema>
+    | DeleteResourceAction<TIdentity>
+    | ResourceCustomAction<(...args: any[]) => unknown>
+    | { run: (...args: any[]) => unknown; permission?: unknown }
+    | { run: (...args: any[]) => unknown }
+    | undefined
+}
 
 export interface ActionResourceDefinition<TSchema extends WebResourceSchemaBoundary = WebResourceSchemaBoundary> {
   key: string
@@ -245,12 +388,23 @@ export interface DeleteResourceActionProps<TIdentity extends RecordIdentity> {
 
 type StandardActionNames = 'list' | 'detail' | 'create' | 'update' | 'delete'
 type CustomActionKey<TActions> = Exclude<Extract<keyof TActions, string>, StandardActionNames>
+
+/** Client contract for one declared custom action: check, then guarded run. */
+export type CustomActionHandle<TRun extends (...args: never[]) => unknown> = {
+  can: (...args: Parameters<TRun>) => boolean
+  run: TRun
+}
+
 type CustomActions<TActions> = {
-  [TKey in CustomActionKey<TActions>]: TActions[TKey] extends { run: infer TRun } ? { run: TRun } : never
+  [TKey in CustomActionKey<TActions>]: TActions[TKey] extends { run: infer TRun }
+    ? TRun extends (...args: never[]) => unknown
+      ? CustomActionHandle<TRun>
+      : never
+    : never
 }
 
 type ActionDefinition<TActions, TKey extends PropertyKey> = TActions extends Record<TKey, infer TValue> ? TValue : never
-type HasAction<TActions, TKey extends StandardActionNames> = TActions extends Record<TKey, ResourceCustomAction> ? true : false
+type HasAction<TActions, TKey extends StandardActionNames> = TActions extends Record<TKey, { run: (...args: never[]) => unknown }> ? true : false
 
 export type ActionResource<
   TSchema extends WebResourceSchemaBoundary,
@@ -401,13 +555,26 @@ function readCollectionRecords<TRecord extends object>(
   }
 }
 
-function resolveIdentity<TRecord extends object, TIdentity extends RecordIdentity>(declaration: SchemaIdentityDeclaration<TRecord, TIdentity> | undefined): (record: TRecord) => TIdentity {
-  if (typeof declaration === 'function') return declaration as (record: TRecord) => TIdentity
-  if (Array.isArray(declaration)) {
-    return (record) => Object.fromEntries(declaration.map((key) => [key, record[key]])) as TIdentity
+function resolveIdentity<TRecord extends object, TIdentity extends RecordIdentity>(
+  resourceKey: string,
+  declaration: SchemaIdentityDeclaration<TRecord, TIdentity> | undefined,
+): (record: TRecord) => TIdentity {
+  checkIdentityDeclaration(resourceKey, declaration as string | readonly string[] | ((record: never) => RecordIdentity) | undefined)
+  const check = (keyOrOperation: string, value: unknown): TIdentity => {
+    checkIdentityValue(resourceKey, keyOrOperation, value)
+    return value as TIdentity
   }
-  if (typeof declaration === 'string') return (record) => record[declaration] as TIdentity
-  return (record) => (record as { id: TIdentity }).id
+  if (typeof declaration === 'function') {
+    const run = declaration as (record: TRecord) => TIdentity
+    return (record) => check('identity', run(record))
+  }
+  if (Array.isArray(declaration)) {
+    const keys = [...declaration]
+    const label = keys.join(',')
+    return (record) => check(label, Object.fromEntries(keys.map((key) => [key, (record as Record<string, unknown>)[key]])))
+  }
+  if (typeof declaration === 'string') return (record) => check(declaration, (record as Record<string, unknown>)[declaration])
+  return (record) => check('id', (record as { id: unknown }).id)
 }
 
 function resolveFieldReferences<
@@ -465,6 +632,124 @@ function operationAllowed(
   return permissionAllows(operation, declaration, access, record)
 }
 
+type StandardActionTable = {
+  list: ListResourceAction<object, object, RecordIdentity>
+  detail: DetailResourceAction<object, RecordIdentity>
+  create: CreateResourceAction<object, object, RecordIdentity>
+  update: UpdateResourceAction<object, object, RecordIdentity, object>
+  delete: DeleteResourceAction<RecordIdentity>
+}
+
+const standardActionKeys = {
+  list: ['run', 'fields', 'permission', 'route', 'title', 'pagination', 'pageSizeOptions', 'defaultPageSize', 'minColumnWidth', 'reorderable', 'visible'],
+  detail: ['run', 'fields', 'permission', 'route', 'title', 'backTo', 'visible'],
+  create: ['run', 'fields', 'permission', 'route', 'initialData', 'defaultTo', 'visible'],
+  update: ['run', 'fields', 'permission', 'route', 'title', 'defaultTo', 'visible'],
+  delete: ['run', 'permission', 'visible'],
+} as const
+
+// Fails when a StandardActionTable entry omits one of its interface keys.
+type AssertActionKeyCoverage = {
+  [TName in keyof typeof standardActionKeys]: Exclude<
+    keyof StandardActionTable[TName],
+    (typeof standardActionKeys)[TName][number]
+  > extends never
+    ? true
+    : never
+}
+const assertActionKeyCoverage: { [TName in keyof AssertActionKeyCoverage]: AssertActionKeyCoverage[TName] } = {
+  list: true,
+  detail: true,
+  create: true,
+  update: true,
+  delete: true,
+}
+void assertActionKeyCoverage
+
+const standardActionNames = new Set(['list', 'detail', 'create', 'update', 'delete'])
+
+function isObjectEntry(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function checkCustomPermissionShape(resourceKey: string, actionName: string, permission: unknown): void {
+  if (permission === null) return
+  if (typeof permission === 'string') {
+    if (permission.length === 0) throw new Error(`[loom] Resource "${resourceKey}" action "${actionName}" property "permission" needs a nonempty string.`)
+    return
+  }
+  if (Array.isArray(permission)) {
+    if (permission.length === 0 || permission.some((entry) => typeof entry !== 'string' || entry.length === 0)) {
+      throw new Error(`[loom] Resource "${resourceKey}" action "${actionName}" property "permission" needs nonempty permission strings.`)
+    }
+    return
+  }
+  if (typeof permission === 'function') return
+  throw new Error(`[loom] Resource "${resourceKey}" action "${actionName}" property "permission" needs a permission string, a string array, a resolver, or null.`)
+}
+
+/**
+ * Rejects invalid resource declarations before route registration runs.
+ * Reads own enumerable keys only and never calls application code: no run,
+ * permission resolver, visible, loader, validator, or route parameter call.
+ */
+function validateActionDeclarations(resourceKey: string, definition: Record<string, unknown>, actions: Record<string, unknown>): void {
+  for (const option of Object.keys(definition)) {
+    if (option !== 'key' && option !== 'actions') {
+      throw new Error(`[loom] Resource "${resourceKey}" property "${option}" is not a supported option.`)
+    }
+  }
+  if (!isObjectEntry(actions)) throw new Error(`[loom] Resource "${resourceKey}" needs an actions map.`)
+  for (const [actionName, entry] of Object.entries(actions)) {
+    if (!isObjectEntry(entry)) throw new Error(`[loom] Resource "${resourceKey}" action "${actionName}" needs a declaration object.`)
+    if (standardActionNames.has(actionName)) {
+      const allowed = standardActionKeys[actionName as keyof StandardActionTable] as readonly string[]
+      for (const option of Object.keys(entry)) {
+        if (!allowed.includes(option)) {
+          throw new Error(`[loom] Resource "${resourceKey}" action "${actionName}" property "${option}" is not a supported option.`)
+        }
+      }
+      if (typeof entry.run !== 'function') throw new Error(`[loom] Resource "${resourceKey}" action "${actionName}" property "run" needs a function.`)
+      if (actionName === 'delete' && !('permission' in entry)) {
+        throw new Error(`[loom] Resource "${resourceKey}" action "delete" needs an explicit permission (string or null).`)
+      }
+      continue
+    }
+    for (const option of Object.keys(entry)) {
+      if (option !== 'run' && option !== 'permission') {
+        throw new Error(`[loom] Resource "${resourceKey}" action "${actionName}" property "${option}" is not a supported option.`)
+      }
+    }
+    if (typeof entry.run !== 'function') throw new Error(`[loom] Resource "${resourceKey}" action "${actionName}" property "run" needs a function.`)
+    if (!('permission' in entry)) throw new Error(`[loom] Resource "${resourceKey}" action "${actionName}" needs an explicit permission (string, string array, resolver, or null).`)
+    checkCustomPermissionShape(resourceKey, actionName, entry.permission)
+  }
+}
+
+function resolveCustomPermission(resourceKey: string, actionName: string, permission: unknown, args: readonly unknown[]): string[] | null {
+  const resolved = typeof permission === 'function' ? (permission as (...callArgs: readonly unknown[]) => unknown)(...args) : permission
+  if (resolved === null) return null
+  if (typeof resolved === 'string') {
+    if (resolved.length === 0) throw new Error(`[loom] Resource "${resourceKey}" action "${actionName}" property "permission" needs a nonempty string.`)
+    return [resolved]
+  }
+  if (Array.isArray(resolved)) {
+    if (resolved.length === 0 || resolved.some((entry) => typeof entry !== 'string' || entry.length === 0)) {
+      throw new Error(`[loom] Resource "${resourceKey}" action "${actionName}" property "permission" needs nonempty permission strings.`)
+    }
+    return [...resolved]
+  }
+  throw new Error(`[loom] Resource "${resourceKey}" action "${actionName}" property "permission" needs a permission string, a string array, or null.`)
+}
+
+/** Checks one custom action call through the installed access adapter. */
+function customAllows(resourceKey: string, actionName: string, declaration: ResourceCustomAction<(...args: never[]) => unknown>, args: readonly unknown[]): boolean {
+  const required = resolveCustomPermission(resourceKey, actionName, declaration.permission, args)
+  if (required === null) return true
+  const access = useResourceRuntime().adapters.access
+  return required.every((permission) => access.allows({ operation: actionName, permission }))
+}
+
 export function defineActionResource<
   const TSchema extends WebResourceSchemaBoundary,
   const TActions extends ResourceActionDefinitions<
@@ -484,11 +769,11 @@ export function defineActionResource<
   type TCreate = WebResourceCreateOf<TSchema>
   type TUpdate = WebResourceUpdateOf<TSchema>
   type TIdentity = WebResourceIdentityOf<TSchema>
+  const rawDefinition: unknown = definition
+  if (!isObjectEntry(rawDefinition)) throw new Error('[loom] Resource "unknown" needs a definition object.')
   const actions = definition.actions
+  validateActionDeclarations(definition.key, definition as Record<string, unknown>, actions as Record<string, unknown>)
   for (const [action, declaration] of Object.entries(actions) as [string, ResourceCustomAction & { route?: ResourceActionRoute<TIdentity>; permission?: string | null }][]) {
-    if (action === 'delete' && (declaration as { permission?: string | null }).permission === undefined) {
-      throw new Error(`[loom] Resource "${definition.key}" action "delete" needs an explicit permission (string or null).`)
-    }
     if (!['list', 'detail', 'create', 'update', 'delete'].includes(action)) continue
     if (!('route' in declaration) || !declaration.route) continue
     registerResourceAction(declaration.route.name, {
@@ -497,10 +782,16 @@ export function defineActionResource<
       permission: declaration.permission ?? null,
     })
   }
-  const identity = resolveIdentity<TRecord, TIdentity>(schema.identity as never)
+  const identity = resolveIdentity<TRecord, TIdentity>(definition.key, schema.identity as never)
   const runtime = () => useResourceRuntime()
 
+  const checkMethodId = (operation: string, id: unknown): TIdentity => {
+    checkIdentityValue(definition.key, operation, id)
+    return id as TIdentity
+  }
+
   const invalidate = async (args?: { id?: TIdentity }) => {
+    if (args !== undefined && args !== null && typeof args === 'object' && 'id' in args) checkMethodId('invalidate', (args as { id?: unknown }).id)
     await invalidateResourceData(runtime().queryClient, { resource: definition.key, id: args?.id })
   }
 
@@ -549,6 +840,7 @@ export function defineActionResource<
     }) : undefined,
     detail: 'detail' in actions ? memoize((args: { id: TIdentity; searchParameters?: Record<string, unknown> }) => {
       const declaration = actions.detail as DetailResourceAction<TRecord, TIdentity>
+      const id = checkMethodId('detail', args.id)
       const listDeclaration = actions.list as ListResourceAction<TRecord, TQuery, TIdentity> | undefined
       // A declared backTo wins; otherwise the sibling list route is used in
       // full so closure-bound params (nested factories) survive. Function
@@ -560,14 +852,14 @@ export function defineActionResource<
       const searchParameters = args.searchParameters ?? {}
       const detailFields = resolveFieldReferences(declaration.fields, schema, definition.key, 'detail') as FieldsInput<TRecord>
       const run = async (context: LoadSignalContext = {}) => readResourceRecord(
-        await declaration.run({ id: args.id, searchParameters, ...context }),
+        await declaration.run({ id, searchParameters, ...context }),
         rendererMapOf(detailFields, runtime()),
         runtime(),
       )
       return {
         run,
         fields: detailFields,
-        id: args.id,
+        id,
         resource: definition.key,
         namespace: `${definition.key}.detail.${identityToken(args.id)}`,
         searchParameters,
@@ -608,17 +900,18 @@ export function defineActionResource<
     }) : undefined,
     update: 'update' in actions ? memoize((args: { id: TIdentity; initialData?: Partial<TUpdate>; searchParameters?: Record<string, unknown>; context?: FieldContext }) => {
       const declaration = actions.update as UpdateResourceAction<TRecord, TUpdate, TIdentity>
+      const id = checkMethodId('update', args.id)
       const detailDeclaration = actions.detail as DetailResourceAction<TRecord, TIdentity> | undefined
       const listDeclaration = actions.list as ListResourceAction<TRecord, TQuery, TIdentity> | undefined
       const searchParameters = args.searchParameters ?? {}
       const updateFields = resolveFieldReferences(declaration.fields, schema, definition.key, 'update') as FieldsInput<TUpdate, TUpdate>
       const run = async (input: TUpdate) => {
-        const result = await declaration.run(args.id, input)
-        await invalidate({ id: args.id })
+        const result = await declaration.run(id, input)
+        await invalidate({ id })
         return readResourceRecord(result, rendererMapOf(updateFields, runtime()), runtime()) as TRecord
       }
       const load = detailDeclaration ? async (context: RecordLoadContext<TIdentity>) => {
-        const result = await detailDeclaration.run({ ...context, id: args.id, searchParameters })
+        const result = await detailDeclaration.run({ ...context, id, searchParameters })
         return readResourceRecord(result, rendererMapOf(updateFields, runtime()), runtime()) as Partial<TUpdate> | undefined
       } : undefined
       const defaultTo = formDefaultTo(declaration.defaultTo, detailDeclaration?.route, listDeclaration?.route, identity)
@@ -631,30 +924,41 @@ export function defineActionResource<
         run,
         ...(load ? { load } : {}),
         fields: updateFields,
-        id: args.id,
+        id,
         resource: definition.key,
         ...(schema.update?.schema ? { schema: schema.update.schema } : {}),
         ...(schema.update?.validators ? { validators: schema.update.validators } : {}),
         ...(args.initialData ? { initialData: args.initialData } : {}),
         searchParameters,
-        namespace: `${definition.key}.update.${identityToken(args.id)}`,
+        namespace: `${definition.key}.update.${identityToken(id)}`,
         context,
         ...(defaultTo ? { defaultTo } : {}),
       } as UpdateResourceActionProps<TRecord, TUpdate, TIdentity>
     }) : undefined,
     delete: 'delete' in actions ? (args: { id: TIdentity }) => {
       const declaration = actions.delete as DeleteResourceAction<TIdentity>
+      const id = checkMethodId('delete', args.id)
       return {
         run: async () => {
-          const result = await declaration.run(args.id)
-          await invalidate({ id: args.id })
+          const result = await declaration.run(id)
+          await invalidate({ id })
           return result
         },
       } as DeleteResourceActionProps<TIdentity>
     } : undefined,
   }
 
-  const custom = Object.fromEntries(Object.entries(actions).filter(([key]) => !['list', 'detail', 'create', 'update', 'delete'].includes(key)).map(([key, action]) => [key, { run: (action as ResourceCustomAction).run }])) as CustomActions<TActions>
+  const custom = Object.fromEntries(Object.entries(actions).filter(([key]) => !['list', 'detail', 'create', 'update', 'delete'].includes(key)).map(([key, action]) => {
+    const declaration = action as ResourceCustomAction<(...args: never[]) => unknown>
+    const can = (...args: never[]): boolean => customAllows(definition.key, key, declaration, args)
+    const run = (...args: never[]): unknown => {
+      if (!customAllows(definition.key, key, declaration, args)) {
+        throw new Error(`[loom] Resource "${definition.key}" action "${key}" is not allowed.`)
+      }
+      return (declaration.run as (...callArgs: never[]) => unknown)(...args)
+    }
+    return [key, { can, run }]
+  })) as CustomActions<TActions>
 
   const permissions: Partial<Record<ResourceOperation, string | null>> = {}
   for (const operation of ['list', 'detail', 'create', 'update', 'delete'] as const) {

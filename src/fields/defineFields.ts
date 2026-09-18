@@ -13,6 +13,8 @@ import type {
   WebResourceSchemaBoundary,
   WebResourceUpdateOf,
 } from '../contracts'
+import type { FormRendererComponents, FormRendererProps } from '../renderers/formContracts'
+import type { referenceInput } from '../contracts/fields'
 import type { InputAssetValue } from '../components/inputs/assetValue'
 
 type ObjectPart<T> = [T] extends [object] ? T : Record<string, never>
@@ -50,6 +52,11 @@ type FormProjectionBase<TDraft, TValue> = Omit<FieldFormProjection<TDraft, TValu
     write?: FieldWrite<TValue>
   }
 
+/** Renderer-keyed props from the component map; unknown keys stay open. */
+type RendererPropsFor<TRenderer> = TRenderer extends keyof FormRendererComponents
+  ? FormRendererProps<TRenderer & keyof FormRendererComponents>
+  : Record<string, unknown>
+
 type SelectionItem<TValue> = NonNullable<TValue> extends readonly (infer TItem)[]
   ? TItem extends object ? TItem : never
   : never
@@ -60,31 +67,32 @@ type SelectionFormProjection<TDraft, TValue> = [SelectionItem<TValue>] extends [
     validate?: FieldValidate<SelectionItem<TValue>[]>
   }
 
-type NumberFormProjection<TDraft> = FormProjectionBase<TDraft, number> & {
+type NumberFormProjection<TDraft> = Omit<FormProjectionBase<TDraft, number>, 'renderer' | 'props'> & {
   renderer: 'number'
+  props?: RendererPropsFor<'number'>
 }
 
 type AssetFormProjection<TDraft> =
-  | (Omit<FormProjectionBase<TDraft, InputAssetValue>, 'write'> & {
+  | (Omit<FormProjectionBase<TDraft, InputAssetValue>, 'write' | 'renderer' | 'props'> & {
       renderer: 'file' | 'image'
-      props?: Record<string, unknown> & { multi?: false | undefined }
+      props?: (RendererPropsFor<'file'> | RendererPropsFor<'image'>) & { multi?: false | undefined }
       validate?: FieldValidate<InputAssetValue>
       write?: never
     })
-  | (Omit<FormProjectionBase<TDraft, InputAssetValue[]>, 'write'> & {
+  | (Omit<FormProjectionBase<TDraft, InputAssetValue[]>, 'write' | 'renderer' | 'props'> & {
       renderer: 'file' | 'image'
-      props: Record<string, unknown> & { multi: true }
+      props: (RendererPropsFor<'file'> | RendererPropsFor<'image'>) & { multi: true }
       validate?: FieldValidate<InputAssetValue[]>
       write?: never
     })
 
 type LookupFormProjection<TDraft, TValue> =
-  | (FormProjectionBase<TDraft, unknown> & { renderer: 'lookup'; props?: Record<string, unknown> & { multi?: false | undefined } })
-  | (SelectionFormProjection<TDraft, TValue> & { renderer: 'lookup' })
+  | (Omit<FormProjectionBase<TDraft, unknown>, 'renderer' | 'props'> & { renderer: 'lookup'; props?: RendererPropsFor<'lookup'> & { multi?: false | undefined } })
+  | (Omit<SelectionFormProjection<TDraft, TValue>, 'renderer' | 'props'> & { renderer: 'lookup'; props: RendererPropsFor<'lookup'> & { multi: true; pick?: SelectionKey<TValue>; view?: SelectionKey<TValue> } })
 
 type SelectFormProjection<TDraft, TValue> =
-  | (FormProjectionBase<TDraft, unknown> & { renderer: 'select'; props?: Record<string, unknown> & { multi?: false | undefined } })
-  | (SelectionFormProjection<TDraft, TValue> & { renderer: 'select' })
+  | (Omit<FormProjectionBase<TDraft, unknown>, 'renderer' | 'props'> & { renderer: 'select'; props?: RendererPropsFor<'select'> & { multi?: false | undefined } })
+  | (Omit<SelectionFormProjection<TDraft, TValue>, 'renderer' | 'props'> & { renderer: 'select'; props: RendererPropsFor<'select'> & { multi: true; pick?: SelectionKey<TValue>; view?: SelectionKey<TValue> } })
 
 type KnownFormProjectionForKey<TDraft, TValue> =
   | NumberFormProjection<TDraft>
@@ -104,10 +112,19 @@ type KnownFormProjectionForKey<TDraft, TValue> =
 
 type AnyFormProjectionForKey<TDraft, TValue> =
   | KnownFormProjectionForKey<TDraft, TValue>
-  | (FormProjectionBase<TDraft, unknown> & {
+  | (Omit<FormProjectionBase<TDraft, unknown>, 'renderer' | 'props'> & {
       renderer: string
       props?: Record<string, unknown> & { multi?: false | undefined }
     })
+
+/** Component-derived prop guard applied beside the value/selection guards. */
+type RendererPropGuard<TForm> = TForm extends { renderer: infer TRenderer }
+  ? TRenderer extends string
+    ? TForm extends { props?: infer TProps }
+      ? TProps extends RendererPropsFor<TRenderer> ? unknown : never
+      : unknown
+    : unknown
+  : unknown
 
 type IsMultiProps<TProps> = TProps extends object
   ? TProps extends { multi: infer TMulti }
@@ -173,7 +190,7 @@ type ComputedDefinition<TSchema> = Omit<FieldDefinition<RecordPart<TSchema>, nev
 type FieldReferences<TSchema, TDefinitions> = {
   [TKey in keyof TDefinitions]: TKey extends string
     ? FieldReference<TSchema, TKey, TKey extends SchemaFieldKey<TSchema>
-      ? DefinitionForKey<TSchema, TKey, AnyFormProjectionForKey<DraftForKey<TSchema, TKey>, ValueForKey<TSchema, TKey>>>
+      ? DefinitionForKey<TSchema, TKey, AnyFormProjectionForKey<DraftForKey<TSchema, TKey>, ValueForKey<TSchema, TKey>>> & { readonly [referenceInput]?: TDefinitions[TKey] }
       : ComputedDefinition<TSchema>>
     : never
 }
@@ -292,11 +309,46 @@ export function readFieldReference(value: unknown): FieldReferenceData | undefin
   return state ? state : undefined
 }
 
+/** Guard for `behavior.props` against the base renderer of the same form. */
+type BehaviorPropsGuard<TForm> = TForm extends { renderer: infer TRenderer; behavior: infer TBehavior }
+  ? TRenderer extends keyof FormRendererComponents
+    ? TBehavior extends { props?: infer TPropsFn }
+      ? TPropsFn extends (...args: never[]) => infer TReturn
+        ? TReturn extends FormRendererProps<TRenderer & keyof FormRendererComponents> ? unknown : never
+        : unknown
+      : unknown
+    : unknown
+  : unknown
+
+/** Guard for `behavior.presentation` when it selects a renderer. */
+type BehaviorPresentationGuard<TForm> = TForm extends { behavior: infer TBehavior }
+  ? TBehavior extends { presentation?: infer TPresentationFn }
+    ? TPresentationFn extends (...args: never[]) => infer TReturn
+      ? TReturn extends { renderer?: infer TRenderer }
+        ? [TRenderer] extends [undefined] ? unknown
+          : string extends TRenderer ? unknown
+          : Exclude<TRenderer, undefined | null> extends infer TSelected
+            ? TSelected extends keyof FormRendererComponents
+              ? TReturn extends { props?: infer TProps }
+                ? TProps extends FormRendererProps<TSelected & keyof FormRendererComponents> | null | undefined ? unknown : never
+                : unknown
+              : unknown
+            : unknown
+        : unknown
+      : unknown
+    : unknown
+  : unknown
+
+type FormPropGuardFor<TDefinition> = TDefinition extends { form?: infer TForm }
+  ? TForm extends false | undefined ? unknown : RendererPropGuard<TForm> & BehaviorPropsGuard<TForm> & BehaviorPresentationGuard<TForm>
+  : unknown
+
 type KnownDefinitions<TSchema extends WebResourceSchemaBoundary, TDefinitions extends object> = TDefinitions & {
   [TKey in keyof TDefinitions]: TKey extends string
     ? TKey extends SchemaFieldKey<TSchema>
       ? DefinitionForKey<TSchema, TKey, KnownFormProjectionForKey<DraftForKey<TSchema, TKey>, ValueForKey<TSchema, TKey>>>
         & SelectionDefinitionGuard<TDefinitions[TKey]>
+        & FormPropGuardFor<TDefinitions[TKey]>
       : ComputedDefinition<TSchema>
     : never
 }
@@ -306,6 +358,7 @@ type InferredDefinitions<TSchema extends WebResourceSchemaBoundary, TDefinitions
     ? TKey extends SchemaFieldKey<TSchema>
       ? DefinitionForKey<TSchema, TKey, InferredFormProjectionForKey<DraftForKey<TSchema, TKey>, ValueForKey<TSchema, TKey>>>
         & SelectionDefinitionGuard<TDefinitions[TKey]>
+        & FormPropGuardFor<TDefinitions[TKey]>
       : ComputedDefinition<TSchema>
     : never
 }
@@ -313,7 +366,7 @@ type InferredDefinitions<TSchema extends WebResourceSchemaBoundary, TDefinitions
 type AnyDefinitions<TSchema extends WebResourceSchemaBoundary, TDefinitions extends object> = TDefinitions & {
   [TKey in keyof TDefinitions]: TKey extends string
     ? TKey extends SchemaFieldKey<TSchema>
-      ? DefinitionForKey<TSchema, TKey, AnyFormProjectionForKey<DraftForKey<TSchema, TKey>, ValueForKey<TSchema, TKey>>> & SelectionDefinitionGuard<TDefinitions[TKey]>
+      ? DefinitionForKey<TSchema, TKey, AnyFormProjectionForKey<DraftForKey<TSchema, TKey>, ValueForKey<TSchema, TKey>>> & SelectionDefinitionGuard<TDefinitions[TKey]> & FormPropGuardFor<TDefinitions[TKey]>
       : ComputedDefinition<TSchema>
     : never
 }

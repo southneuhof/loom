@@ -8,8 +8,9 @@
 import { defineAsyncComponent, defineComponent, h, type Component } from 'vue'
 import { twMerge } from 'tailwind-merge'
 import FileInput from '../components/inputs/FileInput.vue'
+import type { FormRendererComponents } from './formContracts'
 
-const coreTextRenderer = defineComponent({
+export const coreTextRenderer = defineComponent({
   name: 'CoreTextRenderer',
   inheritAttrs: false,
   props: {
@@ -79,7 +80,7 @@ function controlledInput(loader: () => Promise<{ default: Component }>): Compone
 }
 
 /** Stable built-in renderer keys. Applications may override any entry. */
-export const builtInFormRenderers: Record<string, Component> = {
+export const builtInFormRenderers = {
   text: coreTextRenderer,
   textarea: controlledInput(() => import('../components/inputs/TextareaInput.vue')),
   password: controlledInput(() => import('../components/inputs/PasswordInput.vue')),
@@ -107,4 +108,79 @@ export const builtInFormRenderers: Record<string, Component> = {
   table: controlledInput(() => import('../components/composites/form-inputs/TableInput.vue')),
   separator: controlledInput(() => import('../components/composites/form-inputs/FormSeparator.vue')),
   canvas: controlledInput(() => import('../components/inputs/DrawingCanvas.vue')),
-}
+} satisfies Record<BuiltInFormRendererKey, Component>
+
+type BuiltInFormRendererKey = keyof Pick<
+  FormRendererComponents,
+  | 'text'
+  | 'textarea'
+  | 'password'
+  | 'number'
+  | 'currency'
+  | 'select'
+  | 'radio'
+  | 'date'
+  | 'daterange'
+  | 'month'
+  | 'year'
+  | 'time'
+  | 'checkbox'
+  | 'checkbox-group'
+  | 'switch'
+  | 'file'
+  | 'image'
+  | 'tag'
+  | 'color'
+  | 'lookup'
+  | 'location'
+  | 'multi-location'
+  | 'rich-text'
+  | 'icon-select'
+  | 'table'
+  | 'separator'
+  | 'canvas'
+>
+
+const builtInFormRendererKeys = [
+  'text',
+  'textarea',
+  'password',
+  'number',
+  'currency',
+  'select',
+  'radio',
+  'date',
+  'daterange',
+  'month',
+  'year',
+  'time',
+  'checkbox',
+  'checkbox-group',
+  'switch',
+  'file',
+  'image',
+  'tag',
+  'color',
+  'lookup',
+  'location',
+  'multi-location',
+  'rich-text',
+  'icon-select',
+  'table',
+  'separator',
+  'canvas',
+] as const satisfies readonly BuiltInFormRendererKey[]
+
+type AssertBuiltInKeysMatch<TActual extends readonly string[], TExpected extends string> =
+  Exclude<TActual[number], TExpected> extends never
+    ? Exclude<TExpected, TActual[number]> extends never
+      ? true
+      : never
+    : never
+
+const assertBuiltInFormRendererKeys: AssertBuiltInKeysMatch<
+  typeof builtInFormRendererKeys,
+  BuiltInFormRendererKey
+> = true
+void assertBuiltInFormRendererKeys
+void Object.keys(builtInFormRenderers)

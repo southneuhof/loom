@@ -1,5 +1,6 @@
 import { inject, type InjectionKey } from 'vue'
 import { toInputAssetValue } from '../components/inputs/assetValue'
+import type { FormRendererComponents, FormRendererProps } from './formContracts'
 
 export interface InputPropsResolutionContext {
   field?: { key: string; label?: string }
@@ -20,7 +21,22 @@ export interface InputPropsAdapter<TSource = never, TProps extends Record<string
   validate?: InputValueValidator
 }
 
+/** Adapter props default to the selected renderer component props. */
+export type RendererInputPropsAdapter<
+  TRenderer extends keyof FormRendererComponents,
+  TSource = never,
+> = InputPropsAdapter<TSource, FormRendererProps<TRenderer>>
+
 type AdapterMap = Record<string, InputPropsAdapter<any, any>>
+
+/** Guard that checks each named adapter default against known renderer props. */
+export type InputPropsAdapterMapGuard<TAdapters> = {
+  [K in keyof TAdapters]: K extends keyof FormRendererComponents
+    ? TAdapters[K] extends { defaults?: infer TDefaults }
+      ? TDefaults extends FormRendererProps<K & keyof FormRendererComponents> ? unknown : { defaults?: FormRendererProps<K & keyof FormRendererComponents> }
+      : unknown
+    : unknown
+}
 
 export interface InputPropsRegistry {
   resolve: (renderer: string, input: {
@@ -92,7 +108,9 @@ const builtInAdapters: Record<string, InputPropsAdapter> = {
   },
 }
 
-export function createInputPropsRegistry(adapters: AdapterMap): InputPropsRegistry {
+export function createInputPropsRegistry<TAdapters extends AdapterMap>(
+  adapters: TAdapters & InputPropsAdapterMapGuard<TAdapters>,
+): InputPropsRegistry {
   const copied = new Map<string, InputPropsAdapter>(Object.entries({ ...builtInAdapters, ...adapters }).map(([key, adapter]) => [key, {
     ...builtInAdapters[key],
     ...adapter,

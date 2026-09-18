@@ -61,6 +61,15 @@ A schema can define record, query, create, and update validation parts as needed
 
 `fromZod()` adapts a Zod schema to Loom's validation contract while preserving its inferred output type.
 
+A string identity names a required record key whose entire value type is
+`string | number`. A key tuple is nonempty, keeps its readonly literal keys,
+and rejects duplicates. A function identity receives the exact record type
+and returns a scalar or a flat record of scalars. With no declaration the
+`id` default applies only when `id` is a required scalar. Loom checks
+resolved identities before navigation, mutation, or keyed invalidation:
+malformed values fail with the resource and identity key named and no record
+data. `0` and `''` stay valid.
+
 ### Fields
 
 `defineFields()` describes how schema fields appear on Loom surfaces.
@@ -133,7 +142,34 @@ delete
 
 The application supplies each `run` function. Loom does not require a specific HTTP client or backend.
 
-Additional actions can be added as ordinary application functions.
+Custom actions live in the same `actions` map under a non-standard name.
+Each custom action declares exactly `run` and `permission`. The permission is
+a nonempty string, a nonempty readonly string array (all entries required),
+a synchronous resolver over the exact `run` argument tuple that returns one
+of those values, or `null` for an intentionally open action.
+
+```ts
+export const records = defineResource(recordsSchema, {
+  key: 'records',
+  actions: {
+    verify: { run: verifyRecord, permission: 'verify-records' },
+    udpate: { run: udpateRecord, permission: null },
+  },
+})
+```
+
+Custom actions expose a managed client seam:
+
+```ts
+if (records.actions.verify.can('1', 'approved')) {
+  await records.actions.verify.run('1', 'approved')
+}
+```
+
+`can(...)` checks the resolved permission through the installed access
+adapter with the custom action name as the operation. `run(...)` calls the
+same check and throws before application code when access is denied. The API
+remains the final authorization boundary.
 
 ## Use the resource in a view
 
@@ -203,6 +239,25 @@ name: {
 
 This keeps field definitions independent from specific Vue component implementations.
 
+Field props use the component contract at compile time. The component
+declaration owns each known prop type, so `{ renderer: 'file', props: {
+accept: ['application/pdf'] } }` passes while `accept: 'application/pdf'`
+fails. Extra props stay valid, and required component props stay optional
+at authoring because defaults, sources, and adapters can supply them later.
+A custom form renderer declares its key once through module augmentation:
+
+```ts
+declare module '@southneuhof/loom/renderers/formContracts' {
+  interface FormRendererComponents {
+    rating: typeof RatingInput
+  }
+}
+```
+
+The runtime component still needs registration under the same key. These
+checks run at compile time only; field authoring adds no runtime prop
+validator.
+
 ## Asset fields
 
 Built-in `file` and `image` fields keep the same asset object shape through
@@ -254,7 +309,7 @@ The application owns:
 * URLs and navigation
 * business workflows
 * application permissions
-* custom actions
+* custom action callbacks
 
 The backend remains the authority for validation and access control.
 

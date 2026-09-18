@@ -9,8 +9,14 @@
 
 export type ResourceOperation = 'list' | 'detail' | 'create' | 'update' | 'delete'
 
+/** Custom action names travel with their resource key; server auth stays final. */
+export type ResourceCustomOperation = string & {}
+
+/** Any resource operation the adapter can check: standard or custom action. */
+export type ResourceAccessOperation = ResourceOperation | ResourceCustomOperation
+
 export interface AccessRequest<TRecord = Record<string, unknown>> {
-  operation: ResourceOperation
+  operation: ResourceAccessOperation
   /** Permission identity owned by the resource, e.g. `roles.update`. */
   permission?: string
   record?: TRecord

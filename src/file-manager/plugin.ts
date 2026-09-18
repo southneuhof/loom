@@ -4,6 +4,12 @@ import { rendererRegistriesKey, type RendererRegistries } from '../renderers/reg
 import type { FileManagerPluginOptions } from './contracts'
 import { fileManagerKey, type FileManagerProvider } from './provider'
 
+declare module '../renderers/formContracts' {
+  interface FormRendererComponents {
+    'file-manager': () => Promise<{ default: typeof import('../components/composites/form-inputs/FileManager/FileManagerInput.vue').default }>
+  }
+}
+
 function validate(options: FileManagerPluginOptions | undefined): asserts options is FileManagerPluginOptions {
   const prefix = '[loom/file-manager]'
   if (!options || typeof options !== 'object') throw new Error(`${prefix} options are required.`)

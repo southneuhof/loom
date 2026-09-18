@@ -10,6 +10,7 @@
  *
  * Plan 002 builds the catalog and renderer registry on top of these contracts.
  */
+import type { FormRendererComponents, FormRendererKey, FormRendererProps } from '../renderers/formContracts'
 
 export type FieldKey<TRecord> = Extract<keyof TRecord, string> | (string & {})
 
@@ -68,28 +69,28 @@ export interface FieldBehaviorContext<TDraft = Record<string, unknown>, TValue =
  * evaluates false contributes no value to the submitted draft, and validation
  * runs on the visibility-filtered draft.
  */
-export interface FieldBehavior<TDraft = Record<string, unknown>, TValue = unknown> {
+export interface FieldBehavior<TDraft = Record<string, unknown>, TValue = unknown, TRenderer extends FormRendererKey | (string & {}) | undefined = FormRendererKey | (string & {}) | undefined> {
   visible?: (context: FieldBehaviorContext<TDraft, TValue>) => boolean
   disabled?: (context: FieldBehaviorContext<TDraft, TValue>) => boolean
   /** Shallow-merges over the static `props` of the same projection. */
-  props?: (context: FieldBehaviorContext<TDraft, TValue>) => Record<string, unknown>
+  props?: (context: FieldBehaviorContext<TDraft, TValue>) => TRenderer extends keyof FormRendererComponents ? FormRendererProps<TRenderer & keyof FormRendererComponents> : Record<string, unknown>
   /** Atomically changes presentation only; identity, accessors, and validation stay static. */
-  presentation?: (context: FieldBehaviorContext<TDraft, TValue>) => FieldBehaviorPresentation
+  presentation?: (context: FieldBehaviorContext<TDraft, TValue>) => FieldBehaviorPresentation<TRenderer>
   derived?: (context: FieldBehaviorContext<TDraft, TValue>) => TValue
   /** Identity is compared with `Object.is`; changed identity clears this field. */
   resetWhen?: (context: FieldBehaviorContext<TDraft, TValue>) => unknown
 }
 
-export interface FieldBehaviorPresentation {
-  renderer?: string | null
+export interface FieldBehaviorPresentation<TRenderer extends FormRendererKey | (string & {}) | undefined = FormRendererKey | (string & {}) | undefined> {
+  renderer?: (TRenderer & (FormRendererKey | (string & {}))) | null
   label?: string | null
-  props?: Record<string, unknown> | null
+  props?: (TRenderer extends keyof FormRendererComponents ? FormRendererProps<TRenderer & keyof FormRendererComponents> : Record<string, unknown>) | null
   span?: number | null
 }
 
 /** Widget selection shared by every surface projection. */
 export interface FieldRendererSelection {
-  renderer?: string
+  renderer?: FormRendererKey | (string & {})
   props?: Record<string, unknown>
 }
 
@@ -123,6 +124,44 @@ export interface FieldFormProjection<TDraft = Record<string, unknown>, TValue = 
   write?: FieldWrite<TValue>
 }
 
+/** Guard that rejects known renderer props with the wrong declared type. */
+export type FormRendererPropGuard<TForm> = TForm extends { renderer: infer TRenderer }
+  ? TRenderer extends keyof FormRendererComponents
+    ? TForm extends { props?: infer TProps }
+      ? TProps extends FormRendererProps<TRenderer & keyof FormRendererComponents> ? unknown : never
+      : unknown
+    : unknown
+  : unknown
+
+/** Guard for `behavior.props` against the base renderer of the same form. */
+export type BehaviorPropsGuard<TForm> = TForm extends { renderer: infer TRenderer; behavior: infer TBehavior }
+  ? TRenderer extends keyof FormRendererComponents
+    ? TBehavior extends { props?: infer TPropsFn }
+      ? TPropsFn extends (...args: never[]) => infer TReturn
+        ? TReturn extends FormRendererProps<TRenderer & keyof FormRendererComponents> ? unknown : never
+        : unknown
+      : unknown
+    : unknown
+  : unknown
+
+/** Guard for `behavior.presentation` when it selects a renderer. */
+export type BehaviorPresentationGuard<TForm> = TForm extends { behavior: infer TBehavior }
+  ? TBehavior extends { presentation?: infer TPresentationFn }
+    ? TPresentationFn extends (...args: never[]) => infer TReturn
+      ? TReturn extends { renderer?: infer TRenderer }
+        ? [TRenderer] extends [undefined] ? unknown
+          : Exclude<TRenderer, undefined | null> extends infer TSelected
+            ? TSelected extends keyof FormRendererComponents
+              ? TReturn extends { props?: infer TProps }
+                ? TProps extends FormRendererProps<TSelected & keyof FormRendererComponents> | null | undefined ? unknown : never
+                : unknown
+              : unknown
+            : unknown
+        : unknown
+      : unknown
+    : unknown
+  : unknown
+
 export interface FieldDefinition<
   TRecord = Record<string, unknown>,
   TDraft = TRecord,
@@ -146,8 +185,46 @@ export interface FieldReference<
 > {
   readonly key: TKey
   readonly [fieldReferenceSchema]: TSchema
-  override(partialDefinition: TDefinition): FieldOverride<TSchema, TKey, TDefinition>
+  override<TPatch extends PartialFieldDefinition>(
+    partialDefinition: TPatch & RendererPropGuardForPatch<TDefinition, TPatch>,
+  ): FieldOverride<TSchema, TKey, TDefinition>
 }
+
+/** Partial definition accepted by `override`; renderer selects prop checks. */
+export type PartialFieldDefinition = Partial<Omit<FieldDefinition<any, any, any>, 'form'>> & {
+  form?: Partial<FieldDefinition<any, any, any>['form'] & object> | false
+}
+
+/** Marker for the authoring-time input that produced a field reference. */
+export declare const referenceInput: unique symbol
+
+type BaseRendererOf<TDefinition> = TDefinition extends { readonly [referenceInput]?: infer TInput }
+  ? TInput extends { form?: infer TInputForm }
+    ? TInputForm extends { renderer: infer TInputRenderer } ? TInputRenderer : unknown
+    : unknown
+  : TDefinition extends { form: { renderer: infer TRenderer } } ? TRenderer : unknown
+
+type PatchRendererOf<TPatch> = TPatch extends { form?: infer TForm }
+  ? unknown extends TForm ? unknown
+    : TForm extends { renderer: infer TRenderer } ? TRenderer : unknown
+  : unknown
+
+type EffectiveRendererOf<TDefinition, TPatch> = unknown extends PatchRendererOf<TPatch>
+  ? unknown extends BaseRendererOf<TDefinition> ? unknown : BaseRendererOf<TDefinition>
+  : PatchRendererOf<TPatch>
+
+/** Guard that checks override props against the effective renderer. */
+export type RendererPropGuardForPatch<TDefinition, TPatch> = TPatch extends { form?: infer TForm }
+  ? TForm extends false | undefined ? unknown
+    : TForm extends { props?: infer TProps }
+      ? EffectiveRendererOf<TDefinition, TPatch> extends infer TRenderer
+        ? unknown extends TRenderer ? unknown
+          : TRenderer extends keyof FormRendererComponents
+            ? TProps extends FormRendererProps<TRenderer & keyof FormRendererComponents> ? unknown : never
+            : unknown
+        : unknown
+      : unknown
+  : unknown
 
 /** The terminal result of a field override. */
 export interface FieldOverride<

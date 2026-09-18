@@ -8,6 +8,7 @@
  */
 import { inject, type Component, type InjectionKey } from 'vue'
 import { builtInFormRenderers } from './form'
+import type { FormRendererComponents } from './formContracts'
 
 export type RendererSurface = 'table' | 'detail' | 'form'
 
@@ -20,8 +21,32 @@ export interface RendererRegistry {
   keys: () => string[]
 }
 
-export type RendererRegistries = Record<RendererSurface, RendererRegistry>
+/**
+ * Form renderer registry. The key selects the component type from the
+ * augmentable component map, so registration under a misspelled key fails.
+ * The renderer stays a plain component; no prop check runs here.
+ */
+export interface FormRendererRegistry extends Omit<RendererRegistry, 'register'> {
+  register<K extends keyof FormRendererComponents & string>(
+    key: K,
+    renderer: FormRendererComponents[K] | Component,
+  ): void
+}
 
+export interface RendererRegistries {
+  table: RendererRegistry
+  detail: RendererRegistry
+  form: FormRendererRegistry
+}
+
+export function createRendererRegistry(
+  surface: 'table' | 'detail',
+  initial?: Record<string, Component>,
+): RendererRegistry
+export function createRendererRegistry(
+  surface: 'form',
+  initial?: FormRendererRegistriesInput,
+): FormRendererRegistry
 export function createRendererRegistry(
   surface: RendererSurface,
   initial: Record<string, Component> = {},
@@ -45,17 +70,26 @@ export function createRendererRegistry(
   }
 }
 
+/**
+ * Form renderer entries keyed by the augmentable component map. Each entry
+ * accepts its declared component type or any plain component (for example a
+ * runtime wrapper); an undeclared key fails.
+ */
+export type FormRendererRegistriesInput = {
+  [K in keyof FormRendererComponents]?: FormRendererComponents[K] | Component
+}
+
 export interface RendererRegistriesInput {
   table?: Record<string, Component>
   detail?: Record<string, Component>
-  form?: Record<string, Component>
+  form?: FormRendererRegistriesInput
 }
 
 export function createRendererRegistries(input: RendererRegistriesInput = {}): RendererRegistries {
   return {
     table: createRendererRegistry('table', input.table),
     detail: createRendererRegistry('detail', input.detail),
-    form: createRendererRegistry('form', { ...builtInFormRenderers, ...input.form }),
+    form: createRendererRegistry('form', input.form ? { ...builtInFormRenderers, ...input.form } : { ...builtInFormRenderers }),
   }
 }
 
@@ -67,6 +101,8 @@ export function useRendererRegistries(): RendererRegistries {
   return registries
 }
 
-export function useRendererRegistry(surface: RendererSurface): RendererRegistry {
+export function useRendererRegistry(surface: 'table' | 'detail'): RendererRegistry
+export function useRendererRegistry(surface: 'form'): FormRendererRegistry
+export function useRendererRegistry(surface: RendererSurface): RendererRegistry | FormRendererRegistry {
   return useRendererRegistries()[surface]
 }

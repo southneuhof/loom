@@ -50,6 +50,15 @@ export type {
 export type { ValidationIssue, ValidationResult, ValidationSchema, SubmitError, FormValidationTrigger, FormValidatorContext, FormValidatorResult, FormValidator, FormValidatorDefinition, FormValidatorInput } from './validation'
 
 export type {
+  IdentityFunction,
+  CheckedIdentityKey,
+  CheckedIdentityKeys,
+  CheckedIdentityFunction,
+  CheckedDefaultIdentity,
+  CheckedSchemaIdentity,
+  IdentityFromDeclaration,
+  InvalidSchemaIdentity,
+  IdentityKeyOf,
   SchemaIdentityDeclaration,
   WebResourceSchemaPart,
   WebResourceWriteSchemaPart,

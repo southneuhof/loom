@@ -9,7 +9,7 @@ export {
   resolveFrameworkFieldDefaults,
   useFrameworkFieldDefaults,
 } from './defaults'
-export type { FrameworkFieldDefaultsInput, ResolvedFrameworkFieldDefaults } from './defaults'
+export type { FrameworkFieldDefaultsInput, FrameworkFieldDefaultsGuard, ResolvedFrameworkFieldDefaults } from './defaults'
 
 export { createBehaviorRuntime, assertBehavior } from './behavior'
 export type { BehaviorRuntime, BehaviorRuntimeOptions, FieldBehaviorState } from './behavior'

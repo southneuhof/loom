@@ -7,7 +7,7 @@ import { resolveFields } from '../../fields/resolve'
 import { defineFields } from '../../fields/defineFields'
 import { createInputPropsRegistry } from '../../renderers/inputProps'
 import { defineResource } from '../defineResource'
-import { resourceActionForRoute, resetResourceActionRegistry } from '../routeAccess'
+import { registeredResourceActionNames, resourceActionForRoute, resetResourceActionRegistry } from '../routeAccess'
 import { registerResourceRuntime, resetResourceRuntimeForTests } from '../runtime'
 
 type Row = { id: string; name: string }
@@ -76,7 +76,7 @@ function resource(access = { allows: () => true }) {
         run: async () => undefined,
         permission: 'records.delete',
       },
-      verify: { run: async (id: string, result: 'approved' | 'rejected') => `${id}:${result}` },
+      verify: { run: async (id: string, result: 'approved' | 'rejected') => `${id}:${result}`, permission: 'records.verify' },
     },
   })
 }
@@ -542,6 +542,226 @@ describe('defineActionResource delete permission invariant', () => {
   })
 })
 
+describe('custom action declarations', () => {
+  function customResource(
+    verify: unknown,
+    access: { allows: (request: { operation: string; permission?: string }) => boolean } = { allows: () => true },
+  ) {
+    registerResourceRuntime({
+      queryClient: createFrameworkQueryClient(),
+      adapters: resolveFrameworkAdapters({ access }),
+      fieldDefaults: resolveFrameworkFieldDefaults(),
+    })
+    return defineResource(schema, {
+      key: 'custom-records',
+      actions: {
+        verify: verify as { run: (id: string, result: 'approved' | 'rejected') => Promise<string>; permission: 'records.verify' },
+        udpate: { run: async (id: string, result: 'approved' | 'rejected') => `${id}:${result}`, permission: null },
+      },
+    })
+  }
+
+  it('accepts a custom action named udpate and returns it through resource.actions', async () => {
+    const value = customResource({ run: async (id: string, result: 'approved' | 'rejected') => `${id}:${result}`, permission: 'records.verify' })
+
+    await expect(value.actions.udpate.run('1', 'approved')).resolves.toBe('1:approved')
+    expect(value.actions.udpate.can('1', 'approved')).toBe(true)
+  })
+
+  it('rejects an unknown definition key before registering routes', () => {
+    const before = registeredResourceActionNames().length
+
+    expect(() =>
+      customResource({ run: async () => undefined, permission: 'records.verify' }, { allows: () => true }),
+    ).not.toThrow()
+    expect(() =>
+      defineResource(schema, {
+        key: 'custom-bad-top',
+        actions: { verify: { run: async () => undefined, permission: 'records.verify' } },
+        extra: true,
+      } as unknown as { key: string; actions: Record<string, { run: () => Promise<undefined>; permission: string }> }),
+    ).toThrowError('[loom] Resource "custom-bad-top" property "extra" is not a supported option.')
+    expect(registeredResourceActionNames()).toHaveLength(before)
+  })
+
+  it('rejects unknown action options, malformed entries, and invalid permissions', () => {
+    const cases: [string, unknown][] = [
+      ['unknown-option', { run: async () => undefined, permission: 'records.verify', extra: true }],
+      ['missing-run', { permission: 'records.verify' }],
+      ['non-function-run', { run: 'verify', permission: 'records.verify' }],
+      ['missing-permission', { run: async () => undefined }],
+      ['empty-permission', { run: async () => undefined, permission: '' }],
+      ['empty-array-permission', { run: async () => undefined, permission: [] }],
+      ['bad-value-permission', { run: async () => undefined, permission: 42 }],
+    ]
+    for (const [name, entry] of cases) {
+      expect(() =>
+        defineResource(schema, {
+          key: `custom-bad-${name}`,
+          actions: { verify: entry },
+        } as unknown as { key: string; actions: Record<string, unknown> }),
+      ).toThrowError(`[loom] Resource "custom-bad-${name}" action "verify"`)
+    }
+  })
+
+  it('rejects a delete action without an explicit permission and keeps null open', () => {
+    expect(() =>
+      defineResource(schema, {
+        key: 'custom-delete-missing',
+        actions: { delete: { run: async () => undefined } },
+      } as unknown as { key: string; actions: Record<string, unknown> }),
+    ).toThrowError('[loom] Resource "custom-delete-missing" action "delete" needs an explicit permission')
+    const open = customResource({ run: async () => undefined, permission: null })
+    expect(open.actions.verify.can('1', 'approved')).toBe(true)
+  })
+
+  it('leaves the route registry unchanged and runs no callback on a bad later action', async () => {
+    let calls = 0
+    const before = registeredResourceActionNames().length
+    const actions = {
+      verify: { run: async () => { calls += 1 }, permission: 'records.verify' },
+      broken: { run: async () => undefined, permission: 42 },
+    }
+
+    expect(() =>
+      defineResource(schema, {
+        key: 'custom-bad-later',
+        actions,
+      } as unknown as { key: string; actions: Record<string, unknown> }),
+    ).toThrowError('[loom] Resource "custom-bad-later" action "broken"')
+    expect(calls).toBe(0)
+    expect(registeredResourceActionNames()).toHaveLength(before)
+  })
+
+  it('checks static, array, resolver, and null permissions through can and run', async () => {
+    const asked: { operation: string; permission?: string }[] = []
+    const access = {
+      allows: ({ operation, permission }: { operation: string; permission?: string }) => {
+        asked.push({ operation, permission })
+        return permission !== 'denied-action'
+      },
+    }
+    registerResourceRuntime({
+      queryClient: createFrameworkQueryClient(),
+      adapters: resolveFrameworkAdapters({ access }),
+      fieldDefaults: resolveFrameworkFieldDefaults(),
+    })
+    let calls = 0
+    const value = defineResource(schema, {
+      key: 'custom-checks',
+      actions: {
+        one: { run: async () => { calls += 1; return 'one' }, permission: 'records.one' },
+        many: { run: async () => { calls += 1; return 'many' }, permission: ['records.one', 'records.many'] as const },
+        conditional: {
+          run: async (id: string, result: 'approved' | 'rejected') => { calls += 1; return `${id}:${result}` },
+          permission: (id: string, result: 'approved' | 'rejected') => (result === 'approved' ? 'records.conditional' : null),
+        },
+        open: { run: async () => { calls += 1; return 'open' }, permission: null },
+        shut: { run: async () => { calls += 1; return 'shut' }, permission: 'denied-action' },
+      },
+    })
+
+    expect(value.actions.one.can()).toBe(true)
+    expect(value.actions.many.can()).toBe(true)
+    expect(value.actions.conditional.can('1', 'approved')).toBe(true)
+    expect(value.actions.conditional.can('1', 'rejected')).toBe(true)
+    expect(value.actions.open.can()).toBe(true)
+    expect(value.actions.shut.can()).toBe(false)
+    expect(asked.filter((call) => call.operation === 'conditional').length).toBeGreaterThan(0)
+    expect(asked.every((call) => call.operation === 'one' || call.operation === 'many' || call.operation === 'conditional' || call.operation === 'open' || call.operation === 'shut')).toBe(true)
+
+    await expect(value.actions.one.run()).resolves.toBe('one')
+    await expect(value.actions.many.run()).resolves.toBe('many')
+    await expect(value.actions.conditional.run('1', 'approved')).resolves.toBe('1:approved')
+    await expect(value.actions.open.run()).resolves.toBe('open')
+    expect(calls).toBe(4)
+  })
+
+  it('requires every listed permission before a denied array entry blocks run', async () => {
+    let calls = 0
+    registerResourceRuntime({
+      queryClient: createFrameworkQueryClient(),
+      adapters: resolveFrameworkAdapters({ access: { allows: ({ permission }) => permission === 'records.one' } }),
+      fieldDefaults: resolveFrameworkFieldDefaults(),
+    })
+    const value = defineResource(schema, {
+      key: 'custom-partial-array',
+      actions: {
+        many: { run: async () => { calls += 1; return 'many' }, permission: ['records.one', 'records.many'] as const },
+      },
+    })
+
+    expect(value.actions.many.can()).toBe(false)
+    let denial: unknown
+    try {
+      await value.actions.many.run()
+    } catch (error: unknown) {
+      denial = error
+    }
+    expect(String((denial as Error).message)).toBe('[loom] Resource "custom-partial-array" action "many" is not allowed.')
+    expect(calls).toBe(0)
+  })
+
+  it('blocks a denied run before the application callback and hides arguments', async () => {
+    let calls = 0
+    const access = { allows: () => false }
+    registerResourceRuntime({
+      queryClient: createFrameworkQueryClient(),
+      adapters: resolveFrameworkAdapters({ access }),
+      fieldDefaults: resolveFrameworkFieldDefaults(),
+    })
+    const value = defineResource(schema, {
+      key: 'custom-denied',
+      actions: {
+        verify: {
+          run: async (id: string, secret: string) => { calls += 1; return `${id}:${secret}` },
+          permission: 'records.verify',
+        },
+      },
+    })
+
+    expect(value.actions.verify.can('1', 'top-secret')).toBe(false)
+    let denial: unknown
+    try {
+      await value.actions.verify.run('1', 'top-secret')
+    } catch (error: unknown) {
+      denial = error
+    }
+    expect(denial).toBeInstanceOf(Error)
+    expect(String((denial as Error).message)).toBe('[loom] Resource "custom-denied" action "verify" is not allowed.')
+    expect(String((denial as Error).message)).not.toContain('top-secret')
+    expect(calls).toBe(0)
+  })
+
+  it('fails a malformed resolver result before the application callback', async () => {
+    let calls = 0
+    registerResourceRuntime({
+      queryClient: createFrameworkQueryClient(),
+      adapters: resolveFrameworkAdapters(),
+      fieldDefaults: resolveFrameworkFieldDefaults(),
+    })
+    const value = defineResource(schema, {
+      key: 'custom-bad-resolver',
+      actions: {
+        verify: {
+          run: async () => { calls += 1; return 'verify' },
+          permission: (() => 42) as unknown as 'records.verify',
+        },
+      },
+    })
+
+    expect(() => value.actions.verify.can()).toThrowError('[loom] Resource "custom-bad-resolver" action "verify" property "permission"')
+    let failure: unknown
+    try {
+      await value.actions.verify.run()
+    } catch (error: unknown) {
+      failure = error
+    }
+    expect(String((failure as Error).message)).toContain('[loom] Resource "custom-bad-resolver" action "verify" property "permission"')
+    expect(calls).toBe(0)
+  })
+})
+
 describe('action-bag cache bound', () => {
   it('evicts oldest bags once the cache limit is exceeded', () => {
     registerResourceRuntime({
@@ -560,5 +780,119 @@ describe('action-bag cache bound', () => {
     expect(value.detail({ id: '0' })).toBe(first)
     for (let i = 1; i <= 200; i += 1) value.detail({ id: String(i) })
     expect(value.detail({ id: '0' })).not.toBe(first)
+  })
+})
+
+describe('resource identity checks', () => {
+  function identityResource(key: string, spies: { write: () => void; invalidate: () => void }) {
+    const queryClient = createFrameworkQueryClient()
+    const invalidateSpy = queryClient.invalidateQueries.bind(queryClient)
+    const watched = { ...queryClient, invalidateQueries: (...args: never[]) => { spies.invalidate(); return (invalidateSpy as (...callArgs: never[]) => unknown)(...args) } }
+    registerResourceRuntime({
+      queryClient: watched as ReturnType<typeof createFrameworkQueryClient>,
+      adapters: resolveFrameworkAdapters(),
+      fieldDefaults: resolveFrameworkFieldDefaults(),
+    })
+    return defineResource(schema, {
+      key,
+      actions: {
+        list: {
+          run: async (): Promise<CollectionResult<Row>> => ({ data: [{ id: '1', name: 'One' }] }),
+          fields: [fields.name],
+          route: { name: 'records-list' },
+        },
+        detail: {
+          run: async ({ id }) => ({ id: String(id), name: 'One' }),
+          fields: [fields.name],
+          permission: 'records.detail',
+          route: { name: 'records-detail', params: (id) => ({ id: String(id) }) },
+        },
+        update: {
+          run: async (id, input) => { spies.write(); return ({ id: String(id), name: input.name }) },
+          fields: [fields.name],
+          permission: 'records.update',
+          route: { name: 'records-edit', params: (id) => ({ id: String(id) }) },
+        },
+        delete: {
+          run: async () => { spies.write(); return undefined },
+          permission: 'records.delete',
+        },
+      },
+    })
+  }
+
+  it('rejects empty and duplicate key-array declarations at construction', () => {
+    registerResourceRuntime({
+      queryClient: createFrameworkQueryClient(),
+      adapters: resolveFrameworkAdapters(),
+      fieldDefaults: resolveFrameworkFieldDefaults(),
+    })
+    expect(() => defineResource({ identity: [], record: {} } as unknown as Schema, {
+      key: 'identity-empty',
+      actions: { list: { run: async () => ({ data: [] }) } },
+    })).toThrowError('[loom] Resource "identity-empty" identity needs a nonempty key or key array.')
+    expect(() => defineResource({ identity: ['id', 'id'], record: {} } as unknown as Schema, {
+      key: 'identity-duplicate',
+      actions: { list: { run: async () => ({ data: [] }) } },
+    })).toThrowError('[loom] Resource "identity-duplicate" identity has a duplicate key.')
+  })
+
+  it('fails malformed record identities before navigation targets resolve', () => {
+    let writes = 0
+    let invalidations = 0
+    const value = identityResource('identity-malformed-row', { write: () => { writes += 1 }, invalidate: () => { invalidations += 1 } })
+    const malformed = { id: undefined, name: 'Broken' } as unknown as Row
+
+    expect(() => value.list().detailRoute?.(malformed)).toThrowError('[loom] Resource "identity-malformed-row" identity "id" is malformed.')
+    expect(() => value.list().updateRoute?.(malformed)).toThrowError('[loom] Resource "identity-malformed-row" identity "id" is malformed.')
+    expect(writes).toBe(0)
+    expect(invalidations).toBe(0)
+  })
+
+  it('fails malformed detail, update, and delete IDs before their work starts', async () => {
+    let writes = 0
+    let invalidations = 0
+    const value = identityResource('identity-malformed-args', { write: () => { writes += 1 }, invalidate: () => { invalidations += 1 } })
+    const badId = undefined as unknown as string
+
+    expect(() => value.detail({ id: badId })).toThrowError('[loom] Resource "identity-malformed-args" identity "detail" is malformed.')
+    expect(() => value.update({ id: badId })).toThrowError('[loom] Resource "identity-malformed-args" identity "update" is malformed.')
+    expect(() => value.delete({ id: badId })).toThrowError('[loom] Resource "identity-malformed-args" identity "delete" is malformed.')
+    await expect(value.invalidate({ id: badId })).rejects.toThrowError('[loom] Resource "identity-malformed-args" identity "invalidate" is malformed.')
+    expect(writes).toBe(0)
+    expect(invalidations).toBe(0)
+    await expect(value.invalidate()).resolves.toBeUndefined()
+  })
+
+  it('keeps valid zero, empty-string, composite, and global identities working', async () => {
+    registerResourceRuntime({
+      queryClient: createFrameworkQueryClient(),
+      adapters: resolveFrameworkAdapters(),
+      fieldDefaults: resolveFrameworkFieldDefaults(),
+    })
+    type CompositeRow = { tenantId: string; userId: number; name: string }
+    type CompositeSchema = WebResourceSchema<CompositeRow, Record<string, never>, Draft, Draft, { tenantId: string; userId: number }>
+    const compositeSchema: CompositeSchema = { identity: ['tenantId', 'userId'] }
+    const compositeFields = defineFields(compositeSchema, { name: { label: 'Name' } })
+    let writes = 0
+    const composite = defineResource(compositeSchema, {
+      key: 'identity-composite',
+      actions: {
+        detail: {
+          run: async ({ id }) => ({ tenantId: String(id.tenantId), userId: Number(id.userId), name: 'One' }),
+          fields: [compositeFields.name],
+        },
+        update: {
+          run: async (id, input) => { writes += 1; return ({ tenantId: String(id.tenantId), userId: Number(id.userId), name: input.name }) },
+          fields: [compositeFields.name],
+        },
+      },
+    })
+
+    await expect(composite.detail({ id: { tenantId: 't', userId: 0 } }).run()).resolves.toEqual({ tenantId: 't', userId: 0, name: 'One' })
+    await expect(composite.update({ id: { tenantId: '', userId: 7 } }).run({ name: 'Updated' })).resolves.toEqual({ tenantId: '', userId: 7, name: 'Updated' })
+    expect(writes).toBe(1)
+    await expect(composite.invalidate({ id: { tenantId: 't', userId: 7 } })).resolves.toBeUndefined()
+    await expect(composite.invalidate()).resolves.toBeUndefined()
   })
 })
