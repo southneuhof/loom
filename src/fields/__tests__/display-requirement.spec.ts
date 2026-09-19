@@ -23,15 +23,19 @@ describe('display requirement', () => {
     expect(requiresExplicitDisplay('date', { format: 'date' })).toBe(false)
   })
 
-  it('fails string enums without display and passes with a renderer', () => {
+  it('fails string enums without display and passes with a renderer, not a format', () => {
     const field = { props: { options: ['open', 'paid'] } }
     expect(requiresExplicitDisplay('string', field)).toBe(true)
+    expect(requiresExplicitDisplay('string', { ...field, format: 'chip' })).toBe(true)
     expect(requiresExplicitDisplay('string', { ...field, renderer: 'chip' })).toBe(false)
+    expect(requiresExplicitDisplay('string', { ...field, read: () => 'Open' })).toBe(false)
   })
 
-  it('fails selections without display and passes with a format', () => {
+  it('fails selections without display and passes with a renderer or read, not a format', () => {
     expect(requiresExplicitDisplay('selection[]', {})).toBe(true)
-    expect(requiresExplicitDisplay('selection[]', { format: 'tag' })).toBe(false)
+    expect(requiresExplicitDisplay('selection[]', { format: 'tag' })).toBe(true)
+    expect(requiresExplicitDisplay('selection[]', { renderer: 'tag' })).toBe(false)
+    expect(requiresExplicitDisplay('selection[]', { read: () => 'Tag' })).toBe(false)
   })
 
   it('fails lookup sources without read and passes with read or renderer', () => {

@@ -12,9 +12,13 @@ export interface DisplayRequirementField {
 /**
  * Tells whether table or detail display needs an explicit choice.
  *
- * Plain strings use the default text. Any other kind needs `format`,
- * `renderer`, or `read`. Objects, arrays, and lookup fields need `read` or
- * `renderer`; a format string cannot render them. Unknown kinds never block.
+ * Plain strings use the default text. Numbers, booleans, and dates accept
+ * `format`, `renderer`, or `read`. Enums, selections, objects, arrays, and
+ * lookup fields need `read` or `renderer`; a format string cannot render
+ * chips, tags, or lookups. Unknown kinds never block.
+ *
+ * The static check mirrors this rule in scripts/module-ui-check.mjs; the
+ * agreement test in scripts/module-ui-check.test.mjs proves they agree.
  */
 export function requiresExplicitDisplay(kind: InternalSchemaKind, field: DisplayRequirementField): boolean {
   const hasRead = field.read !== undefined && field.read !== null
@@ -24,22 +28,25 @@ export function requiresExplicitDisplay(kind: InternalSchemaKind, field: Display
   // A lookup source names the display contract even when schema kind is unknown.
   if (hasSource) return !(hasRead || hasRenderer)
   if (kind === 'unknown') return false
+  const readOrRenderer = hasRead || hasRenderer
   switch (kind) {
     case 'string':
     case 'string[]':
-      // Options mark a string enum; it needs a chip or select display.
-      return field.props?.options !== undefined && !(hasRead || hasRenderer || hasFormat)
+      // Options mark a string enum; chips and tags need a renderer or read.
+      return field.props?.options !== undefined && !readOrRenderer
+    case 'selection[]':
+      // Selections render as chips, tags, or lookups; a format cannot render them.
+      return !readOrRenderer
     case 'number':
     case 'boolean':
     case 'date':
     case 'number[]':
     case 'boolean[]':
-    case 'selection[]':
-      return !(hasRead || hasRenderer || hasFormat)
+      return !(readOrRenderer || hasFormat)
     case 'object':
     case 'array':
     case 'object[]':
-      return !(hasRead || hasRenderer)
+      return !readOrRenderer
     default:
       return false
   }
