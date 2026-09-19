@@ -390,10 +390,29 @@ export interface DeleteResourceActionProps<TIdentity extends RecordIdentity> {
 type StandardActionNames = 'list' | 'detail' | 'create' | 'update' | 'delete'
 type CustomActionKey<TActions> = Exclude<Extract<keyof TActions, string>, StandardActionNames>
 
+/**
+ * Optional trailing row context for a custom action call. The context travels
+ * alongside the declared run args and is never forwarded to `run`, permission
+ * resolvers, or the access adapter. A trailing `{ record }` object is reserved
+ * for this purpose: an action whose own last parameter is shaped like the
+ * context cannot also take a row.
+ *
+ * Call shapes for an order workflow with `pay(id, input)` and `cancel(id)`:
+ * `pay.can(orderId, { paidAmount })` checks permission only, while
+ * `pay.can(orderId, { paidAmount }, { record: row })` additionally requires
+ * the row array to contain the action name. `cancel.can(orderId)` checks
+ * permission only, while `cancel.can(orderId, { record: row })` adds the row
+ * check. `run` enforces the same check as `can` before invoking the callback.
+ */
+export interface CustomActionContext<TRecord extends object = Record<string, unknown>> {
+  /** Row record whose `allowedOperations` array must contain the action name. */
+  record?: TRecord
+}
+
 /** Client contract for one declared custom action: check, then guarded run. */
 export type CustomActionHandle<TRun extends (...args: never[]) => unknown> = {
-  can: (...args: Parameters<TRun>) => boolean
-  run: TRun
+  can: (...args: [...Parameters<TRun>, context?: CustomActionContext]) => boolean
+  run: (...args: [...Parameters<TRun>, context?: CustomActionContext]) => ReturnType<TRun>
 }
 
 type CustomActions<TActions> = {
@@ -688,24 +707,6 @@ export function isStandardRowOperation(operation: string): operation is Standard
   return standardActionNames.has(operation) && !collectionActionNames.has(operation)
 }
 
-/**
- * Custom action names declared by resource definitions. A custom name gates
- * by row only when declared here; an undeclared name keeps permission-only
- * behavior even when a record carries a row array. Names only, never product
- * semantics: entries come from definitions, not a fixed list.
- */
-const declaredCustomActionNames = new Set<string>()
-
-/** True when some resource definition declared this custom action name. */
-export function isDeclaredCustomOperation(operation: string): boolean {
-  return declaredCustomActionNames.has(operation)
-}
-
-/** Clears declared custom-action names between tests. */
-export function resetDeclaredCustomOperationsForTests(): void {
-  declaredCustomActionNames.clear()
-}
-
 function isObjectEntry(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -781,41 +782,51 @@ function resolveCustomPermission(resourceKey: string, actionName: string, permis
 }
 
 /**
- * Finds the row record in custom call args. A row is identifiable only when
- * an arg carries a defined `allowedOperations` value. Collection-level calls
- * pass ids and inputs without one and keep permission-only behavior.
+ * True when a trailing call arg is an explicit row context: an object whose
+ * `record` value is itself a record object. Inputs without a `record` key, or
+ * with a non-record value, are ordinary run args, never a row.
  */
-function findCustomRowRecord(args: readonly unknown[]): { allowedOperations?: unknown } | undefined {
-  for (const arg of args) {
-    if (typeof arg !== 'object' || arg === null || Array.isArray(arg)) continue
-    if ((arg as { allowedOperations?: unknown }).allowedOperations !== undefined) {
-      return arg as { allowedOperations?: unknown }
-    }
-  }
-  return undefined
+function isRowContext(value: unknown): value is { record: Record<string, unknown> } {
+  if (!isObjectEntry(value)) return false
+  const record = (value as { record?: unknown }).record
+  return typeof record === 'object' && record !== null && !Array.isArray(record)
 }
 
 /**
- * Row gating for declared custom actions. Permission still applies; when the
- * call identifies a row, its array must also contain the action name. An
- * absent array keeps permission-only behavior, while a malformed non-array
- * value denies instead of granting.
+ * Splits an explicit trailing row context off custom call args. The context
+ * counts only past the declared run arity, so an action whose own last
+ * parameter carries a `record` object keeps its args unchanged. Returns the
+ * args for `run` and permission resolvers plus the row, if any.
  */
-function customRowAllows(actionName: string, args: readonly unknown[]): boolean {
-  const row = findCustomRowRecord(args)
+function splitRowContext(args: readonly unknown[], runLength: number): { callArgs: never[]; row: Record<string, unknown> | undefined } {
+  const last = args[args.length - 1]
+  if (args.length > 0 && args.length > runLength && isRowContext(last)) {
+    return { callArgs: args.slice(0, -1) as never[], row: last.record as Record<string, unknown> }
+  }
+  return { callArgs: [...args] as never[], row: undefined }
+}
+
+/**
+ * Row gating for declared custom actions, the single owner of custom row
+ * semantics. Permission still applies; when the call carries an explicit row
+ * context, its array must also contain the action name. An absent array keeps
+ * permission-only behavior, while a malformed non-array value denies instead
+ * of granting.
+ */
+function customRowAllows(actionName: string, row: Record<string, unknown> | undefined): boolean {
   if (!row) return true
-  const operations = row.allowedOperations
+  const operations = (row as { allowedOperations?: unknown }).allowedOperations
+  if (operations === undefined) return true
   return Array.isArray(operations) && operations.includes(actionName)
 }
 
 /** Checks one custom action call through the installed access adapter. */
 function customAllows(resourceKey: string, actionName: string, declaration: ResourceCustomAction<(...args: never[]) => unknown>, args: readonly unknown[]): boolean {
-  const row = findCustomRowRecord(args)
-  const record = row as Record<string, unknown> | undefined
-  const required = resolveCustomPermission(resourceKey, actionName, declaration.permission, args)
-  if (required === null) return customRowAllows(actionName, args)
+  const { callArgs, row } = splitRowContext(args, declaration.run.length)
+  const required = resolveCustomPermission(resourceKey, actionName, declaration.permission, callArgs)
+  if (required === null) return customRowAllows(actionName, row)
   const access = useResourceRuntime().adapters.access
-  return required.every((permission) => access.allows({ operation: actionName, permission, record })) && customRowAllows(actionName, args)
+  return required.every((permission) => access.allows({ operation: actionName, permission })) && customRowAllows(actionName, row)
 }
 
 export function defineActionResource<
@@ -841,9 +852,6 @@ export function defineActionResource<
   if (!isObjectEntry(rawDefinition)) throw new Error('[loom] Resource "unknown" needs a definition object.')
   const actions = definition.actions
   validateActionDeclarations(definition.key, definition as Record<string, unknown>, actions as Record<string, unknown>)
-  for (const name of Object.keys(actions as Record<string, unknown>)) {
-    if (!standardActionNames.has(name)) declaredCustomActionNames.add(name)
-  }
   for (const [action, declaration] of Object.entries(actions) as [string, ResourceCustomAction & { route?: ResourceActionRoute<TIdentity>; permission?: string | null }][]) {
     if (!['list', 'detail', 'create', 'update', 'delete'].includes(action)) continue
     if (!('route' in declaration) || !declaration.route) continue
@@ -1026,7 +1034,8 @@ export function defineActionResource<
       if (!customAllows(definition.key, key, declaration, args)) {
         throw new Error(`[loom] Resource "${definition.key}" action "${key}" is not allowed.`)
       }
-      return (declaration.run as (...callArgs: never[]) => unknown)(...args)
+      const { callArgs } = splitRowContext(args, (declaration.run as (...callArgs: never[]) => unknown).length)
+      return (declaration.run as (...callArgs: never[]) => unknown)(...callArgs)
     }
     return [key, { can, run }]
   })) as CustomActions<TActions>
