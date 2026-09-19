@@ -1,5 +1,4 @@
 import type { InternalSchemaKind } from './schemaMetadata'
-import type { ResolvedSurfaceField } from './resolve'
 
 /** Display signals the requirement check reads. `source` covers form lookup and select. */
 export interface DisplayRequirementField {
