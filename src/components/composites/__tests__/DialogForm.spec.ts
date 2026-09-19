@@ -1,6 +1,8 @@
 import { defineComponent, h, ref } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod/v3'
 import DialogForm from '../DialogForm.vue'
+import { fromZod } from '../../../validation'
 import { deferred, flush, mountCore } from '../../core/__tests__/harness'
 
 const mocks = vi.hoisted(() => ({ toastError: vi.fn() }))
@@ -395,6 +397,45 @@ describe('DialogForm', () => {
     expect(view.resets).toEqual([true])
     expect(view.view.find<HTMLInputElement>('input')?.value).toBe('')
     expect(view.view.exposed().dialog.dirty).toBe(false)
+    view.view.unmount()
+  })
+
+  it('surfaces the Form composition guard instead of rendering an empty dialog', () => {
+    let message = ''
+    try {
+      mountDialogForm({
+        props: {
+          fields: {},
+          initialData: {},
+          schema: fromZod(z.object({ amount: z.number(), method: z.string() })),
+        },
+      })
+    } catch (error) {
+      message = (error as Error).message
+    }
+
+    expect(message).toContain('fields')
+    expect(message).toContain('amount')
+    expect(message).toContain('method')
+  })
+
+  it('submits a custom dialog with one wrapped field', async () => {
+    const submit = vi.fn(async (draft: Record<string, unknown>) => draft)
+    const view = mountDialogForm({
+      props: {
+        fields: { amount: { label: 'Amount' } },
+        initialData: { amount: '12' },
+        schema: fromZod(z.object({ amount: z.string() })),
+        submit,
+      },
+    })
+    await flush()
+
+    button(view.view, 'Submit')!.click()
+    await flush()
+    await flush()
+
+    expect(submit).toHaveBeenCalledWith({ amount: '12' })
     view.view.unmount()
   })
 })
