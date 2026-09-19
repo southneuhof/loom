@@ -70,6 +70,49 @@ const fields = computed(() => {
   })
 })
 const fallbackOwner = instanceIdentity('form')
+/**
+ * Plan 046 composition guard. A schema with zero declared fields renders an
+ * empty dialog and fails obscurely at submit; a raw Zod schema (safeParse
+ * without validate/source) fails the same way without naming fromZod. Both
+ * throw in development only. Production keeps the existing toast/alert paths,
+ * and raw Zod is never auto-wrapped. Forms whose fields are all hidden by
+ * behavior keep the existing hidden-required and orphan guards below.
+ */
+function compositionSchemaKeys(schema: unknown): string[] {
+  const candidate = schema as { requiredKeys?: unknown; source?: unknown; shape?: unknown } | null | undefined
+  const source = candidate?.source as { shape?: unknown } | null | undefined
+  const sourceShape = source && typeof source === 'object' && source.shape && typeof source.shape === 'object' ? source.shape : undefined
+  const ownShape = candidate && typeof candidate === 'object' && candidate.shape && typeof candidate.shape === 'object' ? candidate.shape : undefined
+  const shape = sourceShape ?? ownShape
+  if (shape) return Object.keys(shape as Record<string, unknown>)
+  if (Array.isArray(candidate?.requiredKeys)) return candidate.requiredKeys.map(String)
+  return []
+}
+
+function isRawZodSchema(schema: unknown): boolean {
+  if (!schema || typeof schema !== 'object') return false
+  const candidate = schema as { safeParse?: unknown; validate?: unknown; source?: unknown }
+  return typeof candidate.safeParse === 'function' && typeof candidate.validate !== 'function' && candidate.source == null
+}
+
+function assertSchemaComposition(): void {
+  if (!isDevelopment) return
+  const schema = props.schema as unknown
+  if (!schema) return
+  if (isRawZodSchema(schema)) {
+    const keys = compositionSchemaKeys(schema)
+    throw new Error(
+      `[loom] Form received a raw Zod schema${keys.length > 0 ? ` with keys ${keys.join(', ')}` : ''} instead of a wrapped ValidationSchema. Wrap it with fromZod(schema) before passing it as the schema prop.`,
+    )
+  }
+  if (fields.value.length > 0) return
+  const keys = compositionSchemaKeys(schema)
+  throw new Error(
+    `[loom] Form received a schema${keys.length > 0 ? ` with keys ${keys.join(', ')}` : ''} but fields declares no inputs. Pass a fields entry for each schema key the form edits.`,
+  )
+}
+
+assertSchemaComposition()
 const owner = computed(() => props.resource ?? props.namespace ?? fallbackOwner)
 const formInitialValues: Record<string, unknown> = {}
 for (const field of fields.value) {
@@ -352,6 +395,7 @@ function reset() {
 }
 
 async function submit() {
+  assertSchemaComposition()
   if (props.disabled || submitting.value || validating.value || inputPending.value) return
   issues.value = []
   submitAttempted.value = true

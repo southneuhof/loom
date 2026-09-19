@@ -1018,4 +1018,52 @@ describe('Form core', () => {
     expect(submit).not.toHaveBeenCalled()
     view.unmount()
   })
+
+  it('names the missing fields when a schema arrives with zero declared fields', () => {
+    let message = ''
+    try {
+      mountCore(Form, {
+        fields: {},
+        schema: fromZod(z.object({ amount: z.number(), method: z.string() })),
+        submit: async () => undefined,
+      })
+    } catch (error) {
+      message = (error as Error).message
+    }
+
+    expect(message).toContain('fields')
+    expect(message).toContain('amount')
+    expect(message).toContain('method')
+  })
+
+  it('names fromZod when a raw Zod schema reaches Form', () => {
+    let message = ''
+    try {
+      mountCore(Form, {
+        fields: { amount: { label: 'Amount' } },
+        schema: z.object({ amount: z.number() }),
+        submit: async () => undefined,
+      })
+    } catch (error) {
+      message = (error as Error).message
+    }
+
+    expect(message).toContain('fromZod')
+    expect(message).toContain('amount')
+  })
+
+  it('submits a custom dialog shape with one wrapped field', async () => {
+    const submit = vi.fn(async () => undefined)
+    const view = mountCore(Form, {
+      fields: { amount: { label: 'Amount' } },
+      initialData: { amount: '12' },
+      schema: fromZod(z.object({ amount: z.string() })),
+      submit,
+    })
+    await flush()
+
+    await expect(view.exposed().submit()).resolves.toBeUndefined()
+    expect(submit).toHaveBeenCalledWith({ amount: '12' })
+    view.unmount()
+  })
 })
