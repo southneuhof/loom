@@ -18,12 +18,13 @@ export interface DisplayRequirementField {
  * `renderer`; a format string cannot render them. Unknown kinds never block.
  */
 export function requiresExplicitDisplay(kind: InternalSchemaKind, field: DisplayRequirementField): boolean {
-  if (kind === 'unknown') return false
   const hasRead = field.read !== undefined && field.read !== null
   const hasRenderer = field.renderer !== undefined && field.renderer !== null && field.renderer !== ''
   const hasFormat = field.format !== undefined && field.format !== null && field.format !== ''
   const hasSource = field.source !== undefined && field.source !== null
+  // A lookup source names the display contract even when schema kind is unknown.
   if (hasSource) return !(hasRead || hasRenderer)
+  if (kind === 'unknown') return false
   switch (kind) {
     case 'string':
     case 'string[]':

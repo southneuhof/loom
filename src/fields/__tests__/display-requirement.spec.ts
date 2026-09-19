@@ -37,6 +37,7 @@ describe('display requirement', () => {
   it('fails lookup sources without read and passes with read or renderer', () => {
     const lookup = { source: 'categories' }
     expect(requiresExplicitDisplay('string', lookup)).toBe(true)
+    expect(requiresExplicitDisplay('unknown', lookup)).toBe(true)
     expect(requiresExplicitDisplay('string', { ...lookup, read: () => 'Ruas' })).toBe(false)
     expect(requiresExplicitDisplay('string', { ...lookup, renderer: 'text' })).toBe(false)
     expect(requiresExplicitDisplay('string', { ...lookup, format: 'text' })).toBe(true)
