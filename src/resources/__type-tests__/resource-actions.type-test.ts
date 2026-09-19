@@ -189,3 +189,18 @@ void resource.actions.verify.can('1', 'missing-result')
 
 // @ts-expect-error create run keeps its declared input shape
 void validStandard.create().run({ name: 42 })
+
+// Plan 049 row-op sync pattern: declared row actions stay covered by the row
+// allowedOperations enum. The enum stays server-owned; this type documents
+// the check scripts/module-ui-check.mjs enforces. Copy it when a resource
+// gains a row action.
+type DeclaredRowOps<TActions> = Exclude<Extract<keyof TActions, string>, 'list' | 'create'>
+type RowOpCoverage<TActions, TRowOps extends string> = Exclude<DeclaredRowOps<TActions>, TRowOps> extends never ? true : never
+type OrdersActions = { list: unknown; detail: unknown; update: unknown; pay: unknown; cancel: unknown }
+type OrdersRowOps = 'detail' | 'update' | 'pay' | 'cancel'
+const ordersRowCoverage: RowOpCoverage<OrdersActions, OrdersRowOps> = true
+void ordersRowCoverage
+type MissingDetailRowOps = 'update' | 'pay' | 'cancel'
+// @ts-expect-error detail is declared but missing from the row ops
+const missingDetailCoverage: RowOpCoverage<OrdersActions, MissingDetailRowOps> = true
+void missingDetailCoverage
