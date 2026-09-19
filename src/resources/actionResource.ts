@@ -688,6 +688,24 @@ export function isStandardRowOperation(operation: string): operation is Standard
   return standardActionNames.has(operation) && !collectionActionNames.has(operation)
 }
 
+/**
+ * Custom action names declared by resource definitions. A custom name gates
+ * by row only when declared here; an undeclared name keeps permission-only
+ * behavior even when a record carries a row array. Names only, never product
+ * semantics: entries come from definitions, not a fixed list.
+ */
+const declaredCustomActionNames = new Set<string>()
+
+/** True when some resource definition declared this custom action name. */
+export function isDeclaredCustomOperation(operation: string): boolean {
+  return declaredCustomActionNames.has(operation)
+}
+
+/** Clears declared custom-action names between tests. */
+export function resetDeclaredCustomOperationsForTests(): void {
+  declaredCustomActionNames.clear()
+}
+
 function isObjectEntry(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -762,12 +780,42 @@ function resolveCustomPermission(resourceKey: string, actionName: string, permis
   throw new Error(`[loom] Resource "${resourceKey}" action "${actionName}" property "permission" needs a permission string, a string array, or null.`)
 }
 
+/**
+ * Finds the row record in custom call args. A row is identifiable only when
+ * an arg carries a defined `allowedOperations` value. Collection-level calls
+ * pass ids and inputs without one and keep permission-only behavior.
+ */
+function findCustomRowRecord(args: readonly unknown[]): { allowedOperations?: unknown } | undefined {
+  for (const arg of args) {
+    if (typeof arg !== 'object' || arg === null || Array.isArray(arg)) continue
+    if ((arg as { allowedOperations?: unknown }).allowedOperations !== undefined) {
+      return arg as { allowedOperations?: unknown }
+    }
+  }
+  return undefined
+}
+
+/**
+ * Row gating for declared custom actions. Permission still applies; when the
+ * call identifies a row, its array must also contain the action name. An
+ * absent array keeps permission-only behavior, while a malformed non-array
+ * value denies instead of granting.
+ */
+function customRowAllows(actionName: string, args: readonly unknown[]): boolean {
+  const row = findCustomRowRecord(args)
+  if (!row) return true
+  const operations = row.allowedOperations
+  return Array.isArray(operations) && operations.includes(actionName)
+}
+
 /** Checks one custom action call through the installed access adapter. */
 function customAllows(resourceKey: string, actionName: string, declaration: ResourceCustomAction<(...args: never[]) => unknown>, args: readonly unknown[]): boolean {
+  const row = findCustomRowRecord(args)
+  const record = row as Record<string, unknown> | undefined
   const required = resolveCustomPermission(resourceKey, actionName, declaration.permission, args)
-  if (required === null) return true
+  if (required === null) return customRowAllows(actionName, args)
   const access = useResourceRuntime().adapters.access
-  return required.every((permission) => access.allows({ operation: actionName, permission }))
+  return required.every((permission) => access.allows({ operation: actionName, permission, record })) && customRowAllows(actionName, args)
 }
 
 export function defineActionResource<
@@ -793,6 +841,9 @@ export function defineActionResource<
   if (!isObjectEntry(rawDefinition)) throw new Error('[loom] Resource "unknown" needs a definition object.')
   const actions = definition.actions
   validateActionDeclarations(definition.key, definition as Record<string, unknown>, actions as Record<string, unknown>)
+  for (const name of Object.keys(actions as Record<string, unknown>)) {
+    if (!standardActionNames.has(name)) declaredCustomActionNames.add(name)
+  }
   for (const [action, declaration] of Object.entries(actions) as [string, ResourceCustomAction & { route?: ResourceActionRoute<TIdentity>; permission?: string | null }][]) {
     if (!['list', 'detail', 'create', 'update', 'delete'].includes(action)) continue
     if (!('route' in declaration) || !declaration.route) continue
