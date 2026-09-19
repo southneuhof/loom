@@ -9,6 +9,13 @@
 
 export type ResourceOperation = 'list' | 'detail' | 'create' | 'update' | 'delete'
 
+/**
+ * Standard operations scoped to one record. Derived from ResourceOperation
+ * minus the collection ops, so a future standard action gains row semantics
+ * without a new fixed list.
+ */
+export type StandardRowOperation = Exclude<ResourceOperation, 'list' | 'create'>
+
 /** Custom action names travel with their resource key; server auth stays final. */
 export type ResourceCustomOperation = string & {}
 

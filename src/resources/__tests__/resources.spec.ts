@@ -441,13 +441,16 @@ describe('action resources', () => {
     })
 
     const record = { id: '1', name: 'One', allowedOperations: ['update', 'delete'] }
-    expect(value.list().can?.('delete', record)).toBe(true)
+    // Undeclared standard row ops ignore the row array: a stray entry must
+    // not grant an operation the resource never declared.
+    expect(value.list().can?.('delete', record)).toBe(false)
     expect(value.list().can?.('update', { id: '2', name: 'Two' })).toBe(false)
     expect(value.list().can?.('delete', { id: '2', name: 'Two' })).toBe(false)
     const detail = value.detail({ id: '1' })
     expect(typeof detail.can).toBe('function')
-    expect(detail.can?.('delete', record)).toBe(true)
+    expect(detail.can?.('delete', record)).toBe(false)
     expect(asked.every((call) => call.permission === null)).toBe(true)
+    expect(asked.filter((call) => call.operation === 'delete' || call.operation === 'update').every((call) => call.record === undefined)).toBe(true)
   })
 
   it('injects operation and declared permission into form field context', () => {

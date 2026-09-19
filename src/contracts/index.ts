@@ -71,7 +71,7 @@ export type {
   WebResourceIdentityOf,
 } from './schema'
 
-export type { ResourceOperation, AccessRequest, AccessAdapter, AccessPolicy } from './access'
+export type { ResourceOperation, StandardRowOperation, AccessRequest, AccessAdapter, AccessPolicy } from './access'
 
 export type {
   QueryNamespace,

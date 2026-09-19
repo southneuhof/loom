@@ -16,6 +16,7 @@ import type {
   RecordIdentityValue,
   RecordLoadContext,
   SchemaIdentityDeclaration,
+  StandardRowOperation,
   TableProps,
   WebResourceSchemaBoundary,
   WebResourceSchema,
@@ -612,7 +613,9 @@ function permissionAllows(
   record?: Record<string, unknown>,
 ): boolean {
   const permission = declaration.permission ?? null
-  return (permission === null || access.allows({ operation, permission, record })) && (!declaration.visible || declaration.visible({ record, access }))
+  // Collection ops never gate by row: the record stays with `visible` only.
+  const rowRecord = isStandardRowOperation(operation) ? record : undefined
+  return (permission === null || access.allows({ operation, permission, record: rowRecord })) && (!declaration.visible || declaration.visible({ record, access }))
 }
 
 /**
@@ -628,7 +631,12 @@ function operationAllowed(
   record?: Record<string, unknown>,
 ): boolean {
   const declaration = actions[operation] as ActionVisibility & { permission?: string | null } | undefined
-  if (!declaration) return access.allows({ operation, record })
+  if (!declaration) {
+    // An undeclared standard row op has no row semantics: a stray array entry
+    // must not grant it. Custom ops keep the record for their own rule.
+    if (isStandardRowOperation(operation)) return access.allows({ operation })
+    return access.allows({ operation, record })
+  }
   return permissionAllows(operation, declaration, access, record)
 }
 
@@ -667,6 +675,18 @@ const assertActionKeyCoverage: { [TName in keyof AssertActionKeyCoverage]: Asser
 void assertActionKeyCoverage
 
 const standardActionNames = new Set(['list', 'detail', 'create', 'update', 'delete'])
+
+const collectionActionNames = new Set(['list', 'create'])
+
+/**
+ * Standard row operations derive from the declared action set: a standard
+ * operation gates by row only when the resource declares it, and collection
+ * ops never gate by row even when a server array names them. A future
+ * standard action gains row semantics here without a new fixed list.
+ */
+export function isStandardRowOperation(operation: string): operation is StandardRowOperation {
+  return standardActionNames.has(operation) && !collectionActionNames.has(operation)
+}
 
 function isObjectEntry(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
