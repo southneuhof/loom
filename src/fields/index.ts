@@ -1,5 +1,7 @@
 export { readField, readFields } from './access'
 export { displayValue } from './display'
+export { requiresExplicitDisplay } from './displayRequirement'
+export type { DisplayRequirementField } from './displayRequirement'
 export { defineFields } from './defineFields'
 
 export { mergeFieldLayers, resolveFields, toCatalog } from './resolve'

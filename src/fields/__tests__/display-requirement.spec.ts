@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { requiresExplicitDisplay } from '../displayRequirement'
+import type { ResolvedSurfaceField } from '../resolve'
 
 describe('display requirement', () => {
   it('passes plain strings with the default text', () => {
@@ -8,7 +9,8 @@ describe('display requirement', () => {
 
   it('fails numbers without display and passes with a currency format', () => {
     expect(requiresExplicitDisplay('number', {})).toBe(true)
-    expect(requiresExplicitDisplay('number', { format: 'currency' })).toBe(false)
+    const resolved: ResolvedSurfaceField = { key: 'price', label: 'Price', props: {}, format: 'currency' }
+    expect(requiresExplicitDisplay('number', resolved)).toBe(false)
   })
 
   it('fails booleans without display and passes with a chip renderer', () => {
