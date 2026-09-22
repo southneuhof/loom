@@ -175,6 +175,23 @@ export interface FieldDefinition<
   form?: FieldFormProjection<TDraft, TValue> | false
 }
 
+type KnownKeysOnly<TActual, TAllowed> = Record<Exclude<keyof TActual, keyof TAllowed>, never>
+
+type ProjectionKeysOnly<TActual, TKey extends keyof FieldDefinition, TAllowed> =
+  TKey extends keyof TActual
+    ? TActual[TKey] extends object
+      ? { [TProjection in TKey]: KnownKeysOnly<TActual[TKey], TAllowed> }
+      : unknown
+    : unknown
+
+/** Keep field and projection keys closed while renderer props stay open. */
+export type FieldDefinitionKeysGuard<TActual> =
+  KnownKeysOnly<TActual, FieldDefinition>
+  & ProjectionKeysOnly<TActual, 'display', FieldDisplayProjection>
+  & ProjectionKeysOnly<TActual, 'table', FieldTableProjection>
+  & ProjectionKeysOnly<TActual, 'detail', FieldDetailProjection>
+  & ProjectionKeysOnly<TActual, 'form', FieldFormProjection>
+
 declare const fieldReferenceSchema: unique symbol
 
 /** A reusable, schema-bound field definition selected by a resource action. */
@@ -186,7 +203,7 @@ export interface FieldReference<
   readonly key: TKey
   readonly [fieldReferenceSchema]: TSchema
   override<TPatch extends PartialFieldDefinition>(
-    partialDefinition: TPatch & RendererPropGuardForPatch<TDefinition, TPatch>,
+    partialDefinition: TPatch & FieldDefinitionKeysGuard<TPatch> & RendererPropGuardForPatch<TDefinition, TPatch>,
   ): FieldOverride<TSchema, TKey, TDefinition>
 }
 

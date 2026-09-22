@@ -1,5 +1,5 @@
 import { inject, type InjectionKey } from 'vue'
-import type { FieldCatalog, FieldDefinition } from '../contracts'
+import type { FieldCatalog, FieldDefinition, FieldDefinitionKeysGuard } from '../contracts'
 import type { FormRendererComponents, FormRendererProps } from '../renderers/formContracts'
 import { mergeFieldLayers, type FieldLayer } from './resolve'
 
@@ -24,8 +24,12 @@ export interface ResolvedFrameworkFieldDefaults {
 export const frameworkFieldDefaultsKey: InjectionKey<ResolvedFrameworkFieldDefaults> =
   Symbol.for('loom-field-defaults')
 
-/** Guard that rejects known renderer props with the wrong declared type. */
-export type FrameworkFieldDefaultsGuard<TInput> = TInput extends { fields?: infer TFields }
+type FrameworkFieldDefaultKeysGuard<TInput> = TInput extends { fields: infer TFields }
+  ? { fields: { [TKey in keyof TFields]: FieldDefinitionKeysGuard<TFields[TKey]> } }
+  : unknown
+
+/** Guard for field keys and known renderer prop types in app defaults. */
+export type FrameworkFieldDefaultsGuard<TInput> = FrameworkFieldDefaultKeysGuard<TInput> & (TInput extends { fields?: infer TFields }
   ? TFields extends Record<string, infer TDefinition>
     ? TDefinition extends { form?: infer TForm }
       ? TForm extends false | undefined ? unknown
@@ -38,7 +42,7 @@ export type FrameworkFieldDefaultsGuard<TInput> = TInput extends { fields?: infe
           : unknown
       : unknown
     : unknown
-  : unknown
+  : unknown)
 
 export function resolveFrameworkFieldDefaults<TInput extends FrameworkFieldDefaultsInput>(
   input: TInput & FrameworkFieldDefaultsGuard<TInput> = {} as TInput & FrameworkFieldDefaultsGuard<TInput>,

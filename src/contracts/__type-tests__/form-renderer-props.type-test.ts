@@ -17,7 +17,7 @@ const docSchema = {
 
 // defineFields: correct declared prop passes, extra props pass.
 const docFields = defineFields(docSchema, {
-  doc: { form: { renderer: 'file', props: { accept: ['application/pdf'], extra: true } } },
+  doc: { form: { renderer: 'file', source: [], props: { accept: ['application/pdf'], extra: true } } },
   amount: { form: { renderer: 'number', props: { currency: 'USD' } } },
 })
 void docFields
@@ -55,6 +55,48 @@ const docTypo = defineFields(docSchema, {
 })
 void docTypo
 
+// Field and projection keys stay closed; props stay open.
+const fieldKeyTypo = defineFields(docSchema, {
+  // @ts-expect-error fields is not a field definition key
+  doc: { fields: [], form: { renderer: 'file' } },
+})
+void fieldKeyTypo
+const formKeyTypo = defineFields(docSchema, {
+  // @ts-expect-error fields belongs inside props
+  doc: { form: { renderer: 'table', fields: [] } },
+})
+void formKeyTypo
+const tableFields = defineFields(docSchema, {
+  doc: { form: { renderer: 'table', props: { fields: [] } } },
+})
+void tableFields
+const misplacedTableFields = { renderer: 'table' as const, fields: [] }
+const variableFormKeyTypo = defineFields(docSchema, {
+  // @ts-expect-error named form definitions also reject unknown keys
+  doc: { form: misplacedTableFields },
+})
+void variableFormKeyTypo
+const displayKeyTypo = defineFields(docSchema, {
+  // @ts-expect-error formatName is not a display key
+  doc: { display: { formatName: 'date' } },
+})
+void displayKeyTypo
+const tableKeyTypo = defineFields(docSchema, {
+  // @ts-expect-error order is not a table key
+  doc: { table: { order: 1 } },
+})
+void tableKeyTypo
+const detailKeyTypo = defineFields(docSchema, {
+  // @ts-expect-error order is not a detail key
+  doc: { detail: { order: 1 } },
+})
+void detailKeyTypo
+const computedKeyTypo = defineFields(docSchema, {
+  // @ts-expect-error computed fields also use the closed definition keys
+  derived: { display: { read: () => 'derived' }, form: false, fields: [] },
+})
+void computedKeyTypo
+
 // schema-bound reference override keeps the base renderer check: an override
 // that repeats the renderer checks props against it.
 const fileOverrideBad = docFields.doc.override(
@@ -66,6 +108,16 @@ const fileOverrideBad = docFields.doc.override(
 void fileOverrideBad
 const fileOverrideOk = docFields.doc.override({ form: { renderer: 'file', props: { accept: ['application/pdf'] } } })
 void fileOverrideOk
+const overrideKeyTypo = docFields.doc.override(
+  // @ts-expect-error override form keys are closed
+  { form: { renderer: 'table', fields: [] } },
+)
+void overrideKeyTypo
+const overrideOuterTypo = docFields.doc.override(
+  // @ts-expect-error override definition keys are closed
+  { fields: [] },
+)
+void overrideOuterTypo
 
 // behavior.props uses the base renderer contract.
 const behaviorPropsBad = defineFields(docSchema, {
@@ -94,6 +146,11 @@ const defaultsBad = resolveFrameworkFieldDefaults(
   defaultsInput,
 )
 void defaultsBad
+const defaultsKeyTypo = resolveFrameworkFieldDefaults(
+  // @ts-expect-error field default form keys are closed
+  { fields: { doc: { form: { renderer: 'table', fields: [] } } } },
+)
+void defaultsKeyTypo
 
 // Input adapter defaults use the same contract.
 const adaptersBad = createInputPropsRegistry({

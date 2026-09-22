@@ -1,5 +1,6 @@
 import type {
   FieldDefinition,
+  FieldDefinitionKeysGuard,
   FieldDetailProjection,
   FieldDisplayProjection,
   FieldFormProjection,
@@ -347,9 +348,10 @@ type KnownDefinitions<TSchema extends WebResourceSchemaBoundary, TDefinitions ex
   [TKey in keyof TDefinitions]: TKey extends string
     ? TKey extends SchemaFieldKey<TSchema>
       ? DefinitionForKey<TSchema, TKey, KnownFormProjectionForKey<DraftForKey<TSchema, TKey>, ValueForKey<TSchema, TKey>>>
+        & FieldDefinitionKeysGuard<TDefinitions[TKey]>
         & SelectionDefinitionGuard<TDefinitions[TKey]>
         & FormPropGuardFor<TDefinitions[TKey]>
-      : ComputedDefinition<TSchema>
+      : ComputedDefinition<TSchema> & FieldDefinitionKeysGuard<TDefinitions[TKey]>
     : never
 }
 
@@ -357,17 +359,18 @@ type InferredDefinitions<TSchema extends WebResourceSchemaBoundary, TDefinitions
   [TKey in keyof TDefinitions]: TKey extends string
     ? TKey extends SchemaFieldKey<TSchema>
       ? DefinitionForKey<TSchema, TKey, InferredFormProjectionForKey<DraftForKey<TSchema, TKey>, ValueForKey<TSchema, TKey>>>
+        & FieldDefinitionKeysGuard<TDefinitions[TKey]>
         & SelectionDefinitionGuard<TDefinitions[TKey]>
         & FormPropGuardFor<TDefinitions[TKey]>
-      : ComputedDefinition<TSchema>
+      : ComputedDefinition<TSchema> & FieldDefinitionKeysGuard<TDefinitions[TKey]>
     : never
 }
 
 type AnyDefinitions<TSchema extends WebResourceSchemaBoundary, TDefinitions extends object> = TDefinitions & {
   [TKey in keyof TDefinitions]: TKey extends string
     ? TKey extends SchemaFieldKey<TSchema>
-      ? DefinitionForKey<TSchema, TKey, AnyFormProjectionForKey<DraftForKey<TSchema, TKey>, ValueForKey<TSchema, TKey>>> & SelectionDefinitionGuard<TDefinitions[TKey]> & FormPropGuardFor<TDefinitions[TKey]>
-      : ComputedDefinition<TSchema>
+      ? DefinitionForKey<TSchema, TKey, AnyFormProjectionForKey<DraftForKey<TSchema, TKey>, ValueForKey<TSchema, TKey>>> & FieldDefinitionKeysGuard<TDefinitions[TKey]> & SelectionDefinitionGuard<TDefinitions[TKey]> & FormPropGuardFor<TDefinitions[TKey]>
+      : ComputedDefinition<TSchema> & FieldDefinitionKeysGuard<TDefinitions[TKey]>
     : never
 }
 

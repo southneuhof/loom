@@ -39,6 +39,7 @@ export type {
   FieldDetailProjection,
   FieldFormProjection,
   FieldDefinition,
+  FieldDefinitionKeysGuard,
   FieldReference,
   FieldOverride,
   FieldCatalog,
