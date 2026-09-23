@@ -85,7 +85,6 @@ export const builtInFormRenderers = {
   textarea: controlledInput(() => import('../components/inputs/TextareaInput.vue')),
   password: controlledInput(() => import('../components/inputs/PasswordInput.vue')),
   number: controlledInput(() => import('../components/inputs/NumberInput.vue')),
-  currency: controlledInput(() => import('../components/inputs/NumberInput.vue')),
   select: controlledInput(() => import('../components/inputs/SelectInput.vue')),
   radio: controlledInput(() => import('../components/inputs/RadioGroupInput.vue')),
   date: controlledInput(() => import('../components/inputs/DateInput.vue')),
@@ -116,7 +115,6 @@ type BuiltInFormRendererKey = keyof Pick<
   | 'textarea'
   | 'password'
   | 'number'
-  | 'currency'
   | 'select'
   | 'radio'
   | 'date'
@@ -146,7 +144,6 @@ const builtInFormRendererKeys = [
   'textarea',
   'password',
   'number',
-  'currency',
   'select',
   'radio',
   'date',

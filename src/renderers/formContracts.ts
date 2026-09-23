@@ -73,7 +73,6 @@ export interface FormRendererComponents {
   textarea: () => Promise<{ default: typeof TextareaInput }>
   password: () => Promise<{ default: typeof PasswordInput }>
   number: () => Promise<{ default: typeof NumberInput }>
-  currency: () => Promise<{ default: typeof NumberInput }>
   select: () => Promise<{ default: typeof SelectInput }>
   radio: () => Promise<{ default: typeof RadioGroupInput }>
   date: () => Promise<{ default: typeof DateInput }>

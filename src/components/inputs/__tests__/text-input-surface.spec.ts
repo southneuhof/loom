@@ -63,4 +63,35 @@ describe('text-like input surfaces', () => {
     expect(host.querySelector('p')?.textContent).toBe('Rp')
     expect(host.querySelector('input')?.value).toBe('125.000')
   })
+
+  it('keeps digits in place while a currency amount is typed', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const model = ref(0)
+    const app = createApp(defineComponent({
+      setup: () => () => h(NumberInput, {
+        currency: 'IDR',
+        locale: 'id-ID',
+        modelValue: model.value,
+        'onUpdate:modelValue': (value: number) => { model.value = value },
+      }),
+    }))
+    app.use(FrameworkPlugin)
+    mounted.push(app)
+    app.mount(host)
+
+    const input = host.querySelector('input')!
+    input.focus()
+    for (const value of ['4', '40', '400', '4000', '40000']) {
+      input.value = value
+      input.dispatchEvent(new Event('input', { bubbles: true }))
+      await nextTick()
+      expect(input.value).toBe(value)
+    }
+    expect(model.value).toBe(40000)
+
+    input.blur()
+    await nextTick()
+    expect(input.value).toBe('40.000')
+  })
 })

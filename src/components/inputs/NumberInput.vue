@@ -40,21 +40,13 @@ const props = defineProps({
 
 const modelValue = defineModel<number>()
 if (modelValue.value == null && props.defaultValue != null) modelValue.value = props.defaultValue
-const inputValue = ref(modelValue.value)
+const editing = ref(false)
+const numberValue = ref('')
 
 function checkInput(e: InputEvent) {
   if (e.inputType !== 'insertText') return
   e.data && !/^[0-9\.\-]*$/.test(e.data) ? e.preventDefault() : null
 }
-
-watch(inputValue, (val) => {
-  if (Number.isNaN(inputValue.value)) return
-  modelValue.value = Number(inputValue.value)
-})
-
-watch(modelValue, (val) => {
-  inputValue.value = modelValue.value
-})
 
 function deformat(value: string) {
   if (value[0] === '0') value = value.slice(1)
@@ -62,13 +54,33 @@ function deformat(value: string) {
   return value.replace(/[^0-9\-\.]/g, '')
 }
 
-function emitChange(event: any) {
-  const deformattedInputValue = deformat(event.target.value)
-  if (Number.isNaN(deformattedInputValue)) return
-  modelValue.value = Number(deformattedInputValue)
+function emitChange(event: Event) {
+  const value = (event.target as HTMLInputElement).value
+  numberValue.value = value
+  const number = Number(deformat(value))
+  if (Number.isFinite(number)) modelValue.value = number
 }
 
-const numberValue = ref()
+function formatValue() {
+  numberValue.value = modelValue.value == null || Number.isNaN(modelValue.value)
+    ? ''
+    : new Intl.NumberFormat(props.locale).format(modelValue.value)
+}
+
+watch(modelValue, () => {
+  if (!editing.value) formatValue()
+}, { immediate: true })
+
+function focus() {
+  editing.value = true
+  numberValue.value = modelValue.value == null ? '' : String(modelValue.value)
+}
+
+function blur() {
+  editing.value = false
+  formatValue()
+}
+
 const localizedPrefix = computed(() => {
   if (props.prefix) return props.prefix
   if (!props.currency) return ''
@@ -81,15 +93,6 @@ const localizedPrefix = computed(() => {
     .find((part) => part.type === 'currency')?.value ?? props.currency
 })
 
-watch(
-  () => modelValue.value,
-  () => {
-    if (modelValue.value == null || Number.isNaN(modelValue.value)) return
-    if (modelValue.value?.toString() === '-0') return '-'
-    numberValue.value = new Intl.NumberFormat(props.locale).format(modelValue.value)
-  },
-  { immediate: true }
-)
 </script>
 
 <template>
@@ -108,6 +111,8 @@ watch(
         class="w-full bg-transparent focus:outline-none"
         @beforeinput="(e) => checkInput(e as InputEvent)"
         @input="(event) => emitChange(event)"
+        @focus="focus"
+        @blur="blur"
       />
       <p v-if="props.suffix" class="mr-4">{{ suffix }}</p>
       <div v-if="$slots.action" class="mr-4 max-h-min"><slot name="action"></slot></div>

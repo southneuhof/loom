@@ -23,6 +23,12 @@ function mountWithRenderers(renderers: Parameters<typeof createRendererRegistrie
 }
 
 describe('renderer registry', () => {
+  it('uses number for currency amounts without a second renderer', () => {
+    const registry = createRendererRegistries().form
+    expect(registry.has('number')).toBe(true)
+    expect(registry.has('currency')).toBe(false)
+  })
+
   it('adapts core controlled state to Vue v-model without leaking core-only props', () => {
     const received: Record<string, unknown> = {}
     const updated: unknown[] = []
