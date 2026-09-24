@@ -7,8 +7,9 @@ import type {
   RowReorderPayload,
   TreeTableProps,
 } from '../../contracts'
-import type { ResolvedSurfaceField } from '../../fields'
+import type { ResolvedDisplayField } from '../../display/resolveDisplay'
 import Table from './Table.vue'
+import { assertSingleDataSource } from './useCoreData'
 
 type TreeRowMetadata = {
   depth: number
@@ -22,7 +23,7 @@ type FlatTreeRow<TRecord extends object> = {
 type TreeCellScope<TRecord extends object> = {
   value: unknown
   record: TRecord
-  field: ResolvedSurfaceField
+  field: ResolvedDisplayField<TRecord>
   index: number
   depth: number
 }
@@ -41,12 +42,14 @@ const props = withDefaults(defineProps<TreeTableProps<TRecord, TQuery>>(), {
   minColumnWidth: 96,
 })
 
+assertSingleDataSource('TreeTable', props.data, props.load)
+
 const emit = defineEmits<{
   (event: 'update:query', query: QueryValues): void
   (event: 'update:visibleColumns', columns: string[]): void
   (event: 'update:columnSizing', sizes: Record<string, number>): void
-  (event: 'row-click', record: Record<string, unknown>, index: number): void
-  (event: 'row-reorder', payload: RowReorderPayload): void
+  (event: 'row-click', record: TRecord, index: number): void
+  (event: 'row-reorder', payload: RowReorderPayload<TRecord>): void
 }>()
 
 const slots = useSlots()
@@ -54,7 +57,7 @@ const tableRef = ref<TableExpose>()
 const loaderMetadata = shallowRef<Map<TRecord, TreeRowMetadata>>(new Map())
 
 function originalRecord(record: TRecord): TRecord {
-  return toRaw(record) as TRecord
+  return toRaw(record)
 }
 
 function treeError(): Error {
@@ -97,8 +100,8 @@ const tableProps = computed(() => {
   const { children: _children, treeColumn: _treeColumn, data: _data, load: _load, ...ordinaryProps } = props
   return {
     ...ordinaryProps,
-    data: dataTree.value?.records,
-    load: props.load === undefined ? undefined : loadTree,
+    ...(props.data !== undefined ? { data: dataTree.value?.records } : {}),
+    ...(props.load !== undefined ? { load: loadTree } : {}),
   }
 })
 
@@ -106,17 +109,17 @@ const activeMetadata = computed(() => dataTree.value?.metadata ?? loaderMetadata
 const treeSlotName = computed(() => `cell:${props.treeColumn}`)
 const forwardedSlotNames = computed(() => Object.keys(slots).filter((name) => name !== 'tree-cell' && name !== treeSlotName.value))
 
-function metadataFor(record: Record<string, unknown>) {
-  return activeMetadata.value.get(originalRecord(record as TRecord)) ?? { depth: 0 }
+function metadataFor(record: TRecord) {
+  return activeMetadata.value.get(originalRecord(record)) ?? { depth: 0 }
 }
 
 function treeCellScope(cell: {
   value: unknown
-  record: Record<string, unknown>
-  field: ResolvedSurfaceField
+  record: TRecord
+  field: ResolvedDisplayField<TRecord>
   index: number
 }): TreeCellScope<TRecord> {
-  return { ...cell, record: originalRecord(cell.record as TRecord), ...metadataFor(cell.record) }
+  return { ...cell, record: originalRecord(cell.record), ...metadataFor(cell.record) }
 }
 
 function forwardedSlotProps(slotProps: Record<string, unknown> | undefined) {
@@ -131,11 +134,11 @@ function updateQuery(next: QueryValues) {
   tableRef.value?.updateQuery(next)
 }
 
-function rowClick(record: Record<string, unknown>, index: number) {
-  emit('row-click', originalRecord(record as TRecord) as Record<string, unknown>, index)
+function rowClick(record: TRecord, index: number) {
+  emit('row-click', originalRecord(record), index)
 }
 
-function rowReorder(payload: RowReorderPayload) {
+function rowReorder(payload: RowReorderPayload<TRecord>) {
   emit('row-reorder', payload)
 }
 

@@ -214,7 +214,7 @@ onBeforeUnmount(() => {
               ($attrs.class as string),
             )
           "
-          data-testid="color-trigger"
+          v-bind="{ 'data-testid': 'color-trigger' }"
         >
           <div class="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5">
             <div
@@ -239,7 +239,7 @@ onBeforeUnmount(() => {
             ref="saturationAreaRef"
             class="relative h-52 cursor-crosshair overflow-hidden rounded-xl border border-outline/[24%]"
             :style="{ backgroundColor: `hsl(${hsva.hue} 100% 50%)` }"
-            data-testid="color-saturation-area"
+            v-bind="{ 'data-testid': 'color-saturation-area' }"
             @mousedown.prevent="startSaturationDrag"
           >
             <div class="absolute inset-0 bg-[linear-gradient(to_right,#fff,rgba(255,255,255,0))]"></div>
@@ -257,7 +257,7 @@ onBeforeUnmount(() => {
           <div class="mt-4 flex flex-col gap-3">
             <input
               class="color-slider color-slider--hue"
-              data-testid="color-hue-slider"
+              v-bind="{ 'data-testid': 'color-hue-slider' }"
               type="range"
               min="0"
               max="360"
@@ -268,7 +268,7 @@ onBeforeUnmount(() => {
             <div class="color-slider-track rounded-full h-[28px]" :style="{ backgroundSize: '12px 12px', backgroundPosition: '0 0, 6px 6px', backgroundImage: checkerboardStyle }">
               <input
                 class="color-slider color-slider--alpha"
-                data-testid="color-alpha-slider"
+                v-bind="{ 'data-testid': 'color-alpha-slider' }"
                 type="range"
                 min="0"
                 max="100"
@@ -286,7 +286,7 @@ onBeforeUnmount(() => {
                 v-model="draftHex"
                 class="min-w-0 flex-1 bg-transparent font-medium uppercase outline-none"
                 maxlength="6"
-                data-testid="color-hex-input"
+                v-bind="{ 'data-testid': 'color-hex-input' }"
                 @input="draftHex = sanitizeHexInput(($event.target as HTMLInputElement).value)"
                 @blur="commitHexInput"
                 @keydown.enter.prevent="commitHexInput"
@@ -295,10 +295,10 @@ onBeforeUnmount(() => {
                 v-if="currentValue"
                 kind="icon"
                 variant="standard"
-                aria-label="Clear color"
+                ariaLabel="Clear color"
                 class="!p-0 !w-[16px] !h-[16px] !min-w-[16px]"
                 type="button"
-                data-testid="color-clear-button"
+                v-bind="{ 'data-testid': 'color-clear-button' }"
                 @click="clearColor"
               >
                 <template #icon>
@@ -311,7 +311,7 @@ onBeforeUnmount(() => {
                 v-model="draftAlphaPercent"
                 class="w-10 bg-transparent text-right font-medium outline-none"
                 inputmode="numeric"
-                data-testid="color-alpha-input"
+                v-bind="{ 'data-testid': 'color-alpha-input' }"
                 @input="draftAlphaPercent = sanitizePercentInput(($event.target as HTMLInputElement).value)"
                 @blur="commitAlphaInput"
                 @keydown.enter.prevent="commitAlphaInput"
@@ -331,7 +331,7 @@ onBeforeUnmount(() => {
                 :class="currentValue === normalizeHexColor(preset.value) ? 'ring-2 ring-primary ring-offset-2 ring-offset-surface-container-high' : ''"
                 :title="preset.label || preset.id"
                 :style="{ backgroundSize: '12px 12px', backgroundPosition: '0 0, 6px 6px', backgroundImage: checkerboardStyle }"
-                data-testid="color-preset"
+                v-bind="{ 'data-testid': 'color-preset' }"
                 @click="applyPresetColor(preset.value)"
               >
                 <span class="h-full w-full rounded-[7px]" :style="{ backgroundColor: normalizeHexColor(preset.value) || preset.value }"></span>

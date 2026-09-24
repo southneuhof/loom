@@ -132,7 +132,7 @@ function closeDialog() {
       <DialogTitle class="sr-only">Image preview</DialogTitle>
       <DialogDescription class="sr-only">Preview selected image.</DialogDescription>
       <div class="relative">
-        <button data-testid="image-preview-close" aria-label="Close image preview" class="absolute right-4 top-4 z-10 text-on-surface" @click="closeDialog()"><Icon name="close"></Icon></button>
+        <button v-bind="{ 'data-testid': 'image-preview-close' }" aria-label="Close image preview" class="absolute right-4 top-4 z-10 text-on-surface" @click="closeDialog()"><Icon name="close"></Icon></button>
         <slot v-if="$slots['image-detail']" name="image-detail" />
         <img v-else-if="detailSrc" class="h-full rounded-xl bg-surface-container-high object-scale-down" :src="detailSrc" @error="onDetailError" />
         <div v-else class="flex h-[240px] w-[240px] items-center justify-center rounded-xl bg-surface-container-high text-muted">

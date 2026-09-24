@@ -35,9 +35,10 @@ const props = defineProps({
   ...commonProps,
 })
 
-const modelValue = defineModel<any>()
-if (['Y', 'N'].includes(modelValue.value)) modelValue.value = ({ Y: true, N: false } as any)[modelValue.value]
-const inputValue = ref(modelValue.value)
+const modelValue = defineModel<boolean | 'Y' | 'N'>()
+if (modelValue.value === 'Y') modelValue.value = true
+else if (modelValue.value === 'N') modelValue.value = false
+const inputValue = ref(modelValue.value === true)
 
 if (props.static)
   watch(
@@ -58,7 +59,7 @@ function handleClick() {
 
 watch(
   () => modelValue.value,
-  () => (inputValue.value = modelValue.value)
+  (value) => (inputValue.value = value === true || value === 'Y')
 )
 </script>
 

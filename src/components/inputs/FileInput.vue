@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { defineAsyncComponent, ref, watch, computed, onBeforeUnmount, type PropType } from 'vue'
+import { defineAsyncComponent, ref, watch, computed, onBeforeUnmount, useAttrs, type PropType } from 'vue'
 import type { UploadOperation, UploadProgress } from '../../contracts'
 import { useFormInputPending } from '../core/useFormInputState'
 import FileComponent from '@southneuhof/loom/components/utils/FileComponent.vue'
@@ -16,6 +16,8 @@ import { toInputAssetValue, type InputAssetValue } from './assetValue'
 import { useDropZone } from '@vueuse/core'
 import { useOptionalAssetProvider, type ManagedAsset } from './optionalAssetProvider'
 import { useUploadMutation } from './useUploadMutation'
+
+defineOptions({ inheritAttrs: false })
 
 const props = defineProps({
   accept: {
@@ -37,10 +39,17 @@ const props = defineProps({
     type: String,
     default: '',
   },
-  upload: Function as PropType<UploadOperation<any>>,
-  toModel: { type: Function as PropType<(result: any) => unknown | Promise<unknown>>, default: (result: unknown) => result },
+  upload: Function as PropType<UploadOperation>,
+  toModel: { type: Function as PropType<(result: unknown) => unknown | Promise<unknown>>, default: (result: unknown) => result },
   ...commonProps,
 })
+const attrs = useAttrs()
+const controlAttrs = computed(() => Object.fromEntries(
+  Object.entries(attrs).filter(([key]) => key === 'id' || key.startsWith('aria-')),
+))
+const wrapperAttrs = computed(() => Object.fromEntries(
+  Object.entries(attrs).filter(([key]) => key === 'class' || key === 'style'),
+))
 const fileManager = useOptionalAssetProvider()
 const AssetPicker = defineAsyncComponent(() => import('../../file-manager/AssetPicker.vue'))
 const mutation = useUploadMutation(() => props.upload)
@@ -85,7 +94,7 @@ const fileManagerOpen = ref(false)
 const fileInput = ref<HTMLInputElement>()
 const dropZoneRef = ref<HTMLDivElement>()
 
-const modelValue = defineModel<any>()
+const modelValue = defineModel<InputAssetValue | InputAssetValue[] | null>()
 if (modelValue.value) {
   if (Array.isArray(modelValue.value)) {
     rows.value = modelValue.value
@@ -253,12 +262,23 @@ function onDrop(files?: File[] | null) {
   if (files?.length) handleFileUpload(files)
 }
 
-const { isOverDropZone } = useDropZone(dropZoneRef as any, onDrop)
+const { isOverDropZone } = useDropZone(dropZoneRef, onDrop)
 const canAddFile = computed(() => props.multi || rows.value.length === 0)
 </script>
 
 <template>
-  <BaseInput v-bind="props">
+  <BaseInput v-bind="{ ...props, ...wrapperAttrs }">
+    <input
+      v-bind="controlAttrs"
+      ref="fileInput"
+      type="file"
+      hidden
+      :disabled="!props.upload || (!props.multi && rows.length > 0)"
+      :multiple="props.multi"
+      :accept="acceptTypes.join(',') || undefined"
+      class="rounded-md p-2"
+      @change="handleInputChange"
+    />
     <div class="flex flex-col gap-4">
       <div v-if="rows.length > 0" class="flex flex-row flex-wrap items-center gap-4">
         <template v-for="row in rows" :key="row.id">
@@ -274,8 +294,7 @@ const canAddFile = computed(() => props.multi || rows.value.length === 0)
           />
           <div
             v-else
-            :data-upload-id="row.id"
-            data-testid="file-upload-progress"
+            v-bind="{ 'data-upload-id': row.id, 'data-testid': 'file-upload-progress' }"
             class="relative flex max-w-max overflow-hidden rounded-md bg-surface-container p-4"
           >
             <div
@@ -295,69 +314,66 @@ const canAddFile = computed(() => props.multi || rows.value.length === 0)
           </div>
         </template>
       </div>
-      <template v-else>
-        <div v-if="canAddFile" class="flex flex-col gap-2">
-          <div ref="dropZoneRef" class="overlay flex w-full flex-col items-center justify-center gap-4 rounded-md py-8 outline-dashed outline-2 outline-outline-variant after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active" :class="{ 'after:bg-primary-drag after:opacity-100 outline-primary/[33%]': isOverDropZone }">
-            <div v-if="!isOverDropZone" class="flex flex-row items-center gap-4">
-              <div class="text-black-light font-bold">Letakkan file anda di sini</div>
-              <div class="text-black-light">/</div>
-              <Popover v-model="sourcePopoverOpen" contentClass="p-0">
-                <template #trigger>
-                  <Button type="button">
-                    <template #icon>
-                      <Icon name="add-circle"></Icon>
-                    </template>
-                    <div>Pilih sumber file</div>
-                  </Button>
-                </template>
-                <template #content>
-                  <div class="flex flex-col">
-                    <button v-if="props.upload" type="button" class="overlay flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active" @click="openDevicePicker">
-                      <Icon name="upload-cloud" size="sm" />
-                      <span>Upload from device</span>
-                    </button>
-                    <button v-if="fileManager" type="button" class="overlay flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active" @click="openFileManager">
-                      <Icon name="folder-2" size="sm" />
-                      <span>Choose from file manager</span>
-                    </button>
-                  </div>
-                </template>
-              </Popover>
-              <input ref="fileInput" type="file" hidden :multiple="props.multi" :accept="acceptTypes.join(',') || undefined" class="rounded-md p-2" @change="handleInputChange" />
-            </div>
-            <div v-else>
-              <div class="flex flex-col items-center justify-center gap-4">
-                <div><Icon name="upload-cloud"></Icon></div>
-                <div class="text-black-light font-bold">Lepaskan kursor untuk mengunggah</div>
-              </div>
-            </div>
+      <div v-if="canAddFile" class="flex flex-col gap-2">
+        <div ref="dropZoneRef" class="overlay flex w-full flex-col items-center justify-center gap-4 rounded-md py-8 outline-dashed outline-2 outline-outline-variant after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active" :class="{ 'after:bg-primary-drag after:opacity-100 outline-primary/[33%]': isOverDropZone }">
+          <div v-if="!isOverDropZone" class="flex flex-row items-center gap-4">
+            <div class="text-black-light font-bold">Letakkan file anda di sini</div>
+            <div class="text-black-light">/</div>
+            <Popover v-model="sourcePopoverOpen" contentClass="p-0">
+              <template #trigger>
+                <Button type="button">
+                  <template #icon>
+                    <Icon name="add-circle"></Icon>
+                  </template>
+                  <div>Pilih sumber file</div>
+                </Button>
+              </template>
+              <template #content>
+                <div class="flex flex-col">
+                  <button v-if="props.upload" type="button" class="overlay flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active" @click="openDevicePicker">
+                    <Icon name="upload-cloud" size="sm" />
+                    <span>Upload from device</span>
+                  </button>
+                  <button v-if="fileManager" type="button" class="overlay flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active" @click="openFileManager">
+                    <Icon name="folder-2" size="sm" />
+                    <span>Choose from file manager</span>
+                  </button>
+                </div>
+              </template>
+            </Popover>
           </div>
-          <div v-if="acceptTypes.length > 0 || maxSize" class="flex flex-row gap-4">
-            <div class="flex flex-row items-center gap-2">
-              <Tooltip v-if="acceptTypes.length > 0 || maxSize">
-                <template #trigger>
-                  <div class="flex flex-row items-center gap-1 text-muted">
-                    <Icon name="information" size="xs" :fill="true"></Icon>
-                    <p class="text-sm">File yang diterima</p>
-                  </div>
-                </template>
-                <template #content>
-                  <div class="flex flex-col gap-2">
-                    <div v-if="acceptTypes.length > 0" class="flex flex-col">
-                      <p class="text-sm uppercase text-white/[67%]">Tipe File</p>
-                      <p class="text-sm">{{ acceptTypesPretty.join(', ') }}</p>
-                    </div>
-                    <div v-if="maxFileSize" class="flex flex-col">
-                      <p class="text-sm uppercase text-white/[67%]">Maksimal Ukuran File</p>
-                      <p class="text-sm">{{ maxFileSize }}MB</p>
-                    </div>
-                  </div>
-                </template>
-              </Tooltip>
+          <div v-else>
+            <div class="flex flex-col items-center justify-center gap-4">
+              <div><Icon name="upload-cloud"></Icon></div>
+              <div class="text-black-light font-bold">Lepaskan kursor untuk mengunggah</div>
             </div>
           </div>
         </div>
-      </template>
+        <div v-if="acceptTypes.length > 0 || maxSize" class="flex flex-row gap-4">
+          <div class="flex flex-row items-center gap-2">
+            <Tooltip v-if="acceptTypes.length > 0 || maxSize">
+              <template #trigger>
+                <div class="flex flex-row items-center gap-1 text-muted">
+                  <Icon name="information" size="xs" :fill="true"></Icon>
+                  <p class="text-sm">File yang diterima</p>
+                </div>
+              </template>
+              <template #content>
+                <div class="flex flex-col gap-2">
+                  <div v-if="acceptTypes.length > 0" class="flex flex-col">
+                    <p class="text-sm uppercase text-white/[67%]">Tipe File</p>
+                    <p class="text-sm">{{ acceptTypesPretty.join(', ') }}</p>
+                  </div>
+                  <div v-if="maxFileSize" class="flex flex-col">
+                    <p class="text-sm uppercase text-white/[67%]">Maksimal Ukuran File</p>
+                    <p class="text-sm">{{ maxFileSize }}MB</p>
+                  </div>
+                </div>
+              </template>
+            </Tooltip>
+          </div>
+        </div>
+      </div>
     </div>
   </BaseInput>
   <Dialog v-model:open="fileManagerOpen">

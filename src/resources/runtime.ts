@@ -10,20 +10,13 @@ import { getCurrentInstance, inject } from 'vue'
 import type { QueryClient } from '@tanstack/vue-query'
 import { frameworkAdaptersKey, resolveFrameworkAdapters, type ResolvedFrameworkAdapters } from '../adapters/projectAdapters'
 import { createFrameworkQueryClient, frameworkQueryClientKey } from '../query/client'
-import {
-  frameworkFieldDefaultsKey,
-  resolveFrameworkFieldDefaults,
-  type ResolvedFrameworkFieldDefaults,
-} from '../fields/defaults'
-import type { InputPropsRegistry } from '../renderers/inputProps'
-import { inputPropsRegistryKey } from '../renderers/inputProps'
 
 export interface ResourceRuntime {
   adapters: ResolvedFrameworkAdapters
   queryClient: QueryClient
-  fieldDefaults: ResolvedFrameworkFieldDefaults
-  inputProps?: InputPropsRegistry
 }
+
+export type ResourceOperationRuntime = Pick<ResourceRuntime, 'adapters' | 'queryClient'>
 
 let installed: ResourceRuntime | undefined
 
@@ -39,14 +32,15 @@ export function useResourceRuntime(): ResourceRuntime {
   if (getCurrentInstance()) {
     const adapters = inject(frameworkAdaptersKey, null)
     const queryClient = inject(frameworkQueryClientKey, null)
-    const fieldDefaults = inject(frameworkFieldDefaultsKey, null)
-    const inputProps = inject(inputPropsRegistryKey, null)
-    if (adapters && queryClient && fieldDefaults) return { adapters, queryClient, fieldDefaults, inputProps: inputProps ?? undefined }
+    if (adapters && queryClient) return { adapters, queryClient }
   }
   if (installed) return installed
   return {
     adapters: resolveFrameworkAdapters(),
     queryClient: createFrameworkQueryClient(),
-    fieldDefaults: resolveFrameworkFieldDefaults(),
   }
+}
+
+export function useResourceOperationRuntime(): ResourceOperationRuntime {
+  return useResourceRuntime()
 }

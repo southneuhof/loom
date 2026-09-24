@@ -51,10 +51,10 @@ const props = defineProps({
     type: String,
     default: '',
   },
-  upload: Function as PropType<UploadOperation<any>>,
-  toModel: { type: Function as PropType<(result: any) => unknown | Promise<unknown>>, default: (result: unknown) => result },
+  upload: Function as PropType<UploadOperation>,
+  toModel: { type: Function as PropType<(result: unknown) => unknown | Promise<unknown>>, default: (result: unknown) => result },
   imageURLResolver: {
-    type: Function as PropType<(payload: any) => { imageURL: string; thumbnailURL: string }>,
+    type: Function as PropType<(payload: InputAssetValue) => { imageURL: string; thumbnailURL: string }>,
   },
   ...commonProps,
 })
@@ -72,7 +72,7 @@ onBeforeUnmount(() => {
   disposed = true
   for (const operation of [...pendingOperations]) releaseOperation(operation)
 })
-const imageURLResolver = props.imageURLResolver ?? ((payload: any) => ({ imageURL: payload?.url ?? '', thumbnailURL: payload?.url ?? '' }))
+const imageURLResolver = props.imageURLResolver ?? ((payload: InputAssetValue) => ({ imageURL: payload.url, thumbnailURL: payload.url }))
 
 const modelValue = defineModel<InputAssetValue | Array<InputAssetValue>>()
 const emit = defineEmits(['update:modelValue', 'update:uploadState', 'validation:touch'])
@@ -81,7 +81,7 @@ const uploadPercentage = computed(() => {
   const value = mutation.progress.value
   return value?.total ? Math.round((value.loaded / value.total) * 100) : undefined
 })
-const images = ref<Array<any>>([])
+const images = ref<InputAssetValue[]>([])
 const isUploading = mutation.pending
 const isDragActive = ref(false)
 const isReplaceDragActive = ref(false)

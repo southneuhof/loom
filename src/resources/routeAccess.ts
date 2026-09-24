@@ -2,6 +2,7 @@ export interface RegisteredResourceAction {
   resourceKey: string
   action: string
   permission: string | null
+  permissions?: readonly string[]
 }
 
 const actionsByRoute = new Map<string, RegisteredResourceAction>()
@@ -12,11 +13,17 @@ export function registerResourceAction(routeName: string, action: RegisteredReso
     actionsByRoute.set(routeName, action)
     return
   }
-  if (existing.action === action.action && existing.permission === action.permission) {
+  if (existing.action === action.action && existing.permission === action.permission && samePermissions(existing.permissions, action.permissions)) {
     actionsByRoute.set(routeName, action)
     return
   }
   throw new Error(`[loom] Route action conflict for "${routeName}".`)
+}
+
+function samePermissions(left: readonly string[] | undefined, right: readonly string[] | undefined): boolean {
+  return left === undefined || right === undefined
+    ? left === right
+    : left.length === right.length && left.every((permission, index) => permission === right[index])
 }
 
 export function resourceActionForRoute(routeName: string): RegisteredResourceAction | undefined {

@@ -7,6 +7,12 @@ import { adaptVModelInput, builtInFormRenderers } from '../form'
 const Chip = defineComponent({ name: 'Chip', setup: () => () => h('span') })
 const ProjectChip = defineComponent({ name: 'ProjectChip', setup: () => () => h('em') })
 
+declare module '../displayContracts' {
+  interface DisplayRendererComponents {
+    chip: typeof Chip
+  }
+}
+
 function mountWithRenderers(renderers: Parameters<typeof createRendererRegistries>[0]) {
   let registries: ReturnType<typeof useRendererRegistries> | undefined
   const app = createApp(
@@ -112,8 +118,8 @@ describe('renderer registry', () => {
     app.unmount()
   })
 
-  it('looks up registered renderers per surface', () => {
-    const registry = createRendererRegistry('table', { chip: Chip })
+  it('looks up registered display renderers', () => {
+    const registry = createRendererRegistry('display', { chip: Chip })
 
     expect(registry.get('chip')).toBe(Chip)
     expect(registry.has('chip')).toBe(true)
@@ -127,29 +133,45 @@ describe('renderer registry', () => {
     expect(() => createRendererRegistry('table').require('chip')).toThrow('Registered: none.')
   })
 
-  it('lets a later registration override an earlier one', () => {
-    const registry = createRendererRegistry('detail', { chip: Chip })
+  it('lets a later display registration override an earlier one', () => {
+    const registry = createRendererRegistry('display', { chip: Chip })
     registry.register('chip', ProjectChip)
 
     expect(registry.get('chip')).toBe(ProjectChip)
   })
 
   it('keeps surfaces independent', () => {
-    const registries = createRendererRegistries({ table: { chip: Chip }, form: { text: ProjectChip } })
+    const registries = createRendererRegistries({ display: { chip: Chip }, form: { text: ProjectChip } })
 
-    expect(registries.table.has('text')).toBe(false)
+    expect(registries.display.has('text')).toBe(false)
     expect(registries.form.has('chip')).toBe(false)
   })
 
+  it('registers display components in one shared display registry', () => {
+    const mounted = mountWithRenderers({ display: { chip: Chip } })
+
+    expect(mounted.registries.display.get('chip')).toBe(Chip)
+    expect(mounted.registries.form.has('chip')).toBe(false)
+    mounted.app.unmount()
+  })
+
+  it('reports unknown display renderer keys', () => {
+    const registry = createRendererRegistry('display')
+
+    expect(() => registry.require('unknown')).toThrow(
+      '[loom][RENDERER_NOT_REGISTERED] No display renderer registered for "unknown". Registered: none.',
+    )
+  })
+
   it('isolates registries between apps', () => {
-    const first = mountWithRenderers({ table: { chip: Chip } })
-    const second = mountWithRenderers({ table: { chip: ProjectChip } })
+    const first = mountWithRenderers({ display: { chip: Chip } })
+    const second = mountWithRenderers({ display: { chip: ProjectChip } })
 
-    expect(first.registries.table.get('chip')).toBe(Chip)
-    expect(second.registries.table.get('chip')).toBe(ProjectChip)
+    expect(first.registries.display.get('chip')).toBe(Chip)
+    expect(second.registries.display.get('chip')).toBe(ProjectChip)
 
-    first.registries.table.register('extra', Chip)
-    expect(second.registries.table.has('extra')).toBe(false)
+    first.registries.display.register('extra', Chip)
+    expect(second.registries.display.has('extra')).toBe(false)
 
     first.app.unmount()
     second.app.unmount()

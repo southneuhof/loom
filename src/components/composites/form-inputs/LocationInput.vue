@@ -8,17 +8,19 @@ import {
   watch,
   type PropType,
 } from "vue";
+import { z } from "zod/v4";
 import type {
   Coordinate,
-  FieldCatalog,
   LocationOperations,
   LocationPrediction,
 } from "../../../contracts";
+import type { FormFields } from "../../../contracts/forms";
 import { commonProps } from "../../inputs/commonprops";
 import Popover from "../../base/Popover.vue";
 import SearchBox from "../../inputs/SearchBox.vue";
 import BaseInput from "../../inputs/BaseInput.vue";
 import Form from "../../core/Form.vue";
+import { defineForm } from "../../../forms/defineForm";
 import Button from "../../base/Button.vue";
 import Card from "../../base/Card.vue";
 import Icon from "../../base/Icon.vue";
@@ -47,25 +49,34 @@ let detailController: AbortController | undefined;
 let autocompleteGeneration = 0;
 let detailGeneration = 0;
 
+const locationSchema = z.object({
+  name: z.string().optional(),
+  lat: z.number(),
+  lng: z.number(),
+  formatted_address: z.string().optional(),
+});
+type LocationInput = z.input<typeof locationSchema>;
 const locationFields = {
   name: {
     label: "Nama Lokasi",
-    form: { renderer: "text" },
+    renderer: "text",
   },
-} satisfies FieldCatalog<Coordinate, Coordinate>;
+} satisfies FormFields<LocationInput>;
+const locationForm = defineForm({ schema: locationSchema, fields: locationFields });
 
-const formModel = computed({
-  get: () => modelValue.value as Coordinate,
-  set: (value: Partial<Coordinate>) => {
-    modelValue.value = {
-      lat: Number(value?.lat ?? modelValue.value?.lat ?? center.value.lat),
-      lng: Number(value?.lng ?? modelValue.value?.lng ?? center.value.lng),
-      name: value?.name ?? modelValue.value?.name,
-      formatted_address:
-        value?.formatted_address ?? modelValue.value?.formatted_address,
-    };
-  },
-});
+const formModel = computed<Coordinate>(
+  () => modelValue.value ?? { lat: center.value.lat, lng: center.value.lng },
+);
+
+function updateFormModel(value: Partial<LocationInput>) {
+  modelValue.value = {
+    lat: Number(value.lat ?? modelValue.value?.lat ?? center.value.lat),
+    lng: Number(value.lng ?? modelValue.value?.lng ?? center.value.lng),
+    name: value.name ?? modelValue.value?.name,
+    formatted_address:
+      value.formatted_address ?? modelValue.value?.formatted_address,
+  };
+}
 
 watch(modelValue, (value) => {
   center.value = value ?? { lat: -1.2100164677737193, lng: 117.56306695042623 };
@@ -161,6 +172,11 @@ function updateCoordinate(lat: number, lng: number) {
   emit("validation:touch");
 }
 
+function updateCoordinateFromMap(event: { latLng?: { lat: () => number; lng: () => number } | null }) {
+  if (!event.latLng) return;
+  updateCoordinate(event.latLng.lat(), event.latLng.lng());
+}
+
 watch(query, autocomplete);
 onMounted(loadConfig);
 onBeforeUnmount(() => {
@@ -174,11 +190,11 @@ onBeforeUnmount(() => {
   <BaseInput v-bind="props">
     <div class="grid grid-cols-12 gap-8">
       <div class="col-span-3 flex flex-col gap-4">
-        <Popover class="w-full" :ignore="['#location-search-box']" static>
+        <Popover class="w-full">
           <template #trigger
             ><SearchBox
               v-model="query"
-              id="location-search-box"
+              v-bind="{ id: 'location-search-box' }"
               class="w-full"
               placeholder="Cari lokasi..."
           /></template>
@@ -214,6 +230,7 @@ onBeforeUnmount(() => {
               ><Button
                 kind="icon"
                 variant="standard"
+                ariaLabel="Gunakan lokasi saat ini"
                 @click="getCurrentLocation"
                 >
                   <template #icon><Icon name="map-pin" /></template>
@@ -227,7 +244,7 @@ onBeforeUnmount(() => {
           </div>
           <p v-else class="text-muted">Pilih lokasi</p>
         </Card>
-        <Form v-if="modelValue" v-model="formModel" :fields="locationFields" />
+        <Form v-if="modelValue" v-bind="locationForm" :model-value="formModel" @update:model-value="updateFormModel" />
         <p v-if="error" role="alert" class="text-error">{{ error }}</p>
         <div v-if="loading" class="flex items-center gap-4">
           <Spinner />Memuat...
@@ -240,18 +257,12 @@ onBeforeUnmount(() => {
           :api-key="apiKey"
           :center="center"
           :zoom="zoom"
-          @click="
-            (event: any) =>
-              updateCoordinate(event.latLng.lat(), event.latLng.lng())
-          "
+          @click="updateCoordinateFromMap"
         >
           <Marker
             v-if="modelValue"
             :options="{ position: modelValue, draggable: true }"
-            @dragend="
-              (event: any) =>
-                updateCoordinate(event.latLng.lat(), event.latLng.lng())
-            "
+            @dragend="updateCoordinateFromMap"
           />
         </GoogleMap>
       </div>

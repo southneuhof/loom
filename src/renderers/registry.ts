@@ -1,16 +1,9 @@
-/**
- * Renderer registries.
- *
- * Field config stores a stable `renderer` key plus serializable options; the
- * implementation is an ordinary Vue component held here. Renderer contexts
- * carry value, record or draft, field identity, and editing state — never
- * routes, permission stores, or resource operations.
- */
 import { inject, type Component, type InjectionKey } from 'vue'
 import { builtInFormRenderers } from './form'
 import type { FormRendererComponents } from './formContracts'
+import type { DisplayRendererComponents } from './displayContracts'
 
-export type RendererSurface = 'table' | 'detail' | 'form'
+export type RendererSurface = 'form' | 'display'
 
 export interface RendererRegistry {
   register: (key: string, renderer: Component) => void
@@ -33,20 +26,26 @@ export interface FormRendererRegistry extends Omit<RendererRegistry, 'register'>
   ): void
 }
 
-export interface RendererRegistries {
-  table: RendererRegistry
-  detail: RendererRegistry
-  form: FormRendererRegistry
+export interface DisplayRendererRegistry extends Omit<RendererRegistry, 'register'> {
+  register<K extends keyof DisplayRendererComponents & string>(
+    key: K,
+    renderer: DisplayRendererComponents[K],
+  ): void
 }
 
-export function createRendererRegistry(
-  surface: 'table' | 'detail',
-  initial?: Record<string, Component>,
-): RendererRegistry
+export interface RendererRegistries {
+  form: FormRendererRegistry
+  display: DisplayRendererRegistry
+}
+
 export function createRendererRegistry(
   surface: 'form',
   initial?: FormRendererRegistriesInput,
 ): FormRendererRegistry
+export function createRendererRegistry(
+  surface: 'display',
+  initial?: DisplayRendererRegistriesInput,
+): DisplayRendererRegistry
 export function createRendererRegistry(
   surface: RendererSurface,
   initial: Record<string, Component> = {},
@@ -62,7 +61,7 @@ export function createRendererRegistry(
       const renderer = renderers.get(key)
       if (!renderer) {
         throw new Error(
-          `[loom] No ${surface} renderer registered for "${key}". Registered: ${[...renderers.keys()].join(', ') || 'none'}.`,
+          `[loom][RENDERER_NOT_REGISTERED] No ${surface} renderer registered for "${key}". Registered: ${[...renderers.keys()].join(', ') || 'none'}.`,
         )
       }
       return renderer
@@ -79,17 +78,19 @@ export type FormRendererRegistriesInput = {
   [K in keyof FormRendererComponents]?: FormRendererComponents[K] | Component
 }
 
+export type DisplayRendererRegistriesInput = {
+  [K in keyof DisplayRendererComponents]?: DisplayRendererComponents[K]
+}
+
 export interface RendererRegistriesInput {
-  table?: Record<string, Component>
-  detail?: Record<string, Component>
   form?: FormRendererRegistriesInput
+  display?: DisplayRendererRegistriesInput
 }
 
 export function createRendererRegistries(input: RendererRegistriesInput = {}): RendererRegistries {
   return {
-    table: createRendererRegistry('table', input.table),
-    detail: createRendererRegistry('detail', input.detail),
     form: createRendererRegistry('form', input.form ? { ...builtInFormRenderers, ...input.form } : { ...builtInFormRenderers }),
+    display: createRendererRegistry('display', input.display),
   }
 }
 
@@ -101,8 +102,8 @@ export function useRendererRegistries(): RendererRegistries {
   return registries
 }
 
-export function useRendererRegistry(surface: 'table' | 'detail'): RendererRegistry
 export function useRendererRegistry(surface: 'form'): FormRendererRegistry
-export function useRendererRegistry(surface: RendererSurface): RendererRegistry | FormRendererRegistry {
+export function useRendererRegistry(surface: 'display'): DisplayRendererRegistry
+export function useRendererRegistry(surface: RendererSurface): RendererRegistry | FormRendererRegistry | DisplayRendererRegistry {
   return useRendererRegistries()[surface]
 }

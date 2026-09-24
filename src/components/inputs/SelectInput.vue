@@ -70,8 +70,8 @@ const props = defineProps({
   },
   ...commonProps,
 })
-type SelectRecord = Record<string, any>
-type SelectModelValue = SelectRecord[] | SelectRecord | string | null
+type SelectRecord = Record<string, unknown>
+type SelectModelValue = SelectRecord[] | SelectRecord | string | number | null
 const modelValue = defineModel<SelectModelValue>()
 const emit = defineEmits<{
   (event: 'validation:touch'): void

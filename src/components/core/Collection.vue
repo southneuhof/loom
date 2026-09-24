@@ -15,7 +15,7 @@ const emit = defineEmits<{
   (event: 'update:query', query: QueryValues): void
 }>()
 
-assertSingleDataSource('Table', props.data, props.load)
+assertSingleDataSource('Collection', props.data, props.load)
 
 const defaults = computed<QueryValues>(() => ({ page: 1, limit: props.defaultPageSize }))
 const hasControlledQuery = 'query' in (getCurrentInstance()?.vnode.props ?? {})
@@ -48,7 +48,7 @@ const loaded = useLoader<CollectionLoadContext<TQuery>, CollectionResult<TRecord
   key: computed(() => collectionCacheKey(owner.value, props.namespace, effectiveQuery.value, props.searchParameters ?? {})),
   context: computed(() => ({ query: effectiveQuery.value as TQuery, searchParameters: props.searchParameters ?? {} })),
   load: computed(() => props.load),
-  data: computed(() => (props.data ? { data: props.data } : undefined)),
+  data: computed(() => (props.data !== undefined ? { data: props.data, meta: props.meta } : undefined)),
 })
 
 const records = computed(() => loaded.data.value?.data ?? [])

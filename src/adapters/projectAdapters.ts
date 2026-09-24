@@ -15,7 +15,6 @@ import type {
   QueryNamespace,
   QueryValues,
   SubmitError,
-  ValidationSchema,
 } from '../contracts'
 
 export interface DataAdapter {
@@ -25,11 +24,6 @@ export interface DataAdapter {
   normalizeRecord: <TRecord extends object>(payload: unknown) => RecordResult<TRecord>
   /** Normalizes a rejected request into a message plus field issues. */
   normalizeError: (error: unknown) => SubmitError
-}
-
-export interface SchemaAdapter {
-  /** Looks up schemas an RPC route exposes; returns undefined when unavailable. */
-  find: (resource: string, operation: 'record' | 'query' | 'create' | 'update') => ValidationSchema | undefined
 }
 
 /** Project-owned UI environment signals (theme, …). */
@@ -47,7 +41,6 @@ export interface QueryRuntimeDefaults {
 export interface FrameworkAdaptersInput {
   data?: Partial<DataAdapter>
   query?: QueryLocationAdapter
-  schemas?: SchemaAdapter
   /** UI access policy. Backend authorization stays authoritative. */
   access?: AccessAdapter
   queryDefaults?: QueryRuntimeDefaults
@@ -58,7 +51,6 @@ export interface FrameworkAdaptersInput {
 export interface ResolvedFrameworkAdapters {
   data: DataAdapter
   query: QueryLocationAdapter
-  schemas?: SchemaAdapter
   access: AccessAdapter
   queryDefaults: Required<QueryRuntimeDefaults>
   ui: UiAdapter
@@ -146,7 +138,6 @@ export function resolveFrameworkAdapters(input: FrameworkAdaptersInput = {}): Re
   return {
     data: { ...defaultDataAdapter, ...input.data },
     query: input.query ?? createMemoryQueryLocationAdapter(),
-    schemas: input.schemas,
     access: input.access ?? defaultAccessAdapter,
     queryDefaults: { ...defaultQueryRuntimeDefaults, ...input.queryDefaults },
     ui: input.ui ?? defaultUiAdapter,

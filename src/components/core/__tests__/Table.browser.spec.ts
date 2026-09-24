@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { commands } from 'vitest/browser'
 import { createApp, h, nextTick, ref } from 'vue'
+import { z } from 'zod'
 import Table from '../Table.vue'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import { createFrameworkQueryClient } from '../../../query'
@@ -15,14 +16,14 @@ declare module 'vitest/browser' {
 const apps: ReturnType<typeof createApp>[] = []
 const namespaces = new Set<string>()
 
-const fields = { name: { label: 'Name' }, status: { label: 'Status' } }
+const columns = { name: { label: 'Name' }, status: { label: 'Status' } }
 const data = Array.from({ length: 40 }, (_, index) => ({ name: `User ${index}`, status: 'open' }))
 
 function mount(options: {
   namespace?: string
   controlled?: boolean
   controlledVisibility?: boolean
-  fields?: Record<string, { label: string }>
+  columns?: Record<string, { label: string }>
   data?: Record<string, unknown>[]
   rowPrefix?: boolean
   rowActions?: boolean
@@ -35,13 +36,14 @@ function mount(options: {
   namespaces.add(namespace)
   const commits: Record<string, number>[] = []
   const sizing = ref<Record<string, number>>({})
-  const visibleColumns = ref(Object.keys(options.fields ?? fields))
+  const visibleColumns = ref(Object.keys(options.columns ?? columns))
   const app = createApp({
     render: () => h(
       Table,
       {
         namespace,
-        fields: options.fields ?? fields,
+        schema: z.object(Object.fromEntries(Object.keys(options.columns ?? columns).map((key) => [key, z.unknown()]))),
+        columns: options.columns ?? columns,
         data: options.data ?? data,
         ...(options.controlled ? { columnSizing: sizing.value } : {}),
         ...(options.controlledVisibility ? { visibleColumns: visibleColumns.value } : {}),
@@ -117,7 +119,7 @@ describe('Table browser interactions', () => {
   it('keeps blank action header and action cells pinned during horizontal scroll', async () => {
     const wideFields = Object.fromEntries(Array.from({ length: 10 }, (_, index) => [`field${index}`, { label: `Field ${index}` }]))
     const wideData = [Object.fromEntries(Array.from({ length: 10 }, (_, index) => [`field${index}`, `value-${index}`]))]
-    const { host } = mount({ fields: wideFields, data: wideData, rowActions: true, width: '300px' })
+    const { host } = mount({ columns: wideFields, data: wideData, rowActions: true, width: '300px' })
     await frame()
 
     const scrollContainer = host.querySelector<HTMLElement>('.is-table .overflow-x-auto')!
@@ -154,7 +156,7 @@ describe('Table browser interactions', () => {
   it('settles controlled visibility updates without cumulative renderer work', async () => {
     const stressFields = Object.fromEntries(Array.from({ length: 20 }, (_, index) => [`field${index}`, { label: `Field ${index}` }]))
     const stressData = Array.from({ length: 200 }, (_, row) => Object.fromEntries(Array.from({ length: 20 }, (_, column) => [`field${column}`, `row-${row}-value-${column}`])))
-    const { host, visibleColumns } = mount({ fields: stressFields, data: stressData, controlledVisibility: true })
+    const { host, visibleColumns } = mount({ columns: stressFields, data: stressData, controlledVisibility: true })
     await frame()
 
     for (let index = 0; index < 10; index += 1) {

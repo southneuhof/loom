@@ -1,23 +1,33 @@
 import { describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, ref } from 'vue'
-import Detail from '../Detail.vue'
+import { z } from 'zod'
+import DetailComponent from '../Detail.vue'
 import { deferred, flush, mountCore } from './harness'
+
+const recordSchema = z.object({ name: z.string(), rel_section_name: z.string() })
+const Detail = defineComponent({
+  inheritAttrs: false,
+  setup(_, context) {
+    const detail = ref<{ refresh: () => Promise<void> }>()
+    context.expose({ refresh: () => detail.value?.refresh() ?? Promise.resolve() })
+    return () => h(DetailComponent, { ...context.attrs, schema: recordSchema, ref: detail }, context.slots)
+  },
+})
 
 const fields = {
   name: { label: 'Nama' },
-  section: { label: 'Ruas', display: { read: (record: Record<string, unknown>) => record.rel_section_name } },
+  section: { label: 'Ruas', read: (record: { rel_section_name: string }) => record.rel_section_name },
 }
 const record = { name: 'Admin', rel_section_name: 'Ruas 1' }
 
 describe('Detail core', () => {
-  it('applies uniform detail defaults before explicit projections', async () => {
+  it('applies emphasis from the detail field', async () => {
     const view = mountCore(
       Detail,
-      { fields: { name: { label: 'Nama' }, section: { label: 'Ruas', detail: { emphasis: 'muted' } } }, data: record },
-      { fieldDefaults: { detail: { emphasis: 'strong', props: { dense: true } } } },
+      { fields: { name: { label: 'Nama' }, section: { label: 'Ruas', read: (value: typeof record) => value.rel_section_name, emphasis: 'muted' } }, data: record },
     )
     await flush()
-    expect(view.all('td:not([aria-hidden])').map((cell) => cell.getAttribute('data-emphasis'))).toEqual(['strong', 'muted'])
+    expect(view.all('td:not([aria-hidden])').map((cell) => cell.classList.contains('text-on-surface-variant'))).toEqual([false, true])
     view.unmount()
   })
 
@@ -36,7 +46,7 @@ describe('Detail core', () => {
 
   it('rejects supplying both data and load', () => {
     expect(() => mountCore(Detail, { fields, data: record, load: () => record })).toThrow(
-      'Detail accepts either `data` or `load`, not both.',
+      '[loom][SURFACE_DATA_SOURCE_INVALID] Detail requires exactly one of "data" or "load".',
     )
   })
 
@@ -105,8 +115,8 @@ describe('Detail core', () => {
     const Chip = defineComponent({ props: { value: null }, setup: (props) => () => h('em', String(props.value)) })
     const withRenderer = mountCore(
       Detail,
-      { fields: { name: { label: 'Nama', detail: { renderer: 'chip' } } }, data: record },
-      { renderers: { detail: { chip: Chip } } },
+      { fields: { name: { label: 'Nama', renderer: 'chip' } }, data: record },
+      { renderers: { display: { chip: Chip } } },
     )
     await flush()
     expect(withRenderer.find('em')?.textContent).toBe('Admin')

@@ -118,8 +118,8 @@ onMounted(() => {
                     kind="icon"
                     :variant="selectedClass === iconClass ? 'outlined' : 'standard'"
                     type="button"
-                    :aria-label="iconClass"
-                    :title="iconClass"
+                    :ariaLabel="iconClass"
+                    v-bind="{ title: iconClass }"
                     @click="pickIcon(iconClass)"
                   >
                     <template #icon>

@@ -3,9 +3,11 @@
  * Type-checked by the framework `type-check`; excluded from vitest by filename.
  */
 import type { FormRendererComponents, FormRendererProps } from '../formContracts'
+import { defineForm } from '../../forms/defineForm'
 import { createRendererRegistries } from '../registry'
 import './test-renderers'
 import { ratingInputForTests } from './test-renderers'
+import { z } from 'zod'
 
 // Correct custom props pass.
 const ratingOk: FormRendererProps<'rating'> = { max: 5, extra: true }
@@ -33,3 +35,18 @@ createRendererRegistries({ form: { ratingMisspelled: ratingInputForTests } })
 type Undeclared = 'unregistered-widget' extends keyof FormRendererComponents ? 'registered' : 'missing'
 const undeclared: Undeclared = 'missing'
 void undeclared
+
+const numericSchema = z.object({ rating: z.number() })
+const numericRatingForm = defineForm({
+  schema: numericSchema,
+  fields: { rating: { renderer: 'rating' } },
+})
+
+const stringSchema = z.object({ rating: z.string() })
+const invalidStringRatingForm = defineForm({
+  schema: stringSchema,
+  // @ts-expect-error The rating renderer edits a number.
+  fields: { rating: { renderer: 'rating' } },
+})
+void numericRatingForm
+void invalidStringRatingForm

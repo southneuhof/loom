@@ -2,6 +2,7 @@
 import type { PropType } from 'vue'
 import { ref } from 'vue'
 import TextInput from './TextInput.vue'
+import { commonProps } from './commonprops'
 import Button from '@southneuhof/loom/components/base/Button.vue'
 import Icon from '@southneuhof/loom/components/base/Icon.vue'
 
@@ -25,6 +26,7 @@ const props = defineProps({
   inputClass: {
     type: String,
   },
+  ...commonProps,
 })
 
 const modelValue = defineModel<string | number>()

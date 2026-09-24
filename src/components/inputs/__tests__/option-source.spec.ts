@@ -1,8 +1,9 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import CheckboxGroupInput from '../CheckboxGroupInput.vue'
-import { defineFields, defineResource, type CollectionLoadContext, type CollectionResult } from '../../..'
+import { defineResource, type CollectionLoadContext, type CollectionResult } from '../../..'
 import { mountInput } from './harness'
 
 const input = (name: string) => readFileSync(resolve(process.cwd(), 'src/components/inputs', name), 'utf8')
@@ -22,18 +23,24 @@ describe('explicit option sources', () => {
       data: [{ id: 1, name: 'A' }],
       meta: { total: 1, totalPage: 1 },
     }))
-    const schema = { identity: 'id' as const }
-    const fields = defineFields(schema, { name: {} })
-    const resource = defineResource(schema, {
+    const resource = defineResource({
       key: 'test-options',
-      actions: { list: { run: load, fields: [fields.name] } },
+      identity: (record: Option) => record.id,
+      list: {
+        permission: null,
+        table: {
+          schema: z.object({ id: z.number(), name: z.string() }),
+          columns: { name: {} },
+          load,
+        },
+      },
     })
-    const list = resource.list()
+    const list = resource.list
     const searchParameters = { active: true }
     const mounted = mountInput(CheckboxGroupInput, {
       model: [],
       props: {
-        load: list.run,
+        load: list.table.load,
         searchParameters,
       },
     })

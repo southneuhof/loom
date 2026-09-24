@@ -29,14 +29,17 @@ const props = defineProps({
     type: String as PropType<'row' | 'column'>,
     default: 'row',
   },
-  defaultValue: {},
+  defaultValue: {
+    type: [String, Number] as PropType<string | number>,
+    default: undefined,
+  },
   searchParameters: {
     type: Object as PropType<Record<string, unknown>>,
     default: () => ({}),
   },
   ...commonProps,
 })
-const modelValue = defineModel()
+const modelValue = defineModel<string | number>()
 const emit = defineEmits<{
   (event: 'validation:touch'): void
 }>()

@@ -25,7 +25,7 @@ const modelValue = defineModel<string>({ required: true })
 <template>
   <TabsRoot v-model="modelValue">
     <TabsList
-      :aria-label="props.label"
+      v-bind="{ 'aria-label': props.label }"
       class="flex max-w-full flex-row items-center gap-1 overflow-x-auto rounded-lg bg-surface-container p-1"
     >
       <TabsTrigger

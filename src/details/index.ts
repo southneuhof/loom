@@ -1,0 +1,1 @@
+export { defineDetail } from './defineDetail'

@@ -1,0 +1,1 @@
+export { defineTable } from './defineTable'

@@ -53,7 +53,7 @@
   ],
   "vueCompilerOptions": {
     "strictTemplates": true,
-    "checkUnknownProps": false,
+    "checkUnknownProps": true,
     "checkUnknownEvents": false,
     "checkUnknownDirectives": false,
     "checkUnknownComponents": false,

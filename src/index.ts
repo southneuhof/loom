@@ -1,7 +1,8 @@
 export type * from './contracts'
 export * from './query'
-export * from './fields'
-export * from './validation'
+export { defineForm } from './forms'
+export { defineTable } from './tables'
+export { defineDetail } from './details'
 export { Table, TreeTable, Detail, Form } from './components/core'
 export { DialogForm } from './components/composites'
 export * from './components/views'
@@ -27,7 +28,6 @@ export {
 } from './adapters/projectAdapters'
 export type {
   DataAdapter,
-  SchemaAdapter,
   UiAdapter,
   QueryRuntimeDefaults,
   FrameworkAdaptersInput,

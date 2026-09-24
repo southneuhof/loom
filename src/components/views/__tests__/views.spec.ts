@@ -3,6 +3,7 @@ import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createApp, defineComponent, h, ref } from 'vue'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
+import { z } from 'zod'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import ListView from '../ListView.vue'
 import DetailView from '../DetailView.vue'
@@ -11,8 +12,16 @@ import { deferred, flush, mountCore } from '../../core/__tests__/harness'
 
 const viewsRoot = join(__dirname, '..')
 
-const tableProps = { fields: { name: { label: 'Nama' } }, data: [{ name: 'Admin' }] }
-const detailProps = { fields: { name: { label: 'Nama' } }, data: { name: 'Admin' } }
+const tableProps = {
+  schema: z.object({ name: z.string() }),
+  columns: { name: { label: 'Nama', read: (record: { name: string }) => record.name } },
+  data: [{ name: 'Admin' }],
+}
+const detailProps = {
+  schema: z.object({ name: z.string() }),
+  fields: { name: { label: 'Nama', read: (record: { name: string }) => record.name } },
+  data: { name: 'Admin' },
+}
 
 function installStorage() {
   const values = new Map<string, string>()
@@ -70,8 +79,11 @@ describe('ListView', () => {
 
   it('keeps standard Create before a resource action in one adjacent action row', async () => {
     const view = mountCore(ListView, {
-      run: async () => ({ data: [{ name: 'Admin' }] }),
-      fields: { name: { label: 'Name' } },
+      table: {
+        schema: z.object({ name: z.string() }),
+        columns: { name: { label: 'Name', read: (record: { name: string }) => record.name } },
+        load: async () => ({ data: [{ name: 'Admin' }] }),
+      },
       createRoute: { name: 'test-route' },
     }, {
       slots: {
@@ -91,8 +103,11 @@ describe('ListView', () => {
 
   it('lets create-action replace only the standard Create content', async () => {
     const view = mountCore(ListView, {
-      run: async () => ({ data: [] }),
-      fields: { name: { label: 'Name' } },
+      table: {
+        schema: z.object({ name: z.string() }),
+        columns: { name: { label: 'Name', read: (record: { name: string }) => record.name } },
+        data: [],
+      },
       createRoute: { name: 'test-route' },
     }, {
       slots: {
@@ -128,7 +143,8 @@ describe('ListView', () => {
   it('defaults list pagination to always', async () => {
     const view = mountCore(ListView, {
       table: {
-        fields: { name: { label: 'Nama' } },
+        schema: z.object({ name: z.string() }),
+        columns: { name: { label: 'Nama', read: (record: { name: string }) => record.name } },
         load: () => ({ data: [{ name: 'Admin' }], meta: { total: 1, totalPage: 1 } }),
       },
     })
@@ -146,7 +162,11 @@ describe('ListView', () => {
       view = mountCore(ListView, {
         table: {
           namespace: 'roles',
-          fields: { name: { label: 'Nama' }, status: { label: 'Status' } },
+          schema: z.object({ name: z.string(), status: z.string() }),
+          columns: {
+            name: { label: 'Nama', read: (record: { name: string; status: string }) => record.name },
+            status: { label: 'Status', read: (record: { name: string; status: string }) => record.status },
+          },
           data: [{ name: 'Admin', status: 'active' }],
         },
       })
@@ -196,7 +216,11 @@ describe('ListView', () => {
       view = mountCore(ListView, {
         table: {
           namespace: 'roles',
-          fields: { name: { label: 'Nama' }, status: { label: 'Status' } },
+          schema: z.object({ name: z.string(), status: z.string() }),
+          columns: {
+            name: { label: 'Nama', read: (record: { name: string; status: string }) => record.name },
+            status: { label: 'Status', read: (record: { name: string; status: string }) => record.status },
+          },
           data: [{ name: 'Admin', status: 'active' }],
         },
       })
@@ -262,7 +286,8 @@ describe('ListView', () => {
       {
         table: {
           namespace: 'custom-list',
-          fields: { name: { label: 'Name' } },
+          schema: z.object({ name: z.string() }),
+          columns: { name: { label: 'Name', read: (record: { name: string }) => record.name } },
           load: () => {
             calls += 1
             return { data: [{ name: 'Admin' }], meta: { total: 1, totalPage: 1 } }
@@ -293,9 +318,12 @@ describe('ListView', () => {
     const view = mountCore(
       ListView,
       {
-        run: () => ({ data: [{ id: '1', name: 'Admin' }], meta: { total: 1, totalPage: 1 } }),
-        fields: { name: { label: 'Name' } },
-        namespace: 'custom-actions',
+        table: {
+          schema: z.object({ id: z.string(), name: z.string() }),
+          columns: { name: { label: 'Name', read: (record: { id: string; name: string }) => record.name } },
+          namespace: 'custom-actions',
+          load: () => ({ data: [{ id: '1', name: 'Admin' }], meta: { total: 1, totalPage: 1 } }),
+        },
         createRoute: { name: 'test-route' },
         detailRoute: (record) => ({ name: 'test-route', params: { id: String(record.id) } }),
         updateRoute: (record) => ({ name: 'test-route', params: { id: String(record.id) } }),
@@ -335,7 +363,8 @@ describe('ListView', () => {
           h(ListView, {
             table: {
               namespace: 'slot-toggle-live',
-              fields: { name: { label: 'Nama' } },
+              schema: z.object({ name: z.string() }),
+              columns: { name: { label: 'Nama', read: (record: { name: string }) => record.name } },
               data: [{ name: 'Admin' }],
             },
           }, grid.value
@@ -366,13 +395,14 @@ describe('ListView', () => {
     const contexts: Record<string, unknown>[] = []
     const view = mountCore(ListView, {
       table: {
-        fields: { name: { label: 'Nama' } },
+        schema: z.object({ name: z.string() }),
+        columns: { name: { label: 'Nama', read: (record: { name: string }) => record.name } },
+        query: { page: 4, limit: 10 },
         load: ({ query }: { query: Record<string, unknown> }) => {
           contexts.push({ ...query })
           return { data: [{ name: 'Admin' }] }
         },
       },
-      query: { page: 4, limit: 10 },
     })
     await flush()
 
@@ -391,20 +421,25 @@ describe('ListView', () => {
     const contexts: Record<string, unknown>[] = []
     const view = mountCore(ListView, {
       table: {
-        fields: { name: { label: 'Nama' } },
+        schema: z.object({ name: z.string() }),
+        columns: { name: { label: 'Nama', read: (record: { name: string }) => record.name } },
+        query: { search: 'admin', limit: 25, page: 3 },
         load: ({ query }: { query: Record<string, unknown> }) => {
           contexts.push({ ...query })
           return { data: [{ name: 'Admin' }] }
         },
       },
-      query: { search: 'admin', limit: 25, page: 3 },
-      filters: { fields: { active: { label: 'Aktif' } }, defaults: { active: 'yes' } },
+      filters: {
+        schema: z.object({ active: z.string() }),
+        fields: { active: { label: 'Aktif' } },
+        defaults: { active: 'yes' },
+      },
     })
     await flush()
 
     view.find<HTMLButtonElement>('[aria-label="Filter"]')!.click()
     await flush()
-    const filter = document.querySelector<HTMLInputElement>('#field-active')!
+    const filter = document.querySelector<HTMLInputElement>('[id$="-field-active"]')!
     filter.value = 'no'
     filter.dispatchEvent(new Event('input'))
     await flush()
@@ -413,6 +448,65 @@ describe('ListView', () => {
     ;[...document.querySelectorAll('button')].find((button) => button.textContent === 'Reset filter')!.dispatchEvent(new MouseEvent('click'))
     await flush()
     expect(contexts.at(-1)).toMatchObject({ active: 'yes', search: 'admin', limit: 25, page: 1 })
+    view.unmount()
+  })
+
+  it('commits the latest parsed filter output and removes its transformed query key when cleared', async () => {
+    const slowParse = deferred<void>()
+    const contexts: Record<string, unknown>[] = []
+    const schema = z.object({ selection: z.string() }).transform(async ({ selection }) => {
+      if (selection === 'slow') await slowParse.promise
+      return selection ? { status: selection } : {}
+    })
+    const view = mountCore(ListView, {
+      table: {
+        schema: z.object({ name: z.string() }),
+        columns: { name: { label: 'Name' } },
+        query: { search: 'admin', status: 'old', retained: 'value', page: 3, limit: 25 },
+        load: ({ query }: { query: Record<string, unknown> }) => {
+          contexts.push({ ...query })
+          return { data: [{ name: 'Admin' }] }
+        },
+      },
+      filters: {
+        schema,
+        fields: { selection: { label: 'Status' } },
+        defaults: { selection: 'default' },
+      },
+    })
+    await flush()
+
+    view.find<HTMLButtonElement>('[aria-label="Filter"]')!.click()
+    await flush()
+    const selection = document.querySelector<HTMLInputElement>('[id$="-field-selection"]')!
+    selection.value = 'slow'
+    selection.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+
+    selection.value = 'active'
+    selection.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+    expect(contexts.at(-1)).toMatchObject({ status: 'active', retained: 'value', search: 'admin', limit: 25, page: 1 })
+    expect(selection.value).toBe('active')
+
+    slowParse.resolve()
+    await flush()
+    expect(contexts.at(-1)).toMatchObject({ status: 'active' })
+    expect(selection.value).toBe('active')
+
+    selection.value = ''
+    selection.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+    expect(contexts.at(-1)).not.toHaveProperty('status')
+    expect(contexts.at(-1)).toMatchObject({ retained: 'value', search: 'admin', limit: 25, page: 1 })
+
+    selection.value = 'chosen'
+    selection.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+    ;[...document.querySelectorAll('button')].find((button) => button.textContent === 'Reset filter')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    await flush()
+    expect(document.querySelector<HTMLInputElement>('[id$="-field-selection"]')?.value).toBe('default')
+    expect(contexts.at(-1)).toMatchObject({ status: 'default', retained: 'value', search: 'admin', limit: 25, page: 1 })
     view.unmount()
   })
 })
@@ -451,9 +545,12 @@ describe('DetailView', () => {
 
   it('resolves header title and back target from the action bag when no explicit prop is set', async () => {
     const view = mountCore(DetailView, {
-      run: async () => ({ name: 'Admin' }),
-      fields: { name: { label: 'Nama' } },
-      id: '1',
+      detail: {
+        schema: detailProps.schema,
+        fields: detailProps.fields,
+        load: async () => ({ name: 'Admin' }),
+        id: '1',
+      },
       title: 'Detail Role',
       backTo: { name: 'test-route' },
     }, { uiDefaults: { backLabel: 'Kembali' } })
@@ -491,6 +588,7 @@ describe('DetailView', () => {
 
 describe('FormView', () => {
   const formProps = (submit: () => Promise<unknown>) => ({
+    schema: z.object({ name: z.string() }),
     fields: { name: { label: 'Nama' } },
     initialData: { name: 'Admin' },
     submit,
@@ -498,7 +596,7 @@ describe('FormView', () => {
 
   it('runs the same chrome for create-like and update-like props, with no mode anywhere', async () => {
     const createSubmit = vi.fn(async () => undefined)
-    const create = mountCore(FormView, { title: 'Create Role', formProps: formProps(createSubmit) })
+    const create = mountCore(FormView, { title: 'Create Role', form: formProps(createSubmit) })
     await flush()
     create.find('form')!.dispatchEvent(new Event('submit'))
     await flush()
@@ -506,7 +604,7 @@ describe('FormView', () => {
     const updateSubmit = vi.fn(async () => undefined)
     const update = mountCore(FormView, {
       title: 'Edit Role',
-      formProps: { ...formProps(updateSubmit), load: async () => ({ name: 'Editor' }) },
+      form: { ...formProps(updateSubmit), load: async () => ({ name: 'Editor' }) },
     })
     await flush()
     update.find('form')!.dispatchEvent(new Event('submit'))
@@ -524,7 +622,7 @@ describe('FormView', () => {
     const view = mountCore(FormView, {
       title: 'Create Role',
       description: 'Set user access.',
-      formProps: formProps(async () => undefined),
+      form: formProps(async () => undefined),
     })
     await flush()
 
@@ -540,7 +638,7 @@ describe('FormView', () => {
   })
 
   it('renders page action slots without generic fallbacks', async () => {
-    const view = mountCore(FormView, { formProps: formProps(async () => undefined) }, {
+    const view = mountCore(FormView, { form: formProps(async () => undefined) }, {
       slots: {
         controls: () => h('button', { 'data-controls-slot': '' }, 'Bantuan'),
         footer: () => h('button', { 'data-footer-slot': '' }, 'Kembali'),
@@ -557,7 +655,7 @@ describe('FormView', () => {
   it('renders submit and cancel chrome and re-emits form events', async () => {
     const onSubmitted = vi.fn()
     const view = mountCore(FormView, {
-      formProps: formProps(async () => ({ id: 1 })),
+      form: formProps(async () => ({ id: 1 })),
       submitLabel: 'Kirim',
       onSubmitted,
     })
@@ -573,7 +671,7 @@ describe('FormView', () => {
 
   it('uses responsive text and filled form actions while submitting', async () => {
     const pending = deferred<{ id: number }>()
-    const view = mountCore(FormView, { formProps: formProps(async () => pending.promise) })
+    const view = mountCore(FormView, { form: formProps(async () => pending.promise) })
     await flush()
 
     const actions = view.find('.is-form-view-controls')!
@@ -598,8 +696,9 @@ describe('FormView', () => {
     const first = deferred<{ kind: 'file'; id: string; url: string; name: string }>()
     const upload = () => first.promise
     const view = mountCore(FormView, {
-      formProps: {
-        fields: { files: { label: 'Files', form: { renderer: 'file', props: { multi: true, upload } } } },
+      form: {
+        schema: z.object({ files: z.array(z.object({ kind: z.literal('file'), id: z.string(), url: z.string(), name: z.string() })) }),
+        fields: { files: { label: 'Files', renderer: 'file', props: { multi: true, upload } } },
         initialData: { files: [] },
         submit: async () => undefined,
       },
@@ -625,7 +724,7 @@ describe('FormView', () => {
   })
 
   it('uses browser history through Cancel without resetting the draft', async () => {
-    const view = mountCore(FormView, { formProps: formProps(async () => undefined) })
+    const view = mountCore(FormView, { form: formProps(async () => undefined) })
     await flush()
 
     const input = view.find<HTMLInputElement>('input')!
@@ -643,7 +742,7 @@ describe('FormView', () => {
   })
 
   it('lets body, header, and form actions slots replace their defaults', async () => {
-    const view = mountCore(FormView, { title: 'Create Role', formProps: formProps(async () => undefined) }, {
+    const view = mountCore(FormView, { title: 'Create Role', form: formProps(async () => undefined) }, {
       slots: {
         header: () => h('h2', { 'data-header-slot': '' }, 'Header khusus'),
         body: () => h('p', { 'data-body-slot': '' }, 'Badan khusus'),
@@ -659,7 +758,7 @@ describe('FormView', () => {
     expect(view.find('form')).toBeNull()
     view.unmount()
 
-    const formActions = mountCore(FormView, { formProps: formProps(async () => undefined) }, {
+    const formActions = mountCore(FormView, { form: formProps(async () => undefined) }, {
       slots: { 'form-actions': () => h('button', { 'data-form-actions-slot': '' }, 'Custom action') },
     })
     await flush()
@@ -675,10 +774,13 @@ describe('FormView', () => {
     submit?: () => Promise<{ id: string; name: string }>
   } = {}) {
     return {
-      fields: { name: { label: 'Nama' } },
-      initialData: { name: 'Admin' },
-      run: options.submit ?? (async () => ({ id: '1', name: 'Admin' })),
-      defaultTo: options.detail ? (record: Record<string, unknown>) => options.detail!(String(record.id)) : options.list,
+      form: {
+        schema: z.object({ name: z.string() }),
+        fields: { name: { label: 'Nama' } },
+        initialData: { name: 'Admin' },
+        submit: options.submit ?? (async () => ({ id: '1', name: 'Admin' })),
+      },
+      defaultTo: options.detail ? (result: { id: string }) => options.detail!(result.id) : options.list,
       afterSubmit: options.afterSubmit,
     }
   }
@@ -695,7 +797,7 @@ describe('FormView', () => {
           component: FormView,
           props: {
             title: 'Edit Role',
-            formProps: formProps(async () => undefined),
+            form: formProps(async () => undefined),
           },
         },
         { path: '/other', name: 'other', component: defineComponent({ setup: () => () => h('p', 'Other page') }) },
@@ -823,6 +925,22 @@ describe('FormView', () => {
     expect(replace).not.toHaveBeenCalled()
     view.unmount()
   })
+
+  it('keeps a successful submit when destination resolution fails', async () => {
+    const submitted = vi.fn()
+    const view = mountCore(FormView, {
+      form: formProps(async () => ({ id: '1' })),
+      defaultTo: () => { throw new Error('destination') },
+      onSubmitted: submitted,
+    })
+    view.find('form')!.dispatchEvent(new Event('submit'))
+    await flush()
+
+    expect(submitted).toHaveBeenCalledOnce()
+    expect(view.find('form')).not.toBeNull()
+    expect(view.text()).not.toContain('The form could not be submitted.')
+    view.unmount()
+  })
 })
 
 describe('shell boundaries', () => {
@@ -840,8 +958,8 @@ describe('shell boundaries', () => {
 
   it('forwards core props with v-bind instead of translating them', () => {
     for (const [file, binding] of [
-      ['DetailView.vue', 'v-bind="surface.detail"'],
-      ['FormView.vue', 'v-bind="surface"'],
+      ['DetailView.vue', 'v-bind="detail"'],
+      ['FormView.vue', 'v-bind="form"'],
     ]) {
       expect(readFileSync(join(viewsRoot, file), 'utf8')).toContain(binding)
     }
@@ -858,8 +976,11 @@ describe('shell boundaries', () => {
 
 describe('ListView row delete control', () => {
   const baseProps = {
-    fields: { name: { label: 'Name' } },
-    namespace: 'delete-slot',
+    table: {
+      schema: z.object({ id: z.string(), name: z.string() }),
+      columns: { name: { label: 'Name', read: (record: { id: string; name: string }) => record.name } },
+      namespace: 'delete-slot',
+    },
   }
 
   function mountRows(slots: Record<string, unknown>, extra: Record<string, unknown> = {}) {
@@ -867,7 +988,7 @@ describe('ListView row delete control', () => {
       ListView,
       {
         ...baseProps,
-        run: () => ({ data: [{ id: '1', name: 'Admin' }], meta: { total: 1, totalPage: 1 } }),
+        table: { ...baseProps.table, load: () => ({ data: [{ id: '1', name: 'Admin' }], meta: { total: 1, totalPage: 1 } }) },
         can: (operation: string, record?: Record<string, unknown>) =>
           operation === 'delete' && record?.id === '1',
         ...extra,
@@ -907,7 +1028,7 @@ describe('ListView row delete control', () => {
       ListView,
       {
         ...baseProps,
-        run: () => ({ data: [{ id: '2', name: 'Other' }], meta: { total: 1, totalPage: 1 } }),
+        table: { ...baseProps.table, load: () => ({ data: [{ id: '2', name: 'Other' }], meta: { total: 1, totalPage: 1 } }) },
         can: (operation: string, record?: Record<string, unknown>) =>
           operation === 'delete' && record?.id === '1',
         deleteRecord: async () => undefined,
@@ -927,8 +1048,11 @@ describe('ListView row delete control', () => {
 
 describe('ListView standard action overrides', () => {
   const baseProps = {
-    fields: { name: { label: 'Name' } },
-    namespace: 'action-overrides',
+    table: {
+      schema: z.object({ id: z.string(), name: z.string() }),
+      columns: { name: { label: 'Name', read: (record: { id: string; name: string }) => record.name } },
+      namespace: 'action-overrides',
+    },
   }
 
   function mountWith(slots: Record<string, unknown>) {
@@ -936,7 +1060,7 @@ describe('ListView standard action overrides', () => {
       ListView,
       {
         ...baseProps,
-        run: () => ({ data: [{ id: '1', name: 'Admin' }], meta: { total: 1, totalPage: 1 } }),
+        table: { ...baseProps.table, load: () => ({ data: [{ id: '1', name: 'Admin' }], meta: { total: 1, totalPage: 1 } }) },
         createRoute: { name: 'test-route' },
         detailRoute: (record: Record<string, unknown>) => ({ name: 'test-route', params: { id: String(record.id) } }),
         updateRoute: (record: Record<string, unknown>) => ({ name: 'test-route', params: { id: String(record.id) } }),
@@ -998,7 +1122,7 @@ describe('ListView standard action overrides', () => {
       ListView,
       {
         ...baseProps,
-        run: () => ({ data: [{ id: '1' }], meta: { totalPage: 1 } }),
+        table: { ...baseProps.table, load: () => ({ data: [{ id: '1', name: 'Admin' }], meta: { totalPage: 1 } }) },
       },
       {
         slots: {

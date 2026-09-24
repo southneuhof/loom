@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { PropType } from 'vue'
+import type remixiconTags from '../base/remixicon-tags'
 import IframePreviewDialog from '../composites/IframePreviewDialog.vue'
 import { getFileExtension, isPreviewableExtension } from '@southneuhof/utilities/object'
 import Icon from '../base/Icon.vue'
 import Tooltip from '../base/Tooltip.vue'
+
+type IconName = (typeof remixiconTags)[number]
 
 const props = defineProps({
   filename: {
@@ -20,7 +23,7 @@ const props = defineProps({
     required: false,
   },
   action: {
-    type: Object as PropType<{ label: string; action: Function }>,
+    type: Object as PropType<{ label: string; action: () => void | Promise<void> }>,
     required: false,
     default: undefined,
   },
@@ -30,7 +33,7 @@ const props = defineProps({
     default: 'card',
   },
   icon: {
-    type: String,
+    type: String as PropType<IconName>,
     required: false,
     default: 'file',
   },
@@ -48,7 +51,7 @@ const isPreviewable = computed(() => {
 
 <template>
   <div v-if="style === 'card'" class="flex max-w-max flex-row items-center gap-4 rounded-md p-4 outline outline-1 outline-outline/[24%]">
-    <Icon :name="props.icon as any"></Icon>
+    <Icon :name="props.icon"></Icon>
     <div>
       <div class="text-sm">{{ filename || url?.split('/').pop() }}</div>
       <div class="flex flex-row items-center gap-2">
@@ -60,7 +63,7 @@ const isPreviewable = computed(() => {
             <div class="h-[12px] w-[1px] bg-outline/[24%]"></div>
             <IframePreviewDialog :url="url" :title="filename">
               <template #trigger>
-                <button target="_blank" class="cursor-pointer text-sm text-primary">Preview <Icon name="eye" size="sm"></Icon></button>
+                <button class="cursor-pointer text-sm text-primary">Preview <Icon name="eye" size="sm"></Icon></button>
               </template>
             </IframePreviewDialog>
           </template>
@@ -68,7 +71,7 @@ const isPreviewable = computed(() => {
             <div class="h-[12px] w-[1px] bg-outline/[24%]"></div>
             <Tooltip>
               <template #trigger>
-                <p target="_blank" class="text-sm text-muted">Preview <Icon name="eye" size="sm"></Icon></p>
+                <p class="text-sm text-muted">Preview <Icon name="eye" size="sm"></Icon></p>
               </template>
               <template #content>
                 <p>File {{ extension }} tidak didukung untuk preview</p>
@@ -84,7 +87,7 @@ const isPreviewable = computed(() => {
     </div>
   </div>
   <a v-else :href="url" class="flex items-center gap-1 whitespace-nowrap text-info" target="_blank">
-    <Icon :name="props.icon as any"></Icon>
+    <Icon :name="props.icon"></Icon>
     <span class="max-w-[150px] overflow-hidden text-ellipsis underline">{{ filename }}</span>
   </a>
 </template>

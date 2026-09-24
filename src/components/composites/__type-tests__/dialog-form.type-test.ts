@@ -1,59 +1,88 @@
-import type { DialogFormCloseContext, DialogFormProps, FormProps } from '../../../contracts'
+import { z } from 'zod'
+import type { DialogFormProps, FormProps } from '../../../forms/props'
+import type { FormFields } from '../../../contracts/forms'
+import { defineForm } from '../../../forms/defineForm'
 
-type Row = {
-  id: string
-  name: string
-}
+const schema = z.object({
+  id: z.string(),
+  name: z.string(),
+})
+
+type Input = z.input<typeof schema>
+type Output = z.output<typeof schema>
 
 const fields = {
-  id: { label: 'ID', form: { renderer: 'text' } },
-  name: { label: 'Name', form: { renderer: 'text' } },
-}
+  id: { renderer: 'text' },
+  name: { renderer: 'text' },
+} satisfies FormFields<Input>
 
-// DialogForm must never abstract Form's props: its submit type stays identical.
-type DialogSubmit = DialogFormProps<Row>['submit']
-type CoreSubmit = FormProps<Row>['submit']
-const sameSubmitShape: (a: DialogSubmit, b: CoreSubmit) => DialogSubmit = (a, _b) => a
-void sameSubmitShape
-
-// A structural action bag is a valid submit target on both surfaces.
-const bag = { run: async (_draft: Row) => ({ id: '1' }) }
-const submitBag: DialogFormProps<Row> = { fields, submit: bag }
-void submitBag
-
-type ComponentProps<TInput extends object = Record<string, unknown>, TResult = unknown> = DialogFormProps<TInput, TResult> & {
-  open?: boolean
-  'onUpdate:open'?: (open: boolean) => void
-  'onUpdate:modelValue'?: (draft: Record<string, unknown>) => void
-}
-
-// Managed visibility needs no open prop or listener.
-const managed = {
+const formSubmit = async (output: Output) => output.id
+const dialogProps: DialogFormProps<Input, Output, string> = {
+  schema,
   fields,
-  submit: async (draft: Row) => ({ id: draft.id }),
-  beforeClose: async (context: DialogFormCloseContext) => !context.dirty,
-} satisfies ComponentProps<Row, { id: string }>
-
-// Coordinated visibility keeps the existing named model shape.
-const openAndDraftBound: ComponentProps = {
+  submit: formSubmit,
+  beforeClose: async (context) => !context.dirty,
+}
+const formProps: FormProps<Input, Output, string> = {
+  schema,
   fields,
-  open: true,
-  'onUpdate:open': (_open: boolean) => undefined,
+  submit: formSubmit,
+}
+const modelBoundDialog: DialogFormProps<Input, Output> = {
+  schema,
+  fields,
   modelValue: undefined,
-  'onUpdate:modelValue': (_draft: Record<string, unknown>) => undefined,
+  open: false,
 }
+const modelBoundForm: FormProps<Input, Output> = {
+  schema,
+  fields,
+  modelValue: undefined,
+}
+// @ts-expect-error An open model does not satisfy Form's draft binding requirement.
+const missingDialogBinding: DialogFormProps<Input, Output> = { schema, fields, open: true }
+const selectedRecordSchema = z.object({
+  owner: z.object({ id: z.string(), name: z.string() }),
+})
+const selectedRecordForm = defineForm({
+  schema: selectedRecordSchema,
+  fields: { owner: { renderer: 'select', props: { asWhole: true } } },
+})
 
-void managed
-void openAndDraftBound
+type Assignable<T, U> = [T] extends [U] ? true : false
+type AssertFalse<T extends false> = T
+type InvalidFormBinding = AssertFalse<Assignable<{
+  schema: typeof schema
+  fields: typeof fields
+}, FormProps<Input, Output>>>
 
-// @ts-expect-error DialogForm requires canonical Form fields.
-const missingFields: DialogFormProps<Row> = { submit: async () => undefined }
-void missingFields
+const incompatibleBaseRenderer = defineForm({
+  schema,
+  fields: {
+    // @ts-expect-error A date renderer requires a Date editable value.
+    name: { renderer: 'date' },
+  },
+})
 
-// @ts-expect-error Legacy model-config input is not part of DialogForm.
-const legacyInputConfig: DialogFormProps<Row> = { fields, submit: async () => undefined, inputConfig: {} }
-void legacyInputConfig
+const incompatiblePresentationRenderer = defineForm({
+  schema,
+  fields: {
+    // @ts-expect-error The base string renderer cannot be changed to a number renderer.
+    name: {
+      behavior: {
+        presentation: () => ({
+          renderer: 'number' as const,
+        }),
+      },
+    },
+  },
+})
 
-// @ts-expect-error Legacy field aliases are not part of DialogForm.
-const legacyFieldsAlias: DialogFormProps<Row> = { fields, submit: async () => undefined, fieldsAlias: {} }
-void legacyFieldsAlias
+void dialogProps
+void formProps
+void modelBoundDialog
+void modelBoundForm
+void missingDialogBinding
+void selectedRecordForm
+void incompatibleBaseRenderer
+void incompatiblePresentationRenderer

@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, defineComponent, h, nextTick, ref, type App } from 'vue'
+import { z } from 'zod'
+import type { FormFields } from '../../../contracts/forms'
 import Form from '../../core/Form.vue'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import { createFrameworkQueryClient } from '../../../query'
@@ -10,6 +12,15 @@ type Asset = {
   url: string
   name: string
 }
+
+const schema = z.object({ file: z.custom<Asset | null>() })
+const multiSchema = z.object({ files: z.array(z.custom<Asset>()) })
+const requiredFileSchema = z.object({ file: z.custom<Asset | null>().refine((value) => value !== null, 'Choose a file') })
+const rejectedFileSchema = z.object({ file: z.custom<Asset | null>().refine((value) => value?.name === 'accepted.pdf', 'Choose an accepted file') })
+type Input = z.input<typeof schema>
+type MultiInput = z.input<typeof multiSchema>
+const fields = { file: { label: 'File', renderer: 'file' } } satisfies FormFields<Input>
+const multiFields = { files: { label: 'Files', renderer: 'file', props: { multi: true } } } satisfies FormFields<MultiInput>
 
 function asset(name: string): Asset {
   return {
@@ -42,24 +53,84 @@ afterEach(() => {
 })
 
 describe('FileInput browser behavior', () => {
-  it('keeps the uploaded asset object visible through the canonical control value', async () => {
-    const upload = async () => asset('first.pdf')
-    const model = ref<Record<string, unknown>>({ file: null })
+  it('connects the form label and validation message to the file control', async () => {
     const host = document.createElement('div')
     document.body.append(host)
     const Root = defineComponent({
       setup: () => () => h(Form, {
-        fields: {
-          file: {
-            label: 'File',
-            form: {
-              renderer: 'file',
-              props: { upload },
-            },
-          },
-        },
+        schema: requiredFileSchema,
+        fields,
+        initialData: { file: null },
+        submit: async () => undefined,
+      }),
+    })
+    const app = createApp(Root)
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await settle()
+
+    host.querySelector<HTMLButtonElement>('button[type="submit"]')!.click()
+    await settle()
+
+    const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
+    const errorId = input.getAttribute('aria-describedby')
+    expect(input.id).not.toBe('')
+    expect(host.querySelector<HTMLLabelElement>('label[for]')?.htmlFor).toBe(input.id)
+    expect(input.getAttribute('aria-invalid')).toBe('true')
+    expect(errorId).not.toBeNull()
+    expect(host.querySelector(`#${errorId}[role="alert"]`)?.textContent).toContain('Choose a file')
+  })
+
+  it('keeps the form control references after an uploaded asset replaces the drop zone', async () => {
+    const upload = async () => asset('rejected.pdf')
+    const host = document.createElement('div')
+    document.body.append(host)
+    const Root = defineComponent({
+      setup: () => () => h(Form, {
+        schema: rejectedFileSchema,
+        fields: { ...fields, file: { ...fields.file, props: { upload } } },
+        initialData: { file: null },
+        submit: async () => undefined,
+      }),
+    })
+    const app = createApp(Root)
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await settle()
+
+    host.querySelector<HTMLButtonElement>('button[type="submit"]')!.click()
+    await settle()
+
+    const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
+    const label = host.querySelector<HTMLLabelElement>('label[for]')!
+    expect(input.getAttribute('aria-describedby')).not.toBeNull()
+    selectFile(input, new File(['rejected'], 'rejected.pdf', { type: 'application/pdf' }))
+    await settle()
+
+    const errorId = input.getAttribute('aria-describedby')
+    expect(host.querySelector<HTMLInputElement>('input[type="file"]')).toBe(input)
+    expect(host.textContent).toContain('rejected.pdf')
+    expect(label.htmlFor).toBe(input.id)
+    expect(input.id).not.toBe('')
+    expect(errorId).not.toBeNull()
+    expect(host.ownerDocument.getElementById(input.id)).toBe(input)
+    expect(host.ownerDocument.getElementById(errorId!)?.getAttribute('role')).toBe('alert')
+    expect(host.ownerDocument.getElementById(errorId!)?.textContent).toContain('Choose an accepted file')
+  })
+
+  it('keeps the uploaded asset object visible through the canonical control value', async () => {
+    const upload = async () => asset('first.pdf')
+    const model = ref<Partial<Input>>({ file: null })
+    const host = document.createElement('div')
+    document.body.append(host)
+    const Root = defineComponent({
+      setup: () => () => h(Form, {
+        schema,
+        fields: { ...fields, file: { ...fields.file, props: { upload } } },
         modelValue: model.value,
-        'onUpdate:modelValue': (value: Record<string, unknown>) => { model.value = value },
+        'onUpdate:modelValue': (value: Partial<Input>) => { model.value = value },
       }),
     })
     const app = createApp(Root)
@@ -75,6 +146,47 @@ describe('FileInput browser behavior', () => {
     expect(host.textContent).toContain('first.pdf')
   })
 
+  it('uploads sequential multi-file selections and keeps the add controls available', async () => {
+    let uploadCount = 0
+    const upload = vi.fn(async () => asset(uploadCount++ === 0 ? 'first.pdf' : 'second.pdf'))
+    const model = ref<Partial<MultiInput>>({ files: [] })
+    const host = document.createElement('div')
+    document.body.append(host)
+    const Root = defineComponent({
+      setup: () => () => h(Form, {
+        schema: multiSchema,
+        fields: { ...multiFields, files: { ...multiFields.files, props: { multi: true, upload } } },
+        initialData: { files: [] },
+        modelValue: model.value,
+        'onUpdate:modelValue': (value: Partial<MultiInput>) => { model.value = value },
+      }),
+    })
+    const app = createApp(Root)
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await settle()
+
+    const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
+    selectFile(input, new File(['first'], 'first.pdf', { type: 'application/pdf' }))
+    await settle()
+
+    expect(model.value.files).toEqual([asset('first.pdf')])
+    expect(host.textContent).toContain('first.pdf')
+    expect(host.textContent).toContain('Letakkan file anda di sini')
+    expect(host.querySelector('input[type="file"]')).toBe(input)
+    expect(input.disabled).toBe(false)
+
+    selectFile(input, new File(['second'], 'second.pdf', { type: 'application/pdf' }))
+    await settle()
+
+    expect(upload).toHaveBeenCalledTimes(2)
+    expect(model.value.files).toEqual([asset('first.pdf'), asset('second.pdf')])
+    expect(host.textContent).toContain('first.pdf')
+    expect(host.textContent).toContain('second.pdf')
+    expect(host.textContent).toContain('Letakkan file anda di sini')
+  })
+
   it('blocks button and Enter submission during deferred upload and conversion, then submits once', async () => {
     let resolveUpload!: (value: Asset) => void
     let resolveModel!: (value: Asset) => void
@@ -85,12 +197,8 @@ describe('FileInput browser behavior', () => {
     document.body.append(host)
     const Root = defineComponent({
       setup: () => () => h(Form, {
-        fields: {
-          file: {
-            label: 'File',
-            form: { renderer: 'file', props: { upload, toModel } },
-          },
-        },
+        schema,
+        fields: { ...fields, file: { ...fields.file, props: { upload, toModel } } },
         initialData: { file: null },
         submit,
       }),

@@ -3,7 +3,6 @@ import Datepicker from '@vuepic/vue-datepicker'
 import BaseInput from './BaseInput.vue'
 import { useFrameworkUi } from '../../adapters/projectAdapters'
 import { commonProps } from './commonprops'
-import type { ComponentPublicInstance } from 'vue'
 import { nextTick, onMounted, ref } from 'vue'
 import { datepickerPopupClass, datepickerPopupConfig, datepickerTeleportProp } from './datepickerPopup'
 
@@ -33,7 +32,7 @@ if (!modelValue.value && props.defaultToCurrent) {
   modelValue.value = new Date().getFullYear()
 }
 
-const datepickerRef = ref<ComponentPublicInstance | null>(null)
+const datepickerRef = ref<HTMLElement | null>(null)
 
 const displayFormatter = (date: Date) => {
   return date.toLocaleDateString(props.locale, { year: 'numeric' })
@@ -42,12 +41,12 @@ const displayFormatter = (date: Date) => {
 const scrollToCurrentYear = () => {
   nextTick(() => {
     requestAnimationFrame(() => {
-      const datepickerEl = datepickerRef.value?.$el as HTMLElement | undefined
+      const datepickerEl = datepickerRef.value
       if (!datepickerEl) return
 
       const currentYear = new Date().getFullYear().toString()
       const yearCells = datepickerEl.querySelectorAll('.dp__overlay_cell')
-      const currentYearCell = Array.from(yearCells).find((cell) => cell.textContent?.trim() === currentYear) as HTMLElement | undefined
+      const currentYearCell = Array.from(yearCells).find((cell) => cell.textContent?.trim() === currentYear)
 
       currentYearCell?.scrollIntoView({ block: 'center' })
     })
@@ -73,21 +72,21 @@ function handleBlur() {
 
 <template>
   <BaseInput v-bind="props">
-    <Datepicker
-      ref="datepickerRef"
-      v-model="modelValue"
-      year-picker
-      :defaultDate="new Date()"
-      :inline="inline"
-      :format="displayFormatter"
-      :dark="useFrameworkUi().colorPreference().value === 'dark'"
-      :teleport="teleport"
-      :config="datepickerPopupConfig"
-      :class="datepickerPopupClass"
-      @open="scrollToCurrentYear"
-      @focusout.stop
-      @update:model-value="markModelUpdated"
-      @blur="handleBlur"
-    />
+    <div ref="datepickerRef">
+      <Datepicker
+        v-model="modelValue"
+        year-picker
+        :inline="inline"
+        :format="displayFormatter"
+        :dark="useFrameworkUi().colorPreference().value === 'dark'"
+        :teleport="teleport"
+        :config="datepickerPopupConfig"
+        :class="datepickerPopupClass"
+        @open="scrollToCurrentYear"
+        @focusout.stop
+        @update:model-value="markModelUpdated"
+        @blur="handleBlur"
+      />
+    </div>
   </BaseInput>
 </template>

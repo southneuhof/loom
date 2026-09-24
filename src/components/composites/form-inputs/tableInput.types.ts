@@ -1,33 +1,54 @@
-import type { FieldsInput, FormProps, RowReorderPayload, TableProps } from '../../../contracts'
+import type { FormDefinition } from '../../../contracts/forms'
+import type { TableColumn, TableDefinition, TableProps } from '../../../contracts'
 
-export type TableInputRow = Record<string, unknown>
-
-export type TableInputFormOptions<TRow extends object = TableInputRow> = Omit<
-  FormProps<TRow>,
-  'fields' | 'initialData' | 'load' | 'modelValue' | 'submit'
->
-
-export type TableInputTableOptions<TRow extends object = TableInputRow> = Omit<
-  TableProps<TRow>,
-  'data' | 'fields' | 'load' | 'reorderable' | 'rowKey'
->
-
-interface TableInputPropsBase<TRow extends object = TableInputRow> {
-  fields: FieldsInput<TRow, TRow>
-  form?: TableInputFormOptions<TRow>
-  table?: TableInputTableOptions<TRow>
-  modelValue?: TRow[]
-  disabled?: boolean
+export type TableInputTable<TRow extends object> = Omit<TableDefinition<TRow>, 'columns'> & {
+  columns: Readonly<Record<string, TableColumn<NoInfer<TRow>>>>
+  data?: never
+  load?: never
 }
 
-export type TableInputProps<TRow extends object = TableInputRow> =
-  | (TableInputPropsBase<TRow> & {
+export type TableInputForm<TInput extends object, TRow extends object> = FormDefinition<TInput, NoInfer<TRow>> & {
+  submit?: never
+  load?: never
+  modelValue?: never
+}
+
+interface TableInputBase<TInput extends object, TRow extends object> {
+  table: TableInputTable<TRow>
+  disabled?: boolean
+  field?: string
+  label?: string
+  enableHelperMessage?: boolean
+  helperMessage?: string
+  error?: string
+  required?: boolean
+}
+
+type TableInputEditor<TInput extends object, TRow extends object> = {
+  form: TableInputForm<TInput, TRow>
+  toDraft: (row: TRow) => Partial<TInput>
+} & TableInputReordering<TRow>
+
+type TableInputReadOnly = {
+  form?: never
+  toDraft?: never
+  reorderable?: false
+  rowKey?: never
+}
+
+type TableInputReordering<TRow extends object> =
+  | {
       reorderable: true
       rowKey: NonNullable<TableProps<TRow>['rowKey']>
-    })
-  | (TableInputPropsBase<TRow> & {
+    }
+  | {
       reorderable?: false
       rowKey?: TableProps<TRow>['rowKey']
-    })
+    }
 
-export type TableInputReorderPayload<TRow extends object = TableInputRow> = RowReorderPayload<TRow>
+export type TableInputCoreProps<TInput extends object, TRow extends object> = TableInputBase<TInput, TRow>
+  & (TableInputReadOnly | TableInputEditor<TInput, TRow>)
+
+export type TableInputProps<TInput extends object, TRow extends object> = TableInputCoreProps<TInput, TRow> & {
+  modelValue: TRow[]
+}

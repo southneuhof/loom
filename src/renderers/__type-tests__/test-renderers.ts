@@ -4,6 +4,7 @@ import type { FormRendererComponents } from '../formContracts'
 const RatingInput = defineComponent({
   name: 'RatingTestInput',
   props: {
+    modelValue: { type: Number, default: 0 },
     max: { type: Number, default: 5 },
     label: { type: String, default: '' },
   },

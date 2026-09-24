@@ -1,5 +1,6 @@
 import { defineComponent, h, onMounted } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 
 import type { RowReorderPayload } from '../../../contracts'
 import { flush, mountCore } from '../../core/__tests__/harness'
@@ -43,11 +44,14 @@ describe('ListView reorder forwarding', () => {
   it('forwards rowKey and the Table row-reorder event', async () => {
     const onRowReorder = vi.fn()
     const view = mountCore(ListView, {
-      run: async () => ({ data: tableState.payload.rows }),
-      fields: { name: { label: 'Name' } },
-      namespace: 'list-reorder',
-      reorderable: true,
-      rowKey: 'id',
+      table: {
+        schema: z.object({ id: z.string(), name: z.string() }),
+        columns: { name: { label: 'Name' } },
+        namespace: 'list-reorder',
+        reorderable: true,
+        rowKey: 'id',
+        load: async () => ({ data: tableState.payload.rows }),
+      },
       onRowReorder,
     })
 

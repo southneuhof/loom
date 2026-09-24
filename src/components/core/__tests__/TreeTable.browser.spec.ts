@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { createApp, h, nextTick } from 'vue'
+import { z } from 'zod'
 import TreeTable from '../TreeTable.vue'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import { createFrameworkQueryClient } from '../../../query'
@@ -8,7 +9,7 @@ import './browser.css'
 type TreeRecord = Record<string, unknown> & { children: TreeRecord[] }
 
 const apps: ReturnType<typeof createApp>[] = []
-const fields = Object.fromEntries(Array.from({ length: 10 }, (_, index) => [`field${index}`, { label: `Field ${index}` }]))
+const columns = Object.fromEntries(Array.from({ length: 10 }, (_, index) => [`field${index}`, { label: `Field ${index}` }]))
 const data: TreeRecord[] = [{ field0: 'Root', children: [{ field0: 'Child', children: [] }] }]
 
 function mount() {
@@ -19,7 +20,11 @@ function mount() {
     render: () => h(
       TreeTable,
       {
-        fields,
+        schema: z.object({
+          ...Object.fromEntries(Object.keys(columns).map((key) => [key, z.unknown()])),
+          children: z.array(z.unknown()),
+        }),
+        columns,
         data,
         children: (record: TreeRecord) => record.children,
         treeColumn: 'field0',

@@ -1,3 +1,5 @@
+import type { SchemaIssue } from './schema'
+
 /**
  * Normalized results reaching core components. Backend envelopes and `Response`
  * objects are normalized by project adapters before they get here.
@@ -17,3 +19,8 @@ export interface CollectionResult<TRecord extends object = Record<string, unknow
 }
 
 export type RecordResult<TRecord extends object = Record<string, unknown>> = TRecord | undefined
+
+export interface SubmitError {
+  message: string
+  issues?: SchemaIssue[]
+}

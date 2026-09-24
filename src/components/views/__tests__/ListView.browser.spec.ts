@@ -1,9 +1,15 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { createApp, h, nextTick, ref } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
+import { z } from 'zod'
 import ListView from '../ListView.vue'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import { createFrameworkQueryClient } from '../../../query'
+import type { CollectionLoadContext, CollectionResult, CollectionSlotProps, TableProps } from '../../../contracts'
+import type { ListViewActions } from '../ListView.vue'
+
+type Role = { name: string }
+type RoleQuery = { page?: number; limit?: number } & Record<string, unknown>
 
 const apps: Array<ReturnType<typeof createApp>> = []
 
@@ -22,15 +28,25 @@ describe('ListView collection presentation', () => {
     const host = document.createElement('div')
     document.body.append(host)
     const calls: Record<string, unknown>[] = []
-    const query = ref<Record<string, unknown>>({ page: 1, limit: 10 })
     const presentation = ref<'table' | 'custom'>('table')
-    let customState: Record<string, any> | undefined
+    let customState: (CollectionSlotProps<Role, RoleQuery> & { actions?: ListViewActions<Role> }) | undefined
+    const table: TableProps<Role, RoleQuery> = {
+      namespace: 'browser-custom-list',
+      schema: z.object({ name: z.string() }),
+      columns: { name: { label: 'Name' } },
+      query: { page: 1, limit: 10 },
+      load: ({ query: currentQuery }: CollectionLoadContext<RoleQuery>): CollectionResult<Role> => {
+        calls.push({ ...currentQuery })
+        const page = Number(currentQuery.page ?? 1)
+        return { data: [{ name: `Role ${page}` }], meta: { total: 2, totalPage: 2 } }
+      },
+    }
 
     const app = createApp({
       setup: () => () => {
         const slots = presentation.value === 'custom'
           ? {
-              collection: (state: Record<string, any>) => {
+              collection: (state: CollectionSlotProps<Role, RoleQuery> & { actions?: ListViewActions<Role> }) => {
                 customState = state
                 return h('p', { 'data-custom-record': '' }, String(state.records[0]?.name ?? ''))
               },
@@ -40,17 +56,7 @@ describe('ListView collection presentation', () => {
           ListView,
           {
             title: 'Roles',
-            query: query.value,
-            table: {
-              namespace: 'browser-custom-list',
-              fields: { name: { label: 'Name' } },
-              load: ({ query: currentQuery }: { query: Record<string, unknown> }) => {
-                calls.push({ ...currentQuery })
-                const page = Number(currentQuery.page ?? 1)
-                return { data: [{ name: `Role ${page}` }], meta: { total: 2, totalPage: 2 } }
-              },
-            },
-            'onUpdate:query': (next: Record<string, unknown>) => { query.value = next },
+            table,
           },
           slots,
         )

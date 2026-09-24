@@ -1,5 +1,6 @@
 import { defineComponent, h, ref } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
 import FileInput from '../FileInput.vue'
 import { deferred, mountInput } from './harness'
 import Form from '../../core/Form.vue'
@@ -11,6 +12,10 @@ type Asset = {
   url: string
   name: string
 }
+
+const singleFileSchema = z.object({ file: z.custom<Asset | null>() })
+const multiFileSchema = z.object({ files: z.array(z.custom<Asset>()) })
+const fileAndToggleSchema = z.object({ toggle: z.string(), file: z.custom<Asset | null>().optional() })
 
 function asset(name: string): Asset {
   return {
@@ -33,7 +38,8 @@ function uploadCards(host: HTMLElement) {
 describe('FileInput upload surface', () => {
   it('renders its drop zone through the form renderer without an upload operation', async () => {
     const view = mountCore(Form, {
-      fields: { file: { label: 'File', form: { renderer: 'file' } } },
+      schema: singleFileSchema,
+      fields: { file: { label: 'File', renderer: 'file' } },
       initialData: {},
       submit: async () => undefined,
     })
@@ -45,16 +51,31 @@ describe('FileInput upload surface', () => {
     view.unmount()
   })
 
+  it('applies layout attributes to its visible input wrapper', async () => {
+    const view = mountInput<Asset | null>(FileInput, {
+      model: null,
+      props: { class: 'file-layout', style: { marginTop: '8px' } },
+    })
+    await view.flush()
+
+    const wrapper = view.host.firstElementChild as HTMLElement
+    expect(wrapper.classList.contains('file-layout')).toBe(true)
+    expect(wrapper.style.marginTop).toBe('8px')
+    view.cleanup()
+  })
+
   it('keeps the uploaded asset object in the live draft through submission', async () => {
     const upload = vi.fn(async () => asset('first.pdf'))
     const submit = vi.fn(async () => undefined)
     const model = ref<Record<string, unknown>>({ file: null })
     const host = defineComponent({
       setup: () => () => h(Form, {
+        schema: singleFileSchema,
         fields: {
           file: {
             label: 'File',
-            form: { renderer: 'file', props: { upload } },
+            renderer: 'file',
+            props: { upload },
           },
         },
         modelValue: model.value,
@@ -125,7 +146,8 @@ describe('FileInput upload surface', () => {
     const upload = vi.fn(() => (call++ === 0 ? first.promise : second.promise))
     const submit = vi.fn(async () => undefined)
     const view = mountCore(Form, {
-      fields: { files: { label: 'Files', form: { renderer: 'file', props: { multi: true, upload } } } },
+      schema: multiFileSchema,
+      fields: { files: { label: 'Files', renderer: 'file', props: { multi: true, upload } } },
       initialData: { files: [] },
       submit,
     })
@@ -164,7 +186,8 @@ describe('FileInput upload surface', () => {
     const upload = vi.fn(() => result.promise)
     const submit = vi.fn(async () => undefined)
     const view = mountCore(Form, {
-      fields: { files: { label: 'Files', form: { renderer: 'file', props: { multi: true, upload } } } },
+      schema: multiFileSchema,
+      fields: { files: { label: 'Files', renderer: 'file', props: { multi: true, upload } } },
       initialData: { files: [] },
       submit,
     })
@@ -192,7 +215,8 @@ describe('FileInput upload surface', () => {
     const upload = vi.fn(() => uploaded.promise)
     const submit = vi.fn(async () => undefined)
     const view = mountCore(Form, {
-      fields: { file: { label: 'File', form: { renderer: 'file', props: { upload, toModel: () => converted.promise } } } },
+      schema: singleFileSchema,
+      fields: { file: { label: 'File', renderer: 'file', props: { upload, toModel: () => converted.promise } } },
       initialData: { file: null },
       submit,
     })
@@ -227,9 +251,10 @@ describe('FileInput upload surface', () => {
     const show = ref(true)
     const view = mountCore(Form, {
       fields: {
-        toggle: { label: 'Toggle', form: { renderer: 'text' } },
-        file: { label: 'File', form: { renderer: 'file', props: { upload, toModel: () => converted.promise }, behavior: { visible: () => show.value } } },
+        toggle: { label: 'Toggle', renderer: 'text' },
+        file: { label: 'File', renderer: 'file', props: { upload, toModel: () => converted.promise }, behavior: { visible: () => show.value } },
       },
+      schema: fileAndToggleSchema,
       initialData: { toggle: '', file: null },
       submit,
     })
@@ -262,7 +287,8 @@ describe('FileInput upload surface', () => {
     const upload = vi.fn(() => (call++ === 0 ? first.promise : second.promise))
     const submit = vi.fn(async () => undefined)
     const view = mountCore(Form, {
-      fields: { files: { label: 'Files', form: { renderer: 'file', props: { multi: true, upload } } } },
+      schema: multiFileSchema,
+      fields: { files: { label: 'Files', renderer: 'file', props: { multi: true, upload } } },
       initialData: { files: [] },
       submit,
     })
@@ -289,7 +315,8 @@ describe('FileInput upload surface', () => {
     const upload = vi.fn(() => result.promise)
     const submit = vi.fn(async () => undefined)
     const view = mountCore(Form, {
-      fields: { files: { label: 'Files', form: { renderer: 'file', props: { multi: true, upload } } } },
+      schema: multiFileSchema,
+      fields: { files: { label: 'Files', renderer: 'file', props: { multi: true, upload } } },
       initialData: { files: [] },
       submit,
     })
@@ -333,7 +360,8 @@ describe('FileInput upload surface', () => {
     expect(uploadCards(view.host)[0].firstElementChild?.className).toContain('animate-pulse')
     expect(uploadCards(view.host)[0].querySelector('[role="status"]')?.textContent).toContain('Mengunggah')
     expect(view.model.value).toBeNull()
-    expect(view.host.querySelector('input[type="file"]')).toBeNull()
+    expect(view.host.querySelector('input[type="file"]')).toBe(input)
+    expect(input.disabled).toBe(true)
 
     reportProgress?.({ loaded: 25, total: 100 })
     await view.flush()
@@ -348,6 +376,7 @@ describe('FileInput upload surface', () => {
     expect(view.host.textContent).toContain('first.pdf')
     expect(view.host.textContent).toContain('Download')
     expect(view.model.value).toEqual(asset('first.pdf'))
+    expect(view.host.querySelector('input[type="file"]')).toBe(input)
     view.cleanup()
   })
 

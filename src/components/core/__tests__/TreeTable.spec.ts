@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
-import { h } from 'vue'
-import TreeTable from '../TreeTable.vue'
+import { defineComponent, h, ref } from 'vue'
+import { z } from 'zod'
+import TreeTableComponent from '../TreeTable.vue'
 import { deferred, flush, mountCore } from './harness'
 
 type Node = {
@@ -10,10 +11,26 @@ type Node = {
   children: Node[]
 }
 
-const fields = {
+const columns = {
   name: { label: 'Name' },
   status: { label: 'Status' },
 }
+
+const schema = z.object({
+  id: z.string(),
+  name: z.string(),
+  status: z.string(),
+  children: z.array(z.unknown()),
+})
+
+const TreeTable = defineComponent({
+  inheritAttrs: false,
+  setup(_, context) {
+    const treeTable = ref<{ refresh: () => Promise<void> }>()
+    context.expose({ refresh: () => treeTable.value?.refresh() ?? Promise.resolve() })
+    return () => h(TreeTableComponent, { ...context.attrs, schema, ref: treeTable }, context.slots)
+  },
+})
 
 function makeTree() {
   const grandchild: Node = { id: 'grandchild', name: 'Grandchild', status: 'deep', children: [] }
@@ -26,7 +43,7 @@ function makeTree() {
 
 function treeProps(overrides: Record<string, unknown> = {}) {
   return {
-    fields,
+    columns,
     treeColumn: 'name',
     pagination: false,
     children: (record: Node) => record.children,

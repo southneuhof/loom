@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createApp, defineComponent, h, nextTick, ref, type App } from 'vue'
+import { createApp, defineComponent, h, nextTick, ref, type App, type PropType } from 'vue'
+import { z } from 'zod/v4'
 import LookupInput from '../form-inputs/LookupInput.vue'
+import { defineTable } from '../../../tables/defineTable'
+import type { CollectionLoadContext, CollectionMeta, CollectionResult, Load, RecordIdentity, RecordLoadContext } from '../../../contracts'
 
 vi.mock('../../base/Dialog.vue', async () => {
   const { defineComponent, h } = await import('vue')
@@ -21,10 +24,17 @@ vi.mock('../../core/Table.vue', async () => {
   const { defineComponent, h } = await import('vue')
   return {
     default: defineComponent({
-      props: { data: Array, pagination: [Boolean, String] },
+      props: {
+        data: { type: Array as PropType<Option[]>, default: () => [] },
+        meta: Object as PropType<CollectionMeta>,
+        pagination: [Boolean, String],
+      },
       emits: ['row-click'],
       setup(props, { emit }) {
-        return () => h('div', { class: props.pagination === false ? 'lookup-preview' : 'lookup-options' }, (props.data ?? []).map((record: any) =>
+        return () => h('div', {
+          class: props.pagination === false ? 'lookup-preview' : 'lookup-options',
+          'data-total': props.meta?.total,
+        }, props.data.map((record) =>
           h('button', {
             class: 'lookup-row',
             onClick: () => emit('row-click', record),
@@ -63,22 +73,28 @@ vi.mock('../../inputs/SearchBox.vue', async () => {
 })
 
 const apps: App[] = []
-const fields = { name: { label: 'Name' } }
+const optionSchema = z.object({ id: z.string(), name: z.string() })
+type Option = z.output<typeof optionSchema>
+const table = defineTable({ schema: optionSchema, columns: { name: {} } })
 const options = [{ id: 'one', name: 'Option one' }, { id: 'two', name: 'Option two' }]
 
 function mountLookup(mountOptions: {
   model: unknown
-  loadDetail?: (context: any) => Promise<any>
+  loadDetail?: Load<RecordLoadContext & { id: RecordIdentity }, Option>
+  load?: Load<CollectionLoadContext, CollectionResult<Option>>
+  searchParameters?: Record<string, unknown>
   placeholder?: string
   multi?: boolean
 }) {
   const model = ref(mountOptions.model)
+  const searchParameters = ref(mountOptions.searchParameters ?? {})
   const host = document.createElement('div')
   document.body.append(host)
   const app = createApp(defineComponent({
     setup: () => () => h(LookupInput, {
-      fields,
-      data: options,
+      table,
+      ...(mountOptions.load ? { load: mountOptions.load } : { data: options }),
+      searchParameters: searchParameters.value,
       pick: 'id',
       view: 'name',
       multi: mountOptions.multi,
@@ -93,6 +109,7 @@ function mountLookup(mountOptions: {
   return {
     host,
     model,
+    setSearchParameters: (value: Record<string, unknown>) => { searchParameters.value = value },
     display: () => host.querySelector('.dialog-trigger p')?.textContent,
     row: (index: number) => host.querySelectorAll<HTMLButtonElement>('.lookup-row')[index]!,
     save: () => [...host.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('Simpan'))!,
@@ -112,6 +129,43 @@ afterEach(() => {
 })
 
 describe('LookupInput selection labels', () => {
+  it('loads options from its explicit source with the active query and search parameters', async () => {
+    const load = vi.fn(async () => ({ data: options, meta: { total: 2, page: 1, pageSize: 5 } }))
+    const view = mountLookup({ model: null, load, searchParameters: { parentId: 'parent' } })
+    await flush()
+
+    expect(load).toHaveBeenCalledWith({
+      query: { page: 1, limit: 5 },
+      searchParameters: { parentId: 'parent' },
+      signal: expect.any(AbortSignal),
+    })
+    expect(view.display()).toBe('Pilih')
+    expect(view.host.querySelector('.lookup-options')?.getAttribute('data-total')).toBe('2')
+  })
+
+  it('cancels stale option loads when contextual search parameters change', async () => {
+    let resolveFirst!: (result: CollectionResult<Option>) => void
+    let firstSignal: AbortSignal | undefined
+    const first = new Promise<CollectionResult<Option>>((resolve) => { resolveFirst = resolve })
+    const load = vi.fn(({ searchParameters, signal }: CollectionLoadContext) => {
+      if (searchParameters.parentId === 'first') {
+        firstSignal = signal
+        return first
+      }
+      return Promise.resolve({ data: [options[1]], meta: { total: 1, page: 1, pageSize: 5 } })
+    })
+    const view = mountLookup({ model: null, load, searchParameters: { parentId: 'first' } })
+    await flush()
+
+    view.setSearchParameters({ parentId: 'second' })
+    await flush()
+    resolveFirst({ data: [options[0]], meta: { total: 1, page: 1, pageSize: 5 } })
+    await flush()
+
+    expect(firstSignal?.aborted).toBe(true)
+    expect(view.host.querySelector('.lookup-options .lookup-row')?.textContent).toBe('Option two')
+  })
+
   it('emits selected multi records without scalar conversion', async () => {
     const view = mountLookup({
       model: null,
@@ -135,6 +189,16 @@ describe('LookupInput selection labels', () => {
     expect(loadDetail).not.toHaveBeenCalled()
     expect(view.display()).toBe('Option one')
     expect(view.host.querySelector('.lookup-preview .lookup-row')?.textContent).toBe('Option one')
+  })
+
+  it('preserves multi-selection records without display-only fields', async () => {
+    const selection = [{ id: 'one' }]
+    const view = mountLookup({ model: selection, multi: true })
+    await flush()
+
+    expect(view.model.value).toEqual(selection)
+    expect(view.display()).toBe('1 Selected')
+    expect(view.host.querySelectorAll('.lookup-preview .lookup-row')).toHaveLength(1)
   })
 
   it('keeps locally selected label without calling loadDetail', async () => {
@@ -161,7 +225,11 @@ describe('LookupInput selection labels', () => {
     resolveDetail(options[0])
     await flush()
 
-    expect(loadDetail).toHaveBeenCalledWith({ id: 'one', searchParameters: {} })
+    expect(loadDetail).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'one',
+      searchParameters: {},
+      signal: expect.any(AbortSignal),
+    }))
     expect(view.display()).toBe('Option one')
   })
 

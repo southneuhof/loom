@@ -32,7 +32,6 @@ describe('adapter resolution', () => {
     const resolved = resolveFrameworkAdapters()
 
     expect(resolved.data.normalizeError(new Error('boom')).message).toBe('boom')
-    expect(resolved.schemas).toBeUndefined()
     expect(resolved.queryDefaults.staleTime).toBe(30_000)
     expect(typeof resolved.query.read).toBe('function')
   })
@@ -56,8 +55,8 @@ describe('plugin installation', () => {
   })
 
   it('creates one isolated query client per app', () => {
-    const first = mountWith({ runtime: {} })
-    const second = mountWith({ runtime: {} })
+    const first = mountWith({})
+    const second = mountWith({})
 
     const firstClient = first.app._context.provides[frameworkQueryClientKey as symbol]
     const secondClient = second.app._context.provides[frameworkQueryClientKey as symbol]
@@ -69,9 +68,7 @@ describe('plugin installation', () => {
   })
 
   it('accepts an injected query client', () => {
-    const injected = resolveFrameworkAdapters()
-    void injected
-    const { app } = mountWith({ runtime: {} })
+    const { app } = mountWith({})
     const client = app._context.provides[frameworkQueryClientKey as symbol]
     app.unmount()
 

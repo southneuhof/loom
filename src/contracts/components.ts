@@ -13,17 +13,20 @@
  * development error reported at runtime.
  */
 
-import type { CollectionLoadContext, Load, RecordIdentity, RecordLoadContext, MaybePromise } from './load'
-import type { FieldContext, FieldsInput } from './fields'
+import type { CollectionLoadContext, Load, RecordIdentity, RecordLoadContext } from './load'
+import type { RawSchema } from './schema'
 import type { CollectionMeta, CollectionResult, RecordResult } from './results'
 import type { QueryNamespace, QueryValues } from './query'
-import type { FormValidatorInput, SubmitError, ValidationSchema } from './validation'
+import type { DetailDefinition } from './details'
+import type { TableDefinition } from './tables'
+import type { SubmitError } from './results'
 
 export interface CollectionProps<
   TRecord extends object = Record<string, unknown>,
   TQuery extends object = Record<string, unknown>,
 > {
   data?: TRecord[]
+  meta?: CollectionMeta
   load?: Load<CollectionLoadContext<TQuery>, CollectionResult<TRecord>>
   searchParameters?: Record<string, unknown>
   resource?: string
@@ -52,8 +55,8 @@ export interface CollectionSlotProps<
 export interface TableProps<
   TRecord extends object = Record<string, unknown>,
   TQuery extends object = Record<string, unknown>,
-> extends CollectionProps<TRecord, TQuery> {
-  fields: FieldsInput<TRecord>
+> extends CollectionProps<TRecord, TQuery>, TableDefinition<TRecord> {
+  querySchema?: RawSchema<object, TQuery>
   /** Minimum resizable width in pixels. */
   minColumnWidth?: number
   /** Controlled visible data-column keys. */
@@ -61,7 +64,6 @@ export interface TableProps<
   /** Controlled data-column widths in pixels. */
   columnSizing?: Readonly<Record<string, number>>
   rowKey?: string | ((record: TRecord) => string | number)
-  schema?: ValidationSchema<TQuery>
 }
 
 export interface TreeTableProps<
@@ -96,8 +98,7 @@ export interface RowReorderPayload<TRecord extends object = Record<string, unkno
   query: QueryValues
 }
 
-export interface DetailProps<TRecord extends object = Record<string, unknown>> {
-  fields: FieldsInput<TRecord>
+export interface DetailProps<TRecord extends object = Record<string, unknown>> extends DetailDefinition<TRecord> {
   id?: RecordIdentity
   data?: TRecord
   load?: Load<RecordLoadContext, RecordResult<TRecord>>
@@ -105,99 +106,4 @@ export interface DetailProps<TRecord extends object = Record<string, unknown>> {
   resource?: string
   /** View identity below the resource and record cache owner. */
   namespace?: QueryNamespace
-}
-
-export type FormSubmitHandler<TInput extends object = Record<string, unknown>, TResult = unknown> = (
-  draft: TInput,
-) => MaybePromise<TResult>
-
-/**
- * Structural submit target: any object exposing `run(draft)` — e.g. a resource
- * action bag — is accepted without importing resources here.
- */
-export interface FormSubmitAction<TInput extends object = Record<string, unknown>> {
-  run(input: TInput): MaybePromise<unknown>
-}
-
-export interface FormPropsBase<TInput extends object = Record<string, unknown>, TResult = unknown> {
-  fields: FieldsInput<TInput, TInput>
-  /** Prefilled values; loaded values override these, and user edits override both. */
-  initialData?: Partial<TInput>
-  load?: Load<RecordLoadContext, Partial<TInput> | undefined>
-  id?: RecordIdentity
-  searchParameters?: Record<string, unknown>
-  resource?: string
-  /** Validates the visibility-filtered draft before submission. */
-  schema?: ValidationSchema<TInput>
-  /** Sync or async rules composed after successful schema validation. */
-  validators?: readonly FormValidatorInput<TInput>[]
-  /** Stable caller-owned information made available to behavior and validators. */
-  context?: FieldContext
-  /** Normalizes a rejected submission into field-level issues. */
-  normalizeError?: (error: unknown) => SubmitError
-  /** View identity for the optional initial-data load. */
-  namespace?: QueryNamespace
-  /** Renders every input read-only. */
-  disabled?: boolean
-  /** Local submit label override for the default action. */
-  submitLabel?: string
-  /** Optional label shown while the default action runs. */
-  submittingLabel?: string
-}
-
-/** Normal Form operation. Submission is supplied by its resource or caller. */
-export interface FormSubmitProps<TInput extends object = Record<string, unknown>, TResult = unknown>
-  extends FormPropsBase<TInput, TResult> {
-  /** A plain draft handler or a structural `{ run(draft) }` action bag. */
-  submit: FormSubmitHandler<TInput, TResult> | FormSubmitAction<TInput>
-  modelValue?: never
-}
-
-/**
- * A present `v-model` puts Form in model-bound operation. No separate mode
- * flag is needed; its value may still be `undefined` during initialization.
- */
-export interface FormModelProps<TInput extends object = Record<string, unknown>, TResult = unknown>
-  extends FormPropsBase<TInput, TResult> {
-  modelValue: Partial<TInput> | undefined
-  /** A plain draft handler or a structural `{ run(draft) }` action bag. */
-  submit?: FormSubmitHandler<TInput, TResult> | FormSubmitAction<TInput>
-}
-
-export type FormProps<TInput extends object = Record<string, unknown>, TResult = unknown> =
-  | FormSubmitProps<TInput, TResult>
-  | FormModelProps<TInput, TResult>
-
-export type DialogFormCloseReason = 'cancel' | 'dismiss'
-
-export interface DialogFormCloseContext {
-  reason: DialogFormCloseReason
-  dirty: boolean
-  submitting: boolean
-  validating: boolean
-}
-
-/**
- * Core Form props plus dialog lifecycle and presentation policy.
- *
- * DialogForm owns visibility by default. Callers can use the separate named
- * `v-model:open` for coordinated visibility. The default `v-model` remains
- * Form draft data.
- */
-export type DialogFormProps<
-  TInput extends object = Record<string, unknown>,
-  TResult = unknown,
-> = FormProps<TInput, TResult> & {
-  title?: string
-  description?: string
-  closeOnSubmitted?: boolean
-  beforeClose?: (context: DialogFormCloseContext) => MaybePromise<boolean>
-  cancelLabel?: string
-  submitLabel?: string
-  submittingLabel?: string
-  /**
-   * Resource action bags bind directly (`v-bind="resource.create()"`); when
-   * `submit` is absent, `run` is forwarded to Form as the submit target.
-   */
-  run?: FormSubmitHandler<TInput, TResult> | FormSubmitAction<TInput>
 }

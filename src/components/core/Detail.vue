@@ -1,36 +1,43 @@
-<script setup lang="ts">
+<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>">
 /**
  * Record core.
  *
  * Owns record loading, field rendering, and loading/empty/error states. It owns
  * no page layout, route navigation, or edit and delete controls.
  */
-import { computed } from 'vue'
+import { computed, useSlots } from 'vue'
 import type { DetailProps, RecordLoadContext, RecordResult } from '../../contracts'
-import { displayValue, resolveFields, useFrameworkFieldDefaults } from '../../fields'
+import DisplayValue from '../../display/DisplayValue.vue'
+import { resolveDisplayFields, resolveDisplayValue } from '../../display/resolveDisplay'
 import { useLoader } from '../../query'
+import { schemaOutputKeys } from '../../schemas/compileSchema'
 import { useRendererRegistry } from '../../renderers/registry'
 import { assertSingleDataSource, instanceIdentity, recordCacheKey } from './useCoreData'
 
-const props = withDefaults(defineProps<DetailProps>(), {
+const props = withDefaults(defineProps<DetailProps<TRecord>>(), {
   searchParameters: () => ({}),
 })
 
-assertSingleDataSource('Detail', props.data, props.load)
+assertSingleDataSource('Detail', props.data, props.load, 'record')
 
-const renderers = useRendererRegistry('detail')
-const fieldDefaults = useFrameworkFieldDefaults()
-
-const fields = computed(() => resolveFields({
-  fields: props.fields,
-  surface: 'detail',
-  defaults: fieldDefaults.detail,
-  defaultFields: fieldDefaults.fields,
-}))
+const renderers = useRendererRegistry('display')
+const slots = useSlots()
+const fields = computed(() => {
+  const resolved = resolveDisplayFields({
+    surface: 'detail',
+    entries: props.fields,
+    labels: props.labels,
+    recordKeys: schemaOutputKeys(props.schema),
+  })
+  for (const field of resolved) {
+    if (field.renderer) renderers.require(field.renderer)
+  }
+  return resolved
+})
 const fallbackOwner = instanceIdentity('detail')
 const owner = computed(() => props.resource ?? props.namespace ?? fallbackOwner)
 
-const loaded = useLoader<RecordLoadContext, RecordResult>({
+const loaded = useLoader<RecordLoadContext, RecordResult<TRecord>>({
   key: computed(() => recordCacheKey(owner.value, props.id, 'display', props.namespace, props.searchParameters ?? {})),
   context: computed(() => ({ id: props.id, searchParameters: props.searchParameters ?? {} })),
   load: computed(() => props.load),
@@ -38,12 +45,16 @@ const loaded = useLoader<RecordLoadContext, RecordResult>({
 })
 
 const record = computed(() => loaded.data.value)
-const entries = computed(() =>
-  fields.value.map((field) => ({
-    field,
-    value: record.value ? displayValue(record.value, field) : undefined,
-  })),
-)
+const entries = computed(() => {
+  const currentRecord = record.value
+  return currentRecord
+    ? fields.value.map((field) => ({
+        field,
+        value: resolveDisplayValue(currentRecord, field),
+        hasSlot: Boolean(slots[`value:${field.key}`]),
+      }))
+    : []
+})
 
 defineExpose({ refresh: loaded.refresh })
 </script>
@@ -70,18 +81,16 @@ defineExpose({ refresh: loaded.refresh })
               {{ entry.field.label }}
             </th>
             <td aria-hidden="true" class="w-px whitespace-nowrap py-1 pe-3 align-top text-on-surface-variant">:</td>
-            <td :data-emphasis="entry.field.emphasis" class="min-w-0 break-words py-1 text-sm text-on-surface">
-              <slot :name="`value:${entry.field.key}`" :value="entry.value" :record="record" :field="entry.field">
-                <component
-                  :is="renderers.require(entry.field.renderer)"
-                  v-if="entry.field.renderer"
-                  v-bind="entry.field.props"
-                  :value="entry.value"
-                  :record="record"
-                  :field="entry.field"
-                />
-                <template v-else>{{ entry.value ?? '-' }}</template>
-              </slot>
+            <td
+              class="min-w-0 break-words py-1 text-sm"
+              :class="{
+                'font-semibold text-on-surface': entry.field.emphasis === 'strong',
+                'text-on-surface-variant': entry.field.emphasis === 'muted',
+                'text-on-surface': !entry.field.emphasis,
+              }"
+            >
+              <slot v-if="entry.hasSlot" :name="`value:${entry.field.key}`" :value="entry.value" :record="record" :field="entry.field" />
+              <DisplayValue v-else :value="entry.value" :record="record" :field="entry.field" />
             </td>
           </tr>
         </tbody>

@@ -1,14 +1,19 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import { createApp, defineComponent, h, nextTick, ref, type App } from 'vue'
+import { z } from 'zod/v4'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import LookupInput from '../form-inputs/LookupInput.vue'
+import type { CollectionLoadContext, CollectionResult, Load } from '../../../contracts'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import { createFrameworkQueryClient } from '../../../query'
+import { defineTable } from '../../../tables/defineTable'
 
 const apps: App[] = []
 
-const fields = { name: { label: 'Name' } }
-const options = [{ id: 'one', name: 'Option one' }, { id: 'two', name: 'Option two' }]
+const optionSchema = z.object({ id: z.string(), name: z.string() })
+type Option = z.output<typeof optionSchema>
+const table = defineTable({ schema: optionSchema, columns: { name: {} } })
+const options: Option[] = [{ id: 'one', name: 'Option one' }, { id: 'two', name: 'Option two' }]
 
 async function frame(times = 4) {
   for (let attempt = 0; attempt < times; attempt += 1) {
@@ -21,17 +26,22 @@ async function frame(times = 4) {
 
 function mountLookup(mountOptions: {
   model?: unknown
+  disabled?: boolean
+  multi?: boolean
   loadDetail?: (context: { id: unknown; searchParameters: Record<string, unknown> }) => Promise<unknown>
+  load?: Load<CollectionLoadContext, CollectionResult<Option>>
 }) {
   const model = ref(mountOptions.model ?? null)
   const host = document.createElement('div')
   document.body.append(host)
   const app = createApp(defineComponent({
     setup: () => () => h(LookupInput, {
-      fields,
-      data: options,
+      table,
+      ...(mountOptions.load ? { load: mountOptions.load } : { data: options }),
       pick: 'id',
       view: 'name',
+      disabled: mountOptions.disabled,
+      multi: mountOptions.multi,
       loadDetail: mountOptions.loadDetail,
       modelValue: model.value,
       'onUpdate:modelValue': (value: unknown) => { model.value = value },
@@ -74,6 +84,8 @@ describe('LookupInput real dialog', () => {
     trigger(view.host).click()
     await frame()
     expect(dialog().querySelector('table')).not.toBeNull()
+    expect(dialog().textContent).toContain('Pilih data')
+    expect(dialog().textContent).toContain('Pilih data dari daftar untuk mengisi nilai ini.')
 
     rowNamed('Option two').click()
     await frame()
@@ -83,6 +95,35 @@ describe('LookupInput real dialog', () => {
     expect(view.model.value).toBe('two')
     expect(trigger(view.host).textContent).toContain('Option two')
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('does not open or change the model while disabled', async () => {
+    const view = mountLookup({ disabled: true, multi: true, model: [options[0]] })
+    await frame()
+
+    expect(view.host.textContent).toContain('Option one')
+    expect(view.host.querySelector('[aria-label="Remove selected record"]')).toBeNull()
+    trigger(view.host).click()
+    await frame()
+
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+    expect(view.model.value).toEqual([options[0]])
+  })
+
+  it('renders pagination from explicit source metadata', async () => {
+    const view = mountLookup({
+      load: () => ({
+        data: options,
+        meta: { total: 11, page: 1, pageSize: 5, totalPage: 3 },
+      }),
+    })
+    await frame()
+
+    trigger(view.host).click()
+    await frame()
+
+    expect(dialog().textContent).toContain('1 / 3')
+    expect(dialog().textContent).toContain('Showing data 1–2 out of 11')
   })
 
   it('shows an initial scalar ID label after loadDetail hydration', async () => {

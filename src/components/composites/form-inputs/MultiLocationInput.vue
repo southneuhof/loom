@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, type PropType } from 'vue'
-import type { LocationOperations } from '../../../contracts'
+import type { Coordinate, LocationOperations } from '../../../contracts'
 import LocationInput from './LocationInput.vue'
 import BaseInput from '../../inputs/BaseInput.vue'
 import { commonProps } from '../../inputs/commonprops'
@@ -14,7 +14,7 @@ const props = defineProps({
   operations: { type: Object as PropType<LocationOperations>, required: true },
 })
 
-const modelValue = defineModel<Array<any>>()
+const modelValue = defineModel<Coordinate[]>()
 
 if (!modelValue.value) modelValue.value = []
 

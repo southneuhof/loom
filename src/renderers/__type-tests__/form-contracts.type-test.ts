@@ -6,7 +6,6 @@
  * `@ts-expect-error` and must stay unused until Step 2 threads the
  * component types through the authoring paths.
  */
-import type { FieldDefinition } from '../../contracts/fields'
 import type { FormRendererProps } from '../formContracts'
 
 // Built-in renderer: correct declared prop passes.
@@ -51,9 +50,3 @@ const unknownRenderer: FormRendererProps<
   'not-a-renderer'
 > = {}
 void unknownRenderer
-
-// Number value inference stays intact beside the prop contract.
-const numberField = {
-  amount: { form: { renderer: 'number', props: { currency: 'USD' } } },
-} satisfies Record<string, FieldDefinition<{ amount: number }, { amount: number }, unknown>>
-void numberField

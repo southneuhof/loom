@@ -1,441 +1,411 @@
 import { defineComponent, h, ref } from 'vue'
-import { describe, expect, it, vi } from 'vitest'
-import { z } from 'zod/v3'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { z } from 'zod'
+import type { FormFields } from '../../../contracts/forms'
+import type { DialogFormCloseContext, DialogFormCloseReason } from '../../../forms/props'
+import { defineForm } from '../../../forms/defineForm'
 import DialogForm from '../DialogForm.vue'
-import { fromZod } from '../../../validation'
 import { deferred, flush, mountCore } from '../../core/__tests__/harness'
-
-const mocks = vi.hoisted(() => ({ toastError: vi.fn() }))
-vi.mock('vue-sonner', () => ({ toast: { error: mocks.toastError } }))
 
 vi.mock('../../base/Dialog.vue', async () => {
   const { defineComponent, h } = await import('vue')
   return {
     default: defineComponent({
-      props: {
-        modelValue: Boolean,
-        disabled: Boolean,
-      },
+      inheritAttrs: false,
+      props: { modelValue: Boolean },
       emits: ['update:modelValue', 'open', 'close'],
-      setup(props, { emit, slots }) {
-        const setOpen = (value: boolean) => emit('update:modelValue', value)
-        return () =>
-          h('section', { class: 'dialog-mock' }, [
-            h('div', { class: 'dialog-trigger' }, slots.trigger?.({ setOpen, disabled: props.disabled, 'data-trigger-binding': '' })),
-            slots.title ? h('h2', { class: 'dialog-title' }, slots.title({ setOpen })) : null,
-            slots.description ? h('p', { class: 'dialog-description' }, slots.description({ setOpen })) : null,
-            props.modelValue
-              ? h('div', { class: 'dialog-content' }, [
-                  slots.content?.({ setOpen }),
-                  h('button', { type: 'button', class: 'dialog-dismiss', onClick: () => setOpen(false) }, 'Dismiss'),
-                ])
-              : null,
-          ])
+      setup(props, { attrs, emit, slots }) {
+        const setOpen = (value: boolean) => {
+          emit('update:modelValue', value)
+          emit(value ? 'open' : 'close')
+        }
+        return () => h('section', { ...attrs, class: ['dialog-mock', attrs.class], 'data-dialog-root': '' }, [
+          slots.trigger?.({ setOpen, disabled: false, 'data-trigger-binding': '' }),
+          props.modelValue ? h('div', { role: 'dialog' }, [
+            slots.title?.({ setOpen }),
+            slots.description?.({ setOpen }),
+            slots.content?.({ setOpen }),
+            h('button', { type: 'button', onClick: () => setOpen(false) }, 'Dismiss'),
+          ]) : null,
+        ])
       },
     }),
   }
 })
 
-const fields = {
-  name: { label: 'Name', form: { renderer: undefined } },
+const schema = z.object({ name: z.string() })
+type Input = z.input<typeof schema>
+const fields = { name: { renderer: 'text' } } satisfies FormFields<Input>
+
+interface DialogSlotScope {
+  setOpen?: (value: boolean) => void
+  requestClose?: (reason: DialogFormCloseReason) => Promise<boolean>
+  value?: unknown
+  touched?: boolean
+  field?: unknown
+  setValue?: (value: unknown) => void
+  dirty?: boolean
+  submit?: () => Promise<void>
+  reset?: () => void
+  [key: string]: unknown
 }
 
-interface MountOptions {
+interface DialogMountOptions {
+  definition?: object
   props?: Record<string, unknown>
-  slots?: Record<string, (scope: Record<string, any>) => unknown>
-  modelBound?: boolean
-  modelValue?: Record<string, unknown>
-  open?: boolean
+  slots?: Record<string, (scope: DialogSlotScope) => unknown>
+  initialOpen?: boolean
+  boundOpen?: boolean
 }
 
-function mountDialogForm(options: MountOptions = {}) {
-  const submitted: unknown[] = []
-  const errors: unknown[] = []
-  const resets: unknown[] = []
-  const openUpdates: boolean[] = []
-  const submittedOpenStates: boolean[] = []
-  const draftUpdates: Record<string, unknown>[] = []
+interface DialogEvents {
+  submitted: unknown[]
+  errors: unknown[]
+  resets: number
+  modelUpdates: Partial<Input>[]
+  openUpdates: boolean[]
+}
 
+function mountDialogForm(options: DialogMountOptions = {}) {
+  const initialOpen = options.initialOpen ?? options.props?.open === true
+  const open = ref(initialOpen)
+  const events: DialogEvents = {
+    submitted: [],
+    errors: [],
+    resets: 0,
+    modelUpdates: [],
+    openUpdates: [],
+  }
   const Host = defineComponent({
     setup(_, { expose }) {
-      const open = ref(options.open ?? true)
-      const draft = ref<Record<string, unknown> | undefined>(options.modelValue)
-      const dialog = ref()
-      expose({ open, draft, dialog })
-
-      return () =>
-        h(
-          DialogForm,
-          {
-            fields,
-            initialData: { name: '' },
-            submit: async () => undefined,
-            ...options.props,
-            ref: dialog,
-            open: open.value,
-            'onUpdate:open': (value: boolean) => {
-              openUpdates.push(value)
-              open.value = value
-            },
-            ...(options.modelBound
-              ? {
-                  modelValue: draft.value,
-                  'onUpdate:modelValue': (value: Record<string, unknown>) => {
-                    draftUpdates.push(value)
-                    draft.value = value
-                  },
-                }
-              : {}),
-            onSubmitted: (result: unknown) => {
-              submittedOpenStates.push(open.value)
-              submitted.push(result)
-            },
-            onError: (error: unknown) => errors.push(error),
-            onReset: () => resets.push(true),
-          },
-          options.slots,
-        )
+      expose({ open })
+      return () => {
+        const props: Record<string, unknown> = {
+          schema,
+          fields,
+          submit: async () => 'saved',
+          ...options.definition,
+          ...options.props,
+          onSubmitted: (result: unknown) => events.submitted.push(result),
+          onError: (error: unknown) => events.errors.push(error),
+          onReset: () => { events.resets += 1 },
+          'onUpdate:modelValue': (value: Partial<Input>) => events.modelUpdates.push(value),
+        }
+        if (options.boundOpen !== false || Object.hasOwn(options.props ?? {}, 'open')) {
+          props.open = open.value
+          props['onUpdate:open'] = (value: boolean) => {
+            events.openUpdates.push(value)
+            open.value = value
+          }
+        }
+        return h(DialogForm, props, options.slots)
+      }
     },
   })
-
   const view = mountCore(Host, {})
-  return { view, submitted, submittedOpenStates, errors, resets, openUpdates, draftUpdates }
+  return { view, events, setParentOpen: (value: boolean) => { open.value = value } }
 }
 
-function button(view: ReturnType<typeof mountCore>, label: string) {
-  return view.all('button').find((entry) => entry.textContent?.trim() === label) as HTMLButtonElement | undefined
+function input(view: ReturnType<typeof mountCore>): HTMLInputElement {
+  const element = view.find<HTMLInputElement>('input')
+  if (!element) throw new Error('DialogForm did not render its input.')
+  return element
 }
 
-function typeName(view: ReturnType<typeof mountCore>, value: string) {
-  const input = view.find<HTMLInputElement>('input')!
-  input.value = value
-  input.dispatchEvent(new Event('input'))
+function enterName(view: ReturnType<typeof mountCore>, value: string): void {
+  const element = input(view)
+  element.value = value
+  element.dispatchEvent(new Event('input', { bubbles: true }))
 }
+
+function button(view: ReturnType<typeof mountCore>, label: string): HTMLButtonElement | undefined {
+  const element = view.all('button').find((entry) => entry.textContent?.trim() === label)
+  return element instanceof HTMLButtonElement ? element : undefined
+}
+
+const mounted: Array<ReturnType<typeof mountDialogForm>['view']> = []
+
+function mount(options: DialogMountOptions = {}) {
+  const result = mountDialogForm(options)
+  mounted.push(result.view)
+  return result
+}
+
+afterEach(() => {
+  for (const view of mounted.splice(0)) view.unmount()
+  document.body.innerHTML = ''
+})
 
 describe('DialogForm', () => {
-  it('derives submit from a resource action bag run when submit is absent', async () => {
-    const run = vi.fn(async (draft: Record<string, unknown>) => ({ id: 'one', ...draft }))
-    const view = mountDialogForm({ props: { run, title: 'Create record', submit: undefined } })
-    await flush()
-    const submit = button(view.view, 'Submit')
-    expect(submit).toBeDefined()
-    typeName(view.view, 'Ada')
-    submit!.click()
-    await flush()
-    await flush()
-    expect(run).toHaveBeenCalledWith({ name: 'Ada' })
-  })
-
-  it('prefers an explicit submit over the bag run', async () => {
-    const run = vi.fn(async () => undefined)
-    const submit = vi.fn(async (draft: Record<string, unknown>) => ({ id: 'one', ...draft }))
-    const view = mountDialogForm({ props: { run, submit, title: 'Create record' } })
-    await flush()
-    typeName(view.view, 'Ada')
-    button(view.view, 'Submit')!.click()
-    await flush()
-    await flush()
-    expect(submit).toHaveBeenCalledWith({ name: 'Ada' })
-    expect(run).not.toHaveBeenCalled()
-  })
-
-  it('forwards dialog, content, and field slots with default and custom labels', async () => {
-    const triggerScopes: Record<string, unknown>[] = []
-    const view = mountDialogForm({
+  it('forwards native form attributes and dialog styling, and uses the effective submit once', async () => {
+    let transformCalls = 0
+    const paritySchema = z.object({
+      name: z.string().transform((value) => {
+        transformCalls += 1
+        return value.trim().toUpperCase()
+      }),
+    })
+    type ParityInput = z.input<typeof paritySchema>
+    const parityFields = { name: { renderer: 'text' } } satisfies FormFields<ParityInput>
+    const originalSubmit = vi.fn(async (data: z.output<typeof paritySchema>) => `original-${data.name}`)
+    const effectiveSubmit = vi.fn(async (data: z.output<typeof paritySchema>) => `effective-${data.name}`)
+    const validated: z.output<typeof paritySchema>[] = []
+    const definition = defineForm({
+      schema: paritySchema,
+      fields: parityFields,
+      submit: originalSubmit,
+    })
+    const view = mount({
+      definition,
+      initialOpen: true,
       props: {
-        title: 'Create record',
-        description: 'Required fields',
-        cancelLabel: 'Back',
-        submitLabel: 'Create',
+        schema: paritySchema,
+        fields: parityFields,
+        submit: effectiveSubmit,
+        validators: [{ validate: async ({ data }: { data: z.output<typeof paritySchema> }) => { validated.push(data) } }],
+        name: 'profile-form',
+        autocomplete: 'off',
+        'aria-label': 'Profile editor',
+        'data-testid': 'profile-dialog-form',
+        class: 'profile-dialog',
+        style: { maxWidth: '42rem' },
+      },
+    })
+    await flush()
+
+    expect(view.view.all('form')).toHaveLength(1)
+    expect(view.view.find('form')?.getAttribute('name')).toBe('profile-form')
+    expect(view.view.find('form')?.getAttribute('autocomplete')).toBe('off')
+    expect(view.view.find('form')?.getAttribute('aria-label')).toBe('Profile editor')
+    expect(view.view.find('form')?.getAttribute('data-testid')).toBe('profile-dialog-form')
+    expect(view.view.find('[data-dialog-root]')?.classList.contains('profile-dialog')).toBe(true)
+    expect(view.view.find('[data-dialog-root]')?.getAttribute('style')).toContain('max-width: 42rem')
+    expect(button(view.view, 'Cancel')).toBeDefined()
+    expect(button(view.view, 'Submit')).toBeDefined()
+
+    enterName(view.view, '  Ada  ')
+    button(view.view, 'Submit')?.click()
+    await flush()
+
+    expect(transformCalls).toBe(1)
+    expect(validated).toEqual([{ name: 'ADA' }])
+    expect(originalSubmit).not.toHaveBeenCalled()
+    expect(effectiveSubmit).toHaveBeenCalledOnce()
+    expect(effectiveSubmit).toHaveBeenCalledWith({ name: 'ADA' })
+    expect(view.events.submitted).toEqual(['effective-ADA'])
+    expect(view.view.exposed().open).toBe(false)
+    expect(view.events.openUpdates).toEqual([false])
+    expect(view.view.find('[role="dialog"]')).toBeNull()
+  })
+
+  it('preserves an explicitly undefined model and forwards its updates once without loading', async () => {
+    const load = vi.fn(async () => ({ name: 'loaded' }))
+    const inputScopes: DialogSlotScope[] = []
+    const view = mount({
+      initialOpen: true,
+      props: {
+        schema,
+        fields: { name: { renderer: 'text', initialValue: () => 'factory' } },
+        modelValue: undefined,
+        submit: undefined,
+        initialData: { name: 'initial' },
+        load,
       },
       slots: {
-        trigger: (scope) => {
-          triggerScopes.push(scope)
-          return h('button', { type: 'button', class: 'custom-trigger', onClick: () => scope.setOpen(true) }, 'Open')
-        },
-        header: () => h('p', { class: 'custom-header' }, 'Header'),
-        footer: () => h('p', { class: 'custom-footer' }, 'Footer'),
-        'input:name': ({ value, setValue }) =>
-          h('input', {
-            class: 'custom-name',
-            value,
-            onInput: (event: Event) => setValue((event.target as HTMLInputElement).value),
-          }),
-      },
-    })
-    await flush()
-
-    expect(triggerScopes.at(-1)).toHaveProperty('data-trigger-binding')
-    expect(view.view.find('.dialog-title')?.textContent).toBe('Create record')
-    expect(view.view.find('.dialog-description')?.textContent).toBe('Required fields')
-    expect(view.view.find('.custom-header')?.textContent).toBe('Header')
-    expect(view.view.find('.custom-footer')?.textContent).toBe('Footer')
-    expect(view.view.find('.custom-name')).not.toBeNull()
-    expect(button(view.view, 'Back')).toBeDefined()
-    expect(button(view.view, 'Create')).toBeDefined()
-    view.view.unmount()
-  })
-
-  it('closes only after a successful validated submission', async () => {
-    const submit = vi.fn(async (draft: Record<string, unknown>) => ({ id: 'one', ...draft }))
-    const view = mountDialogForm({ props: { submit } })
-    await flush()
-
-    typeName(view.view, 'Ada')
-    button(view.view, 'Submit')!.click()
-    await flush()
-
-    expect(submit).toHaveBeenCalledWith({ name: 'Ada' })
-    expect(view.submitted).toEqual([{ id: 'one', name: 'Ada' }])
-    expect(view.submittedOpenStates).toEqual([false])
-    expect(view.openUpdates).toEqual([false])
-    expect(view.view.exposed().open).toBe(false)
-    view.view.unmount()
-  })
-
-  it('keeps open for validation and submission failures', async () => {
-    mocks.toastError.mockClear()
-    const invalidSubmit = vi.fn(async () => undefined)
-    const invalid = mountDialogForm({
-      props: {
-        submit: invalidSubmit,
-        schema: {
-          validate: () => ({ success: false as const, issues: [{ path: ['name'], message: 'Name required' }] }),
+        'input:name': (scope) => {
+          inputScopes.push(scope)
+          return h('span', { 'data-input-slot': '' }, String(scope.value ?? ''))
         },
       },
     })
     await flush()
-    button(invalid.view, 'Submit')!.click()
-    await flush()
 
-    expect(invalidSubmit).not.toHaveBeenCalled()
-    expect(invalid.view.exposed().open).toBe(true)
-    expect(invalid.view.text()).toContain('Name required')
-    invalid.view.unmount()
-
-    const failing = mountDialogForm({
-      props: {
-        submit: async () => {
-          throw new Error('Rejected')
-        },
-      },
-    })
-    await flush()
-    button(failing.view, 'Submit')!.click()
-    await flush()
-
-    expect(failing.errors).toEqual([{ message: 'Rejected' }])
-    expect(failing.view.exposed().open).toBe(true)
-    expect(mocks.toastError).toHaveBeenCalledWith('Rejected')
-    failing.view.unmount()
+    expect(load).not.toHaveBeenCalled()
+    expect(view.events.modelUpdates).toEqual([{ name: 'initial' }])
+    expect(inputScopes[0]?.value).toBe('initial')
+    expect(inputScopes[0]?.touched).toBe(false)
+    expect(inputScopes[0]?.field).toMatchObject({ key: 'name', label: 'name' })
+    expect(view.view.find('[data-input-slot]')?.textContent).toBe('initial')
   })
 
-  it('can preserve open state after success', async () => {
-    const view = mountDialogForm({
-      props: {
-        closeOnSubmitted: false,
-        submit: async () => 'saved',
-      },
-    })
-    await flush()
-    button(view.view, 'Submit')!.click()
-    await flush()
-
-    expect(view.submitted).toEqual(['saved'])
-    expect(view.submittedOpenStates).toEqual([true])
-    expect(view.openUpdates).toEqual([])
-    expect(view.view.exposed().open).toBe(true)
-    view.view.unmount()
-  })
-
-  it('guards Cancel and dismiss requests with live dirty state', async () => {
-    const contexts: unknown[] = []
-    let approved = false
-    const beforeClose = vi.fn(async (context) => {
+  it('guards duplicate close requests while a dirty draft awaits approval', async () => {
+    const decision = deferred<boolean>()
+    const contexts: DialogFormCloseContext[] = []
+    const beforeClose = vi.fn((context: DialogFormCloseContext) => {
       contexts.push(context)
-      return approved
+      return decision.promise
     })
-    const view = mountDialogForm({ props: { beforeClose } })
+    const view = mount({
+      initialOpen: true,
+      props: { beforeClose },
+    })
     await flush()
+    enterName(view.view, 'Ada')
 
-    typeName(view.view, 'Changed')
+    button(view.view, 'Cancel')?.click()
     await flush()
-    button(view.view, 'Cancel')!.click()
-    await flush()
-    expect(view.view.exposed().open).toBe(true)
     expect(contexts).toEqual([{ reason: 'cancel', dirty: true, submitting: false, validating: false }])
-
-    approved = true
-    view.view.find<HTMLButtonElement>('.dialog-dismiss')!.click()
-    await flush()
-    expect(view.view.exposed().open).toBe(false)
-    expect(contexts).toEqual([
-      { reason: 'cancel', dirty: true, submitting: false, validating: false },
-      { reason: 'dismiss', dirty: true, submitting: false, validating: false },
-    ])
-    view.view.unmount()
-  })
-
-  it('serializes async close checks and treats rejection as refusal', async () => {
-    const closeCheck = deferred<boolean>()
-    const beforeClose = vi.fn(() => closeCheck.promise)
-    const view = mountDialogForm({ props: { beforeClose } })
-    await flush()
-
-    const dialog = view.view.exposed().dialog
-    const first = dialog.requestClose('cancel')
-    const second = dialog.requestClose('dismiss')
-    expect(beforeClose).toHaveBeenCalledOnce()
-    expect(await second).toBe(false)
-
-    closeCheck.resolve(false)
-    expect(await first).toBe(false)
-    expect(view.view.exposed().open).toBe(true)
-
-    beforeClose.mockImplementationOnce(async () => {
-      throw new Error('No close')
-    })
-    expect(await dialog.requestClose('cancel')).toBe(false)
-    expect(view.view.exposed().open).toBe(true)
-    view.view.unmount()
-  })
-
-  it('disables actions and refuses dismissal while submitting', async () => {
-    const submission = deferred<string>()
-    const view = mountDialogForm({ props: { submit: () => submission.promise } })
-    await flush()
-
-    button(view.view, 'Submit')!.click()
-    await flush()
-    expect(button(view.view, 'Submit')?.disabled).toBe(true)
     expect(button(view.view, 'Cancel')?.disabled).toBe(true)
-
-    view.view.find<HTMLButtonElement>('.dialog-dismiss')!.click()
+    button(view.view, 'Dismiss')?.click()
     await flush()
-    expect(view.view.exposed().open).toBe(true)
+    expect(beforeClose).toHaveBeenCalledOnce()
 
-    submission.resolve('saved')
+    decision.resolve(true)
     await flush()
-    expect(view.view.exposed().open).toBe(false)
-    view.view.unmount()
+    expect(view.events.openUpdates).toEqual([false])
+    expect(view.view.find('[role="dialog"]')).toBeNull()
   })
 
-  it('disables DialogForm submit while an input operation is pending and keeps cancel enabled', async () => {
-    const pendingUpload = deferred<{ kind: 'file'; id: string; url: string; name: string }>()
-    const view = mountDialogForm({
-      props: {
-        fields: { files: { label: 'Files', form: { renderer: 'file', props: { multi: true, upload: () => pendingUpload.promise } } } },
-        initialData: { files: [] },
-      },
+  it('keeps the dialog open when a close guard rejects', async () => {
+    const beforeClose = vi.fn(async () => { throw new Error('Leave denied') })
+    const view = mount({ initialOpen: true, props: { beforeClose } })
+    await flush()
+
+    button(view.view, 'Dismiss')?.click()
+    await flush()
+
+    expect(beforeClose).toHaveBeenCalledOnce()
+    expect(view.view.find('[role="dialog"]')).not.toBeNull()
+    expect(view.events.openUpdates).toEqual([])
+  })
+
+  it('keeps the dialog open when a close guard returns false', async () => {
+    const contexts: DialogFormCloseContext[] = []
+    const beforeClose = vi.fn(async (context: DialogFormCloseContext) => {
+      contexts.push(context)
+      return false
     })
+    const view = mount({ initialOpen: true, props: { beforeClose } })
     await flush()
 
-    const input = view.view.find<HTMLInputElement>('input[type="file"]')!
-    Object.defineProperty(input, 'files', { configurable: true, value: [new File(['first'], 'first.pdf', { type: 'application/pdf' })] })
-    input.dispatchEvent(new Event('change'))
+    button(view.view, 'Dismiss')?.click()
     await flush()
 
-    expect(button(view.view, 'Submit')?.disabled).toBe(true)
-    expect(button(view.view, 'Cancel')?.disabled).toBe(false)
-
-    button(view.view, 'Cancel')!.click()
-    await flush()
-    expect(view.view.exposed().open).toBe(false)
-
-    pendingUpload.resolve({ kind: 'file', id: '/uploads/first.pdf', url: 'https://files.test/first.pdf', name: 'first.pdf' })
-    await flush()
-    view.view.unmount()
+    expect(contexts).toEqual([{ reason: 'dismiss', dirty: false, submitting: false, validating: false }])
+    expect(view.view.find('[role="dialog"]')).not.toBeNull()
+    expect(view.events.openUpdates).toEqual([])
   })
 
-  it('keeps draft v-model independent from named open model', async () => {
-    const submitBound = mountDialogForm()
+  it('accepts a parent-controlled close without calling the user close guard', async () => {
+    const beforeClose = vi.fn(async () => false)
+    const view = mount({ initialOpen: true, props: { beforeClose } })
     await flush()
-    expect(button(submitBound.view, 'Submit')).toBeDefined()
-    submitBound.view.unmount()
 
-    const modelBound = mountDialogForm({
-      modelBound: true,
-      modelValue: undefined,
-      props: { submit: undefined },
-    })
+    view.setParentOpen(false)
     await flush()
-    expect(button(modelBound.view, 'Submit')).toBeUndefined()
 
-    typeName(modelBound.view, 'Filter')
-    await flush()
-    expect(modelBound.draftUpdates).toEqual([{ name: 'Filter' }])
-    expect(modelBound.view.exposed().draft).toEqual({ name: 'Filter' })
-    expect(modelBound.view.exposed().open).toBe(true)
-    modelBound.view.unmount()
+    expect(beforeClose).not.toHaveBeenCalled()
+    expect(view.view.all('form')).toHaveLength(0)
+    expect(view.view.find('[role="dialog"]')).toBeNull()
+    expect(view.events.openUpdates).toEqual([])
   })
 
-  it('forwards custom action state and exposes core Form controls', async () => {
-    const actionScopes: Record<string, any>[] = []
-    const view = mountDialogForm({
+  it('keeps the dialog open after success when closeOnSubmitted is false', async () => {
+    const submit = vi.fn(async () => 'saved')
+    const view = mount({ initialOpen: true, props: { submit, closeOnSubmitted: false, initialData: { name: 'Ada' } } })
+    await flush()
+
+    button(view.view, 'Submit')?.click()
+    await flush()
+
+    expect(submit).toHaveBeenCalledOnce()
+    expect(view.events.submitted).toEqual(['saved'])
+    expect(view.view.find('[role="dialog"]')).not.toBeNull()
+    expect(view.events.openUpdates).toEqual([])
+  })
+
+  it('forwards one reset and one submit error while preserving the open dialog', async () => {
+    const submit = vi.fn(async () => { throw new Error('Save rejected') })
+    const actionScopes: DialogSlotScope[] = []
+    const view = mount({
+      initialOpen: true,
+      props: { submit, initialData: { name: 'Initial' } },
       slots: {
         actions: (scope) => {
           actionScopes.push(scope)
-          return h('button', { type: 'button', class: 'custom-reset', onClick: scope.reset }, 'Reset draft')
+          return h('div', [
+            h('button', { type: 'button', onClick: () => scope.reset?.() }, 'Reset'),
+            h('button', { type: 'submit' }, 'Save'),
+          ])
+        },
+      },
+    })
+    await flush()
+    enterName(view.view, 'Changed')
+    button(view.view, 'Reset')?.click()
+    await flush()
+    expect(input(view.view).value).toBe('Initial')
+    expect(view.events.resets).toBe(1)
+    expect(actionScopes[0]?.reset).toBeTypeOf('function')
+
+    enterName(view.view, 'Changed again')
+    button(view.view, 'Save')?.click()
+    await flush()
+
+    expect(submit).toHaveBeenCalledOnce()
+    expect(view.events.errors).toHaveLength(1)
+    expect(view.view.find('[role="dialog"]')).not.toBeNull()
+  })
+
+  it('passes requestClose to a custom action slot and keeps the Form slot scope', async () => {
+    const actionScopes: DialogSlotScope[] = []
+    const inputScopes: DialogSlotScope[] = []
+    const view = mount({
+      initialOpen: true,
+      slots: {
+        'input:name': (scope) => {
+          inputScopes.push(scope)
+          return h('span', { 'data-input-slot': '' }, String(scope.value ?? ''))
+        },
+        actions: (scope) => {
+          actionScopes.push(scope)
+          return h('button', {
+            type: 'button',
+            onClick: () => { void scope.requestClose?.('cancel') },
+          }, 'Custom cancel')
         },
       },
     })
     await flush()
 
-    typeName(view.view, 'Changed')
+    expect(actionScopes[0]?.submit).toBeTypeOf('function')
+    expect(actionScopes[0]?.requestClose).toBeTypeOf('function')
+    expect(inputScopes[0]?.field).toMatchObject({ key: 'name' })
+    button(view.view, 'Custom cancel')?.click()
     await flush()
-    expect(view.view.exposed().dialog.dirty).toBe(true)
-    expect(actionScopes.at(-1)).toMatchObject({
-      dirty: true,
-      submitting: false,
-      validating: false,
-    })
-    expect(typeof actionScopes.at(-1)?.submit).toBe('function')
-    expect(typeof actionScopes.at(-1)?.requestClose).toBe('function')
-
-    view.view.find<HTMLButtonElement>('.custom-reset')!.click()
-    await flush()
-    expect(view.resets).toEqual([true])
-    expect(view.view.find<HTMLInputElement>('input')?.value).toBe('')
-    expect(view.view.exposed().dialog.dirty).toBe(false)
-    view.view.unmount()
+    expect(view.events.openUpdates).toEqual([false])
+    expect(view.view.find('[role="dialog"]')).toBeNull()
   })
 
-  it('surfaces the Form composition guard instead of rendering an empty dialog', () => {
-    let message = ''
-    try {
-      mountDialogForm({
-        props: {
-          fields: {},
-          initialData: {},
-          schema: fromZod(z.object({ amount: z.number(), method: z.string() })),
-        },
-      })
-    } catch (error) {
-      message = (error as Error).message
-    }
-
-    expect(message).toContain('fields')
-    expect(message).toContain('amount')
-    expect(message).toContain('method')
-  })
-
-  it('submits a custom dialog with one wrapped field', async () => {
-    const submit = vi.fn(async (draft: Record<string, unknown>) => draft)
-    const view = mountDialogForm({
-      props: {
-        fields: { amount: { label: 'Amount' } },
-        initialData: { amount: '12' },
-        schema: fromZod(z.object({ amount: z.string() })),
-        submit,
-      },
+  it('exposes Form state and methods without creating a second Form', async () => {
+    const view = mountCore(DialogForm, {
+      schema,
+      fields,
+      submit: async () => 'saved',
+      open: true,
+      initialData: { name: 'Ada' },
     })
+    mounted.push(view)
     await flush()
 
-    button(view.view, 'Submit')!.click()
+    expect(view.all('form')).toHaveLength(1)
+    expect(view.exposed()).toHaveProperty('draft')
+    expect(view.exposed()).toHaveProperty('dirty')
+    expect(view.exposed()).toHaveProperty('submitting')
+    expect(view.exposed()).toHaveProperty('validating')
+    expect(view.exposed()).toHaveProperty('inputPending')
+    expect(view.exposed()).toHaveProperty('validate')
+    expect(view.exposed()).toHaveProperty('submit')
+    expect(view.exposed()).toHaveProperty('reset')
+    expect(view.exposed()).toHaveProperty('refresh')
+    expect(view.exposed()).toHaveProperty('requestClose')
+    expect(view.exposed()).toHaveProperty('checkingClose')
+    expect(view.exposed()).not.toHaveProperty('form')
+    enterName(view, 'Grace')
+    const exposedReset = view.exposed().reset
+    if (typeof exposedReset !== 'function') throw new Error('DialogForm does not expose reset().')
+    exposedReset()
     await flush()
-    await flush()
-
-    expect(submit).toHaveBeenCalledWith({ amount: '12' })
-    view.view.unmount()
+    expect(input(view).value).toBe('Ada')
   })
 })

@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from 'vitest'
 import { h } from 'vue'
+import { z } from 'zod'
 import Table from '../Table.vue'
 import { deferred, flush, mountCore } from './harness'
 import { exportTableRows } from '../../../services/export'
 import type { CollectionResult } from '../../../contracts'
+import { resolveDisplayFields } from '../../../display/resolveDisplay'
+
+const schema = z.object({ id: z.number(), name: z.string() })
+const columns = { name: { label: 'Name' } }
 
 describe('Table collection slot', () => {
   it('keeps the loading state in TableContent until the custom slot is ready', async () => {
@@ -11,7 +16,7 @@ describe('Table collection slot', () => {
     const collection = vi.fn(({ records }: { records: { id: string; name: string }[] }) => h('p', { class: 'slot-view' }, records.map((record) => record.name).join(',')))
     const view = mountCore(
       Table,
-      { fields: { name: { label: 'Name' } }, load: pending },
+      { schema, columns, load: pending },
       { collection },
     )
 
@@ -24,7 +29,7 @@ describe('Table collection slot', () => {
     const collection = vi.fn(() => h('p', { class: 'slot-view' }, 'Custom'))
     const view = mountCore(
       Table,
-      { fields: { name: { label: 'Name' } }, load: async () => { throw new Error('Broken') } },
+      { schema, columns, load: async () => { throw new Error('Broken') } },
       { collection },
     )
     await flush()
@@ -38,7 +43,7 @@ describe('Table collection slot', () => {
     const collection = vi.fn(() => h('p', { class: 'slot-view' }, 'Custom'))
     const view = mountCore(
       Table,
-      { fields: { name: { label: 'Name' } }, load: async () => ({ data: [] }) },
+      { schema, columns, load: async () => ({ data: [] }) },
       { collection },
     )
     await flush()
@@ -55,7 +60,7 @@ describe('Table collection slot', () => {
     }))
     const view = mountCore(
       Table,
-      { fields: { name: { label: 'Name' } }, load },
+      { schema, columns, load },
       {
         collection: ({ records }: { records: { name: string }[] }) =>
           h('p', { class: 'slot-view' }, records.map((record) => record.name).join(',')),
@@ -83,7 +88,7 @@ describe('exportTableRows paging', () => {
       activeQuery: {},
       searchParameters: {},
       load,
-      fields: [{ key: 'id', label: 'ID' }] as never,
+      columns: resolveDisplayFields({ surface: 'table', entries: { id: { label: 'ID' } } }),
     })
     expect(calls).toBe(3)
   })
@@ -91,7 +96,12 @@ describe('exportTableRows paging', () => {
   it('throws when every page repeats the same signature', async () => {
     const load = async (): Promise<CollectionResult<{ id: number }>> => ({ data: [{ id: 1 }], meta: { totalPage: 99 } })
     await expect(
-      exportTableRows({ activeQuery: {}, searchParameters: {}, load, fields: [{ key: 'id' }] as never }),
+      exportTableRows({
+        activeQuery: {},
+        searchParameters: {},
+        load,
+        columns: resolveDisplayFields({ surface: 'table', entries: { id: {} } }),
+      }),
     ).rejects.toThrowError(/repeated a page/)
   })
 })

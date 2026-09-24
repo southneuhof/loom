@@ -1,8 +1,10 @@
 <script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>">
 import { computed, ref, useSlots } from 'vue'
-import type { CollectionProps, QueryValues, RowReorderPayload, TableProps } from '../../contracts'
+import type { CollectionLoadContext, CollectionProps, CollectionResult, QueryValues, RowReorderPayload, TableProps } from '../../contracts'
+import { compileSchema } from '../../schemas/compileSchema'
 import Collection from './Collection.vue'
 import TableContent from './TableContent.vue'
+import { assertSingleDataSource } from './useCoreData'
 
 const props = withDefaults(defineProps<TableProps<TRecord, TQuery>>(), {
   searchParameters: () => ({}),
@@ -12,12 +14,14 @@ const props = withDefaults(defineProps<TableProps<TRecord, TQuery>>(), {
   minColumnWidth: 96,
 })
 
+assertSingleDataSource('Table', props.data, props.load)
+
 const emit = defineEmits<{
   (event: 'update:query', query: QueryValues): void
   (event: 'update:visibleColumns', columns: string[]): void
   (event: 'update:columnSizing', sizes: Record<string, number>): void
-  (event: 'row-click', record: Record<string, unknown>, index: number): void
-  (event: 'row-reorder', payload: RowReorderPayload): void
+  (event: 'row-click', record: TRecord, index: number): void
+  (event: 'row-reorder', payload: RowReorderPayload<TRecord>): void
 }>()
 
 defineSlots<{
@@ -25,6 +29,7 @@ defineSlots<{
   [name: string]: unknown
 }>()
 const slots = useSlots()
+const compiledQuerySchema = computed(() => props.querySchema ? compileSchema(props.querySchema) : undefined)
 const forwardedSlots = computed(() => Object.fromEntries(
   Object.entries(slots).filter(([name]) => name !== 'collection'),
 ))
@@ -32,8 +37,6 @@ const collectionRef = ref<{ refresh: () => Promise<void>; query: { value: QueryV
 
 const collectionProps = computed<CollectionProps<TRecord, TQuery>>(() => {
   const value: CollectionProps<TRecord, TQuery> = {
-    data: props.data,
-    load: props.load,
     resource: props.resource,
     searchParameters: props.searchParameters,
     namespace: props.namespace,
@@ -41,6 +44,27 @@ const collectionProps = computed<CollectionProps<TRecord, TQuery>>(() => {
     pageSizeOptions: props.pageSizeOptions,
     defaultPageSize: props.defaultPageSize,
     reorderable: props.reorderable,
+  }
+  if (props.meta !== undefined) value.meta = props.meta
+  if (props.data !== undefined) value.data = props.data
+  else {
+    const load = props.load
+    if (load !== undefined) value.load = async (context: CollectionLoadContext<TQuery>): Promise<CollectionResult<TRecord>> => {
+      const compiled = compiledQuerySchema.value
+      if (!compiled) return load(context)
+      const result = await compiled.parseAsync(context.query)
+      if (!result.success) {
+        const issue = result.issues[0]
+        const path = issue ? issue.path.map(String).join('.') || '$' : '$'
+        throw new Error(`[loom][SURFACE_OPTION_INVALID] Table query does not match querySchema at "${path}".`)
+      }
+      const query = {
+        ...(Object.hasOwn(context.query, 'page') && !Object.hasOwn(result.data, 'page') ? { page: Reflect.get(context.query, 'page') } : {}),
+        ...(Object.hasOwn(context.query, 'limit') && !Object.hasOwn(result.data, 'limit') ? { limit: Reflect.get(context.query, 'limit') } : {}),
+        ...result.data,
+      }
+      return load({ ...context, query })
+    }
   }
   if (props.query !== undefined) value.query = props.query
   return value
@@ -62,15 +86,14 @@ function refresh() {
   return collectionRef.value?.refresh() ?? Promise.resolve()
 }
 
-function rowClick(record: Record<string, unknown>, index: number) {
+function rowClick(record: TRecord, index: number) {
   emit('row-click', record, index)
 }
 
-function rowReorder(payload: RowReorderPayload) {
+function rowReorder(payload: RowReorderPayload<TRecord>) {
   emit('row-reorder', payload)
 }
 
-/** Public read view of the collection-owned query state. */
 const exposedQuery = computed<QueryValues>(() => collectionRef.value?.query ?? {})
 
 defineExpose({ refresh, query: exposedQuery, updateQuery, replaceQuery })
@@ -80,7 +103,10 @@ defineExpose({ refresh, query: exposedQuery, updateQuery, replaceQuery })
   <Collection ref="collectionRef" v-bind="collectionProps" @update:query="emit('update:query', $event)">
     <template #default="collection">
       <TableContent
-        :fields="props.fields"
+        :schema="props.schema"
+        :query-schema="props.querySchema"
+        :columns="props.columns"
+        :labels="props.labels"
         :records="collection.records"
         :meta="collection.meta"
         :loading="collection.loading"
@@ -99,7 +125,6 @@ defineExpose({ refresh, query: exposedQuery, updateQuery, replaceQuery })
         :column-sizing="props.columnSizing"
         :reorderable="props.reorderable"
         :row-key="props.rowKey"
-        :schema="props.schema"
         @update:query="collection.updateQuery"
         @update:visible-columns="emit('update:visibleColumns', $event)"
         @update:column-sizing="emit('update:columnSizing', $event)"

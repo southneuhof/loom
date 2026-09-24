@@ -1,42 +1,65 @@
+import { z } from 'zod/v4'
+import { defineForm } from '../../../forms/defineForm'
+import { defineTable } from '../../../tables/defineTable'
 import type { TableInputProps } from '../form-inputs/tableInput.types'
 
-type Row = {
-  id: string
-  name: string
-}
+const rowSchema = z.object({ id: z.string(), name: z.string() })
+type Row = z.output<typeof rowSchema>
 
-const fields = {
-  id: { label: 'ID', form: { renderer: 'text' } },
-  name: { label: 'Name', form: { renderer: 'text' } },
-}
+const inputSchema = z.object({ id: z.string(), label: z.string() }).transform(({ id, label }) => ({ id, name: label }))
+type RowInput = z.input<typeof inputSchema>
 
-const staticTable = {
-  fields,
-  form: {},
-  table: { pagination: false },
-} satisfies TableInputProps<Row>
+const table = defineTable({ schema: rowSchema, columns: { name: {} } })
+const form = defineForm({ schema: inputSchema, fields: { label: { renderer: 'text' } } })
+const toDraft = (row: Row): Partial<RowInput> => ({ id: row.id, label: row.name })
 
-const reorderableTable = {
-  fields,
+const editableTable: TableInputProps<RowInput, Row> = {
+  table,
+  form,
+  toDraft,
+  modelValue: [],
   reorderable: true,
   rowKey: 'id',
-} satisfies TableInputProps<Row>
+}
+const readOnlyTable: TableInputProps<Row, Row> = { table, modelValue: [] }
 
-void staticTable
-void reorderableTable
+// @ts-expect-error Editing needs an explicit row-to-draft mapping.
+const missingEditorMapper: TableInputProps<RowInput, Row> = {
+  table,
+  form,
+  modelValue: [],
+}
 
-// @ts-expect-error Reorderable TableInput requires stable row identity.
-const missingRowKey: TableInputProps<Row> = { fields, reorderable: true }
-void missingRowKey
+const editorWithSubmit = defineForm({
+  schema: inputSchema,
+  fields: { label: { renderer: 'text' } },
+  submit: async () => 'saved',
+})
+const submittingEditor: TableInputProps<RowInput, Row> = {
+  table,
+  modelValue: [],
+  // @ts-expect-error TableInput owns the row editor submit function.
+  form: editorWithSubmit,
+  toDraft,
+}
 
-// @ts-expect-error TableInput owns the core Table data source.
-const ownedTableData: TableInputProps<Row> = { fields, table: { data: [] } }
-void ownedTableData
+const tableWithData = { ...table, data: [] as Row[] }
+const tableWithLoader = { ...table, load: async () => ({ data: [] as Row[] }) }
+const formWithLoader = { ...form, load: async () => ({ id: 'one', label: 'Name' }) }
+const formWithModel = { ...form, modelValue: { id: 'one', label: 'Name' } }
+const readOnlyReorder = { table, modelValue: [] as Row[], reorderable: true, rowKey: 'id' as const }
 
-// @ts-expect-error TableInput owns core Form submission.
-const ownedFormSubmit: TableInputProps<Row> = { fields, form: { submit: async () => undefined } }
-void ownedFormSubmit
+// @ts-expect-error TableInput owns the Table data source.
+const conflictingData: TableInputProps<RowInput, Row> = { table: tableWithData, form, toDraft, modelValue: [] }
+// @ts-expect-error TableInput owns the Table loader.
+const conflictingLoad: TableInputProps<RowInput, Row> = { table: tableWithLoader, form, toDraft, modelValue: [] }
+// @ts-expect-error TableInput owns the row editor submit function.
+const conflictingSubmit: TableInputProps<RowInput, Row> = { table, form: editorWithSubmit, toDraft, modelValue: [] }
+// @ts-expect-error TableInput owns row form loading.
+const conflictingFormLoad: TableInputProps<RowInput, Row> = { table, form: formWithLoader, toDraft, modelValue: [] }
+// @ts-expect-error TableInput owns the row form model.
+const conflictingFormModel: TableInputProps<RowInput, Row> = { table, form: formWithModel, toDraft, modelValue: [] }
+// @ts-expect-error Read-only TableInput cannot reorder its model.
+const conflictingReadOnlyReorder: TableInputProps<Row, Row> = readOnlyReorder
 
-// @ts-expect-error The outer form owns the TableInput field label.
-const nestedTitle: TableInputProps<Row> = { fields, title: 'Rows' }
-void nestedTitle
+void [editableTable, readOnlyTable, submittingEditor, missingEditorMapper, conflictingData, conflictingLoad, conflictingSubmit, conflictingFormLoad, conflictingFormModel, conflictingReadOnlyReorder]

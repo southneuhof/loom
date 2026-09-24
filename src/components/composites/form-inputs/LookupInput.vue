@@ -1,173 +1,294 @@
-<script setup lang="ts">
-import { computed, onMounted, ref, watch, type PropType } from 'vue'
-import type {
-  CollectionLoadContext,
-  CollectionResult,
-  FieldsInput,
-  Load,
-  QueryNamespace,
-  RecordLoadContext,
-  RecordResult,
-} from '../../../contracts'
-import { resolveFields } from '../../../fields'
-import { commonProps } from '../../inputs/commonprops'
-import Radio from '../../inputs/Radio.vue'
+<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>">
+import { computed, getCurrentInstance, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
+import type { CollectionMeta, QueryValues } from '../../../contracts'
+import type { LookupInputProps, LookupModelValue } from './lookupInput.types'
 import BaseInput from '../../inputs/BaseInput.vue'
-import Checkbox from '../../inputs/CheckboxInput.vue'
-import SearchBox from '../../inputs/SearchBox.vue'
-import ConfirmationDialog from '../ConfirmationDialog.vue'
-import Dialog from '../../base/Dialog.vue'
 import Button from '../../base/Button.vue'
 import Chip from '../../base/Chip.vue'
+import ConfirmationDialog from '../ConfirmationDialog.vue'
+import Dialog from '../../base/Dialog.vue'
 import Icon from '../../base/Icon.vue'
+import Radio from '../../inputs/Radio.vue'
+import Checkbox from '../../inputs/CheckboxInput.vue'
+import SearchBox from '../../inputs/SearchBox.vue'
 import Table from '../../core/Table.vue'
 
-type RecordData = Record<string, any>
-
-const props = defineProps({
-  ...commonProps,
-  fields: { type: [Array, Object] as PropType<FieldsInput<RecordData>>, required: true },
-  data: Array as PropType<RecordData[]>,
-  load: Function as PropType<Load<CollectionLoadContext, CollectionResult<RecordData>>>,
-  /** Optional scalar-model hydration used when no selected record is available locally. */
-  loadDetail: Function as PropType<Load<RecordLoadContext, RecordResult<RecordData>>>,
-  searchParameters: { type: Object as PropType<Record<string, unknown>>, default: () => ({}) },
-  namespace: String as PropType<QueryNamespace>,
-  view: String,
-  multi: { type: Boolean, default: false },
-  pick: { type: String, default: 'id' },
-  transform: Object as PropType<Record<string, string>>,
-  preview: String,
-  placeholder: { type: String, default: 'Pilih' },
-  static: { type: Boolean, default: false },
-  onCommit: { type: Function as PropType<(data: RecordData[]) => unknown>, default: () => {} },
-  formDataSetter: { type: Function as PropType<(newData: any) => void>, default: () => {} },
-  hidePreviewTable: Boolean,
-  formData: Object,
-  onSelectData: Function as PropType<(formData: any, selectedData: RecordData[], setter: (data: any) => void) => void>,
+const props = withDefaults(defineProps<LookupInputProps<TRecord>>(), {
+  field: '',
+  label: '',
+  enableHelperMessage: false,
+  helperMessage: '',
+  error: '',
+  disabled: false,
+  required: false,
+  searchParameters: () => ({}),
+  multi: false,
+  pick: 'id',
+  placeholder: 'Pilih',
 })
 
-const modelValue = defineModel<any>()
+const attrs = getCurrentInstance()?.attrs ?? {}
+for (const member of ['fields', 'transform', 'formDataSetter', 'formData', 'onSelectData', 'static']) {
+  if (Object.hasOwn(attrs, member)) {
+    throw new Error(`[loom][COMPOSITE_BINDING_CONFLICT] LookupInput member "${member}" is no longer supported.`)
+  }
+}
+
+for (const member of ['data', 'load']) {
+  if (Object.hasOwn(props.table, member)) {
+    throw new Error(`[loom][COMPOSITE_BINDING_CONFLICT] LookupInput table.${member} is owned by LookupInput.`)
+  }
+}
+
+const vnodeProps = getCurrentInstance()?.vnode.props ?? {}
+const hasData = Object.hasOwn(vnodeProps, 'data') || props.data !== undefined
+const hasLoad = Object.hasOwn(vnodeProps, 'load') || props.load !== undefined
+if (hasData === hasLoad) {
+  throw new Error('[loom][SURFACE_DATA_SOURCE_INVALID] LookupInput requires exactly one of "data" or "load".')
+}
+if (hasData && !Array.isArray(props.data)) {
+  throw new Error('[loom][SURFACE_DATA_SOURCE_INVALID] LookupInput "data" must be an array.')
+}
+if (hasLoad && typeof props.load !== 'function') {
+  throw new Error('[loom][SURFACE_DATA_SOURCE_INVALID] LookupInput "load" must be a function.')
+}
+
+const modelValue = defineModel<LookupModelValue<TRecord>>()
 const emit = defineEmits<{ (event: 'validation:touch'): void }>()
-const resolvedFields = computed(() => resolveFields({ fields: props.fields, surface: 'table' }))
-const viewKey = computed(() => props.view ?? resolvedFields.value[0]?.key ?? props.pick)
-const committed = ref<RecordData[]>([])
-const staged = ref<RecordData[]>([])
-const busy = ref(false)
+const committed = shallowRef<TRecord[]>([])
+const staged = shallowRef<TRecord[]>([])
+const committedIdentity = ref<unknown>()
+const stagedIdentity = ref<unknown>()
+const loadedRows = shallowRef<TRecord[]>([])
+const loadedMeta = ref<CollectionMeta>()
+const loadPending = ref(false)
+const loadError = ref<string>()
 const hydrationError = ref<string>()
 const search = ref('')
+const dialogOpen = ref(false)
+const query = ref<QueryValues>({ page: 1, limit: 5 })
+let loadController: AbortController | undefined
+let loadGeneration = 0
+let detailController: AbortController | undefined
+let detailGeneration = 0
+let skipNextQueryLoad = false
 
-function clone<T>(value: T): T {
-  if (value == null) return value
-  return JSON.parse(JSON.stringify(value))
+function copyRecord(record: TRecord): TRecord {
+  return { ...record }
 }
 
-function normalize(value: any): RecordData[] {
-  if (value == null || value === '') return []
-  if (props.multi) {
-    return Array.isArray(value)
-      ? value.every((item) => item && typeof item === 'object' && !Array.isArray(item)) ? value.map((item) => clone(item)) : []
-      : []
-  }
-  return typeof value === 'object' ? [clone(value)] : [{ [props.pick]: value }]
+function copySelection(selection: readonly TRecord[]): TRecord[] {
+  return selection.map(copyRecord)
 }
 
-function forModel(selection: RecordData[]) {
-  let records = clone(selection)
-  if (props.transform && !props.multi) {
-    records = records.map((record) => {
-      const next = { ...record }
-      for (const [source, target] of Object.entries(props.transform!)) next[target] = next[source]
-      return next
-    })
-  }
-  if (props.multi) return records
-  return records[0]?.[props.pick] ?? null
+function isSelectionRecord(value: unknown): value is TRecord {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
 }
 
-async function hydrate() {
-  let fallback = normalize(modelValue.value)
-  const incomingIsScalar = modelValue.value != null && typeof modelValue.value !== 'object'
-  const current = committed.value[0]
-  if (
-    !props.multi
-    && incomingIsScalar
-    && fallback[0]
-    && current?.[props.pick] === fallback[0][props.pick]
-    && current[viewKey.value] != null
-  ) {
-    fallback = [clone(current)]
-  }
-  committed.value = fallback
-  staged.value = clone(fallback)
-  hydrationError.value = undefined
-
-  const loadDetail = props.loadDetail
-  if (props.multi) return
-  if (!loadDetail || !fallback.some((record) => record[viewKey.value] == null && record[props.pick] != null && record[props.pick] !== '')) return
-  try {
-    const records = await Promise.all(fallback.map(async (record) => {
-      if (record[viewKey.value] != null) return record
-      const id = record[props.pick]
-      if (id == null || id === '') return record
-      const detail = await loadDetail({ id, searchParameters: props.searchParameters })
-      return detail ? clone(detail) : record
-    }))
-    committed.value = records
-    staged.value = clone(records)
-  } catch (error) {
-    hydrationError.value = error instanceof Error ? error.message : String(error)
-  }
+function read(record: object, key: string): unknown {
+  return Reflect.get(record, key)
 }
 
-function toggle(record: RecordData) {
-  if (!props.multi) {
-    staged.value = staged.value[0]?.[props.pick] === record[props.pick] ? [] : [record]
-    return
-  }
-  const index = staged.value.findIndex((item) => item[props.pick] === record[props.pick])
-  if (index < 0) staged.value = [...staged.value, record]
-  else staged.value = staged.value.filter((_, itemIndex) => itemIndex !== index)
+function pickValue(record: TRecord): unknown {
+  return read(record, props.pick)
 }
 
-async function commit() {
-  const selection = clone(staged.value)
-  busy.value = true
-  try {
-    await props.onCommit(selection)
-    committed.value = clone(selection)
-    modelValue.value = forModel(selection)
-    props.onSelectData?.(props.formData, selection, props.formDataSetter)
-    emit('validation:touch')
-  } finally {
-    busy.value = false
-  }
+function viewValue(record: TRecord): unknown {
+  return read(record, viewKey.value)
 }
 
-function reset() {
-  staged.value = clone(committed.value)
+function forModel(selection: readonly TRecord[], identity?: unknown): LookupModelValue<TRecord> {
+  if (props.multi) return copySelection(selection)
+  const value = selection.length ? pickValue(selection[0]!) : identity
+  return typeof value === 'string' || typeof value === 'number' ? value : null
 }
 
-const selectedIds = computed(() => staged.value.map((item) => item[props.pick]))
-const displayValue = computed(() => {
-  if (props.preview) return props.preview
-  const labels = committed.value.map((item) => item[viewKey.value]).filter(Boolean)
-  if (!labels.length) return committed.value.length ? `${committed.value.length} Selected` : props.placeholder
-  return props.multi && labels.length > 2 ? `${labels.slice(0, 2).join(', ')}, ${labels.length - 2} lainnya` : labels.join(', ')
-})
+const viewKey = computed(() => props.view ?? Object.keys(props.table.columns)[0] ?? props.pick)
 const combinedSearchParameters = computed(() => ({
   ...props.searchParameters,
   ...(search.value ? { search: search.value } : {}),
 }))
+const rows = computed<TRecord[]>(() => props.data ? [...props.data] : loadedRows.value)
+const baseInputProps = computed(() => ({
+  field: props.field,
+  label: props.label,
+  enableHelperMessage: props.enableHelperMessage,
+  helperMessage: props.helperMessage,
+  disabled: props.disabled,
+  error: props.error,
+  required: props.required,
+}))
 
-onMounted(hydrate)
-watch(() => modelValue.value, hydrate, { deep: true })
+async function loadOptions() {
+  const load = props.load
+  if (!load) return
+  loadController?.abort()
+  const controller = new AbortController()
+  loadController = controller
+  const generation = ++loadGeneration
+  loadPending.value = true
+  loadError.value = undefined
+  try {
+    const result = await load({ query: { ...query.value }, searchParameters: { ...combinedSearchParameters.value }, signal: controller.signal })
+    if (generation !== loadGeneration || controller.signal.aborted) return
+    loadedRows.value = [...result.data]
+    loadedMeta.value = result.meta
+  } catch (reason) {
+    if (!controller.signal.aborted && generation === loadGeneration) {
+      loadError.value = reason instanceof Error ? reason.message : String(reason)
+    }
+  } finally {
+    if (generation === loadGeneration) loadPending.value = false
+  }
+}
+
+watch(query, () => {
+  if (skipNextQueryLoad) {
+    skipNextQueryLoad = false
+    return
+  }
+  void loadOptions()
+}, { deep: true, immediate: true })
+
+watch(combinedSearchParameters, () => {
+  if (query.value.page !== 1) {
+    skipNextQueryLoad = true
+    query.value = { ...query.value, page: 1 }
+  }
+  void loadOptions()
+}, { deep: true })
+
+function updateQuery(values: QueryValues) {
+  query.value = { ...values }
+}
+
+async function hydrate(value: unknown) {
+  detailController?.abort()
+  const generation = ++detailGeneration
+  let records: TRecord[] = []
+  let identity: unknown
+  if (props.multi) {
+    if (Array.isArray(value)) records = value.filter(isSelectionRecord).map(copyRecord)
+  } else if (typeof value === 'string' || typeof value === 'number') {
+    if (value !== '') identity = value
+  } else if (isSelectionRecord(value)) {
+    records = [copyRecord(value)]
+  }
+
+  const current = committed.value[0]
+  if (!props.multi && identity !== undefined && current && pickValue(current) === identity && viewValue(current) != null) {
+    records = [copyRecord(current)]
+    identity = undefined
+  }
+
+  committed.value = records
+  staged.value = copySelection(records)
+  committedIdentity.value = identity
+  stagedIdentity.value = identity
+  hydrationError.value = undefined
+
+  const loadDetail = props.loadDetail
+  if (
+    props.multi
+    || !loadDetail
+    || (typeof identity !== 'string' && typeof identity !== 'number')
+    || identity === ''
+  ) return
+
+  const controller = new AbortController()
+  detailController = controller
+  try {
+    const detail = await loadDetail({ id: identity, searchParameters: { ...props.searchParameters }, signal: controller.signal })
+    if (generation !== detailGeneration || controller.signal.aborted) return
+    if (!detail) return
+    const record = copyRecord(detail)
+    committed.value = [record]
+    staged.value = [copyRecord(record)]
+    committedIdentity.value = undefined
+    stagedIdentity.value = undefined
+  } catch (reason) {
+    if (!controller.signal.aborted && generation === detailGeneration) {
+      hydrationError.value = reason instanceof Error ? reason.message : String(reason)
+    }
+  }
+}
+
+watch([() => modelValue.value, () => props.searchParameters], ([value]) => {
+  void hydrate(value)
+}, { deep: true, immediate: true })
+
+watch(dialogOpen, (open) => {
+  if (!open) {
+    staged.value = copySelection(committed.value)
+    stagedIdentity.value = committedIdentity.value
+  }
+})
+
+onBeforeUnmount(() => {
+  loadGeneration += 1
+  detailGeneration += 1
+  loadController?.abort()
+  detailController?.abort()
+})
+
+function toggle(record: TRecord) {
+  const id = pickValue(record)
+  if (!props.multi) {
+    const selectedId = staged.value.length ? pickValue(staged.value[0]!) : stagedIdentity.value
+    if (selectedId === id) {
+      staged.value = []
+      stagedIdentity.value = undefined
+    } else {
+      staged.value = [record]
+      stagedIdentity.value = undefined
+    }
+    return
+  }
+  const index = staged.value.findIndex((item) => pickValue(item) === id)
+  staged.value = index < 0
+    ? [...staged.value, record]
+    : staged.value.filter((_, itemIndex) => itemIndex !== index)
+}
+
+function commit() {
+  const selection = copySelection(staged.value)
+  committed.value = copySelection(selection)
+  committedIdentity.value = stagedIdentity.value
+  modelValue.value = forModel(selection, stagedIdentity.value)
+  emit('validation:touch')
+}
+
+function remove(record: TRecord) {
+  staged.value = committed.value.filter((item) => pickValue(item) !== pickValue(record))
+  stagedIdentity.value = undefined
+  return commit()
+}
+
+function removeStaged(index: number) {
+  staged.value = staged.value.filter((_, itemIndex) => itemIndex !== index)
+}
+
+const selectedIds = computed(() => [
+  ...staged.value.map(pickValue),
+  ...(stagedIdentity.value === undefined ? [] : [stagedIdentity.value]),
+])
+const displayValue = computed(() => {
+  const labels = committed.value
+    .map(viewValue)
+    .filter((value) => value !== undefined && value !== null && value !== '')
+    .map(String)
+  if (!labels.length) {
+    const selectedCount = committed.value.length || (committedIdentity.value === undefined ? 0 : 1)
+    return selectedCount ? `${selectedCount} Selected` : props.placeholder
+  }
+  return props.multi && labels.length > 2 ? `${labels.slice(0, 2).join(', ')}, ${labels.length - 2} lainnya` : labels.join(', ')
+})
 </script>
 
 <template>
-  <BaseInput v-bind="props">
+  <BaseInput v-bind="baseInputProps">
     <div class="flex flex-row items-center gap-2">
-      <Dialog @close="reset">
+      <Dialog v-model="dialogOpen" :disabled="disabled">
         <template #trigger>
           <slot v-if="$slots.trigger" name="trigger" />
           <div v-else class="overlay flex max-w-fit cursor-pointer items-center justify-between gap-4 rounded-lg bg-surface-container-high px-4 py-2 after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active">
@@ -175,35 +296,44 @@ watch(() => modelValue.value, hydrate, { deep: true })
             <Icon name="arrow-right-up" />
           </div>
         </template>
+        <template #title>Pilih data</template>
+        <template #description>Pilih data dari daftar untuk mengisi nilai ini.</template>
         <template #content="{ setOpen }">
           <div class="flex flex-col gap-4">
             <SearchBox v-model="search" class="w-full" />
             <p v-if="hydrationError" role="alert" class="text-sm text-error">{{ hydrationError }}</p>
+            <p v-if="loadPending" role="status" class="text-sm text-muted">Memuat data...</p>
+            <div v-else-if="loadError" class="flex items-center gap-2 text-sm text-error">
+              <p role="alert">{{ loadError }}</p>
+              <Button type="button" variant="text" @click="loadOptions">Coba lagi</Button>
+            </div>
             <div v-if="multi" class="flex flex-row flex-wrap items-center gap-2">
-              <Chip v-for="(item, index) in staged" :key="String(item[pick])" class="flex items-center gap-2">
-                <span>{{ item[viewKey] }}</span>
-                <Icon size="xs" name="close" class="cursor-pointer" @click="staged.splice(index, 1)" />
+              <Chip v-for="(item, index) in staged" :key="String(pickValue(item))" class="flex items-center gap-2">
+                <span>{{ viewValue(item) }}</span>
+                <Icon size="xs" name="close" class="cursor-pointer" @click="removeStaged(index)" />
               </Chip>
             </div>
             <Table
-              :fields="fields"
-              :data="data"
-              :load="load"
+              v-if="!loadPending && !loadError"
+              v-bind="table"
+              :data="rows"
+              :meta="props.data ? undefined : loadedMeta"
+              :query="query"
               :namespace="namespace"
               :search-parameters="combinedSearchParameters"
               :page-size-options="[5, 10]"
               :default-page-size="5"
               pagination="always"
+              @update:query="updateQuery"
               @row-click="toggle"
             >
               <template #row-prefix="{ record }">
-                <Checkbox v-if="multi" :on-toggle="() => toggle(record)" static :checked="selectedIds.includes(record[pick])" />
-                <Radio v-else :checked="selectedIds[0] === record[pick]" @click="toggle(record)" />
+                <Checkbox v-if="multi" :on-toggle="() => toggle(record)" static :checked="selectedIds.includes(pickValue(record))" />
+                <Radio v-else :checked="selectedIds[0] === pickValue(record)" @click="toggle(record)" />
               </template>
             </Table>
             <div class="flex flex-row items-center justify-end gap-2">
-              <slot v-if="$slots.actionButton" name="actionButton" v-bind="{ searchParameters: combinedSearchParameters, selectedData: staged, setOpen, isLoading: busy }" />
-              <Button :disabled="busy" @click="async () => { await commit(); setOpen(false) }">
+              <Button :disabled="loadPending" @click="() => { commit(); setOpen(false) }">
                 <Icon name="save" />Simpan
               </Button>
             </div>
@@ -211,10 +341,10 @@ watch(() => modelValue.value, hydrate, { deep: true })
         </template>
       </Dialog>
     </div>
-    <Table v-if="multi && committed.length && !hidePreviewTable" :data="committed" :fields="fields" :pagination="false">
-      <template #row-actions="{ record }">
-        <ConfirmationDialog :on-confirm="async () => { toggle(record); await commit() }">
-          <template #trigger><Button variant="tonal" color="error"><Icon name="delete-bin" /></Button></template>
+    <Table v-if="multi && committed.length" v-bind="table" :data="committed" :pagination="false">
+      <template v-if="!disabled" #row-actions="{ record }">
+        <ConfirmationDialog :on-confirm="() => remove(record)">
+          <template #trigger><Button variant="tonal" color="error" ariaLabel="Remove selected record"><Icon name="delete-bin" /></Button></template>
         </ConfirmationDialog>
       </template>
     </Table>

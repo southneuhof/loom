@@ -24,7 +24,7 @@ const props = defineProps({
   },
   ...commonProps,
 })
-const modelValue = defineModel<any[]>({ default: () => [] })
+const modelValue = defineModel<Array<string | number | Record<string, unknown>>>({ default: () => [] })
 
 const { options: data, loading, error, refresh } = useOptionSource(props)
 function identity(item: any) {

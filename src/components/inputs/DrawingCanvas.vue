@@ -22,7 +22,7 @@ const props = defineProps({
   },
   ...commonProps,
 })
-const modelValue = defineModel()
+const modelValue = defineModel<string>()
 
 const canvas = ref<any>(null)
 const context = ref<any>(null)

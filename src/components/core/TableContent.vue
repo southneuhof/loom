@@ -2,10 +2,12 @@
 /**
  * Loaded-row table presentation. Collection owns data loading and query state.
  */
-import { computed, onBeforeUnmount, ref, toRef, useSlots, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, shallowRef, toRef, useSlots, watch } from 'vue'
 import { getCoreRowModel, useVueTable, type ColumnDef, type ColumnSizingState } from '@tanstack/vue-table'
 import type { QueryValues, RowReorderPayload, TableContentProps } from '../../contracts'
-import { displayValue, resolveFields, useFrameworkFieldDefaults, type ResolvedSurfaceField } from '../../fields'
+import { compileSchema, schemaOutputKeys } from '../../schemas/compileSchema'
+import { readDisplayValue, resolveDisplayFields, resolveDisplayValue, type ResolvedDisplayField } from '../../display/resolveDisplay'
+import DisplayValue from '../../display/DisplayValue.vue'
 
 import { useRendererRegistry } from '../../renderers/registry'
 import Button from '../base/Button.vue'
@@ -26,22 +28,33 @@ const emit = defineEmits<{
   (event: 'update:query', query: QueryValues): void
   (event: 'update:visibleColumns', columns: string[]): void
   (event: 'update:columnSizing', sizes: ColumnSizingState): void
-  (event: 'row-click', record: Record<string, unknown>, index: number): void
-  (event: 'row-reorder', payload: RowReorderPayload): void
+  (event: 'row-click', record: TRecord, index: number): void
+  (event: 'row-reorder', payload: RowReorderPayload<TRecord>): void
 }>()
 
 
-const renderers = useRendererRegistry('table')
-const fieldDefaults = useFrameworkFieldDefaults()
+const renderers = useRendererRegistry('display')
 const slots = useSlots()
 const activeQuery = computed(() => props.query as unknown as QueryValues)
 
-const fields = computed(() => resolveFields({
-  fields: props.fields as never,
-  surface: 'table',
-  defaults: fieldDefaults.table,
-  defaultFields: fieldDefaults.fields,
-}))
+const recordKeys = computed(() => schemaOutputKeys(props.schema))
+const compiledQuerySchema = computed(() => props.querySchema ? compileSchema(props.querySchema) : undefined)
+const queryKeys = computed(() => compiledQuerySchema.value?.inputKeys)
+const querySortKeys = computed(() => compiledQuerySchema.value?.fields.sort_by?.options)
+const fields = computed(() => {
+  const resolved = resolveDisplayFields({
+    surface: 'table',
+    entries: props.columns,
+    labels: props.labels,
+    recordKeys: recordKeys.value,
+    queryKeys: queryKeys.value,
+    querySortKeys: querySortKeys.value,
+  })
+  for (const field of resolved) {
+    if (field.renderer) renderers.require(field.renderer)
+  }
+  return resolved
+})
 const fieldKeys = computed(() => fields.value.map((field) => field.key))
 const minimumColumnWidth = computed(() => Number.isFinite(props.minColumnWidth) && props.minColumnWidth! > 0 ? props.minColumnWidth! : 96)
 const preferences = useTablePreferences(toRef(() => props.namespace), fieldKeys, minimumColumnWidth)
@@ -70,9 +83,9 @@ const effectiveQuery = computed<QueryValues>(() => {
   return filters
 })
 
-const rows = computed(() => props.records as Record<string, unknown>[])
-const orderedRows = ref<Record<string, unknown>[]>([])
-const tableData = computed(() => props.reorderable ? orderedRows.value : rows.value)
+const rows = computed(() => props.records)
+const orderedRows = shallowRef<TRecord[]>([])
+const tableData = computed<TRecord[]>(() => props.reorderable ? orderedRows.value : rows.value)
 watch(rows, (next) => { orderedRows.value = [...next] }, { immediate: true })
 const meta = computed(() => props.meta)
 const empty = computed(() => props.empty)
@@ -97,16 +110,17 @@ const pageEnd = computed(() => {
 })
 const sorting = computed(() => {
   const { sort_by, sort } = activeQuery.value
-  return sort_by ? [{ id: String(sort_by), desc: sort === 'desc' }] : []
+  const field = fields.value.find((entry) => (entry.sortKey ?? entry.key) === String(sort_by))
+  return field ? [{ id: field.key, desc: sort === 'desc' }] : []
 })
 const pagination = computed(() => ({
   pageIndex: Math.max(0, Number(activeQuery.value.page ?? 1) - 1),
   pageSize: Number(activeQuery.value.limit ?? defaultPageSize.value),
 }))
-const columns = computed<ColumnDef<Record<string, unknown>>[]>(() =>
+const columns = computed<ColumnDef<TRecord>[]>(() =>
   fields.value.map((field) => ({
     id: field.key,
-    accessorFn: (record) => (field.read ? field.read(record, {}) : record[field.key]),
+    accessorFn: (record) => readDisplayValue(record, field),
     header: field.label,
     enableSorting: field.sortable === true && !props.reorderable,
     sortDescFirst: false,
@@ -153,9 +167,9 @@ function resetColumns() {
   columnSizing.value = {}
 }
 
-function rowIdentity(record: Record<string, unknown>) {
+function rowIdentity(record: TRecord) {
   if (!props.rowKey) throw new Error('[loom] Table reorderable mode requires rowKey.')
-  const value = typeof props.rowKey === 'function' ? props.rowKey(record as TRecord) : record[props.rowKey]
+  const value = typeof props.rowKey === 'function' ? props.rowKey(record) : Reflect.get(record, props.rowKey)
   if (typeof value !== 'string' && typeof value !== 'number') throw new Error('[loom] Table rowKey must return a string or number.')
   return String(value)
 }
@@ -171,7 +185,7 @@ function reorder(event: { oldIndex?: number; newIndex?: number }) {
   emit('row-reorder', { rows: [...orderedRows.value], oldIndex: event.oldIndex, newIndex: event.newIndex, moved: orderedRows.value[event.newIndex], query: effectiveQuery.value })
 }
 
-const table = useVueTable<Record<string, unknown>>({
+const table = useVueTable<TRecord>({
   data: tableData,
   get columns() {
     return columns.value
@@ -192,7 +206,8 @@ const table = useVueTable<Record<string, unknown>>({
     const next = typeof updater === 'function' ? updater(sorting.value) : updater
     const sort = next[0]
     if (!sort) return
-    updateQuery({ sort_by: sort.id, sort: sort.desc ? 'desc' : 'asc', page: 1 })
+    const field = fields.value.find((entry) => entry.key === sort.id)
+    updateQuery({ sort_by: field?.sortKey ?? field?.key ?? sort.id, sort: sort.desc ? 'desc' : 'asc', page: 1 })
   },
   onPaginationChange: (updater) => {
     const next = typeof updater === 'function' ? updater(pagination.value) : updater
@@ -257,16 +272,16 @@ function cancelResize() {
 
 onBeforeUnmount(cancelResize)
 
-function valueFor(record: Record<string, unknown>, field: ResolvedSurfaceField) {
-  return displayValue(record, field)
+function valueFor(record: TRecord, field: ResolvedDisplayField<TRecord>) {
+  return resolveDisplayValue(record, field)
 }
 
 function sizeFor(key: string) {
   return columnSizing.value[key] ?? table.getColumn(key)?.getSize() ?? minimumColumnWidth.value
 }
 
-function rendererFor(renderer: string | undefined) {
-  return renderer ? renderers.require(renderer) : undefined
+function hasCellSlot(key: string): boolean {
+  return Boolean(slots[`cell:${key}`])
 }
 
 </script>
@@ -372,10 +387,8 @@ function rendererFor(renderer: string | undefined) {
                 <slot name="row-prefix" :record="record" :index="index" />
               </td>
               <td v-for="field in visibleFields" :key="field.key" :style="{ textAlign: field.align }" :class="field.class" class="whitespace-nowrap px-4 py-3.5 text-on-surface">
-                <slot :name="`cell:${field.key}`" :value="valueFor(record, field)" :record="record" :field="field" :index="index">
-                  <component :is="rendererFor(field.renderer)" v-if="field.renderer" v-bind="field.props" :value="valueFor(record, field)" :record="record" :field="field" :index="index" />
-                  <template v-else>{{ valueFor(record, field) ?? '-' }}</template>
-                </slot>
+                <slot v-if="hasCellSlot(field.key)" :name="`cell:${field.key}`" :value="valueFor(record, field)" :record="record" :field="field" :index="index" />
+                <DisplayValue v-else :value="valueFor(record, field)" :record="record" :field="field" :index="index" />
               </td>
               <td v-if="$slots['row-actions']" class="is-table-row-action sticky right-0 z-10 w-px px-3 py-2 text-right transition-none before:pointer-events-none before:absolute before:inset-y-0 before:content-['']" @click.stop><slot name="row-actions" :record="record" :index="index" /></td>
             </tr>
@@ -398,24 +411,8 @@ function rendererFor(renderer: string | undefined) {
               :class="field.class"
               class="whitespace-nowrap px-4 py-3.5 text-on-surface"
             >
-              <slot
-                :name="`cell:${field.key}`"
-                :value="valueFor(row.original, field)"
-                :record="row.original"
-                :field="field"
-                :index="index"
-              >
-                <component
-                  :is="rendererFor(field.renderer)"
-                  v-if="field.renderer"
-                  v-bind="field.props"
-                  :value="valueFor(row.original, field)"
-                  :record="row.original"
-                  :field="field"
-                  :index="index"
-                />
-                <template v-else>{{ valueFor(row.original, field) ?? '-' }}</template>
-              </slot>
+              <slot v-if="hasCellSlot(field.key)" :name="`cell:${field.key}`" :value="valueFor(row.original, field)" :record="row.original" :field="field" :index="index" />
+              <DisplayValue v-else :value="valueFor(row.original, field)" :record="row.original" :field="field" :index="index" />
             </td>
             <td v-if="$slots['row-actions']" class="is-table-row-action sticky right-0 z-10 w-px px-3 py-2 text-right transition-none before:pointer-events-none before:absolute before:inset-y-0 before:content-['']" @click.stop>
               <slot name="row-actions" :record="row.original" :index="index" />
@@ -430,7 +427,7 @@ function rendererFor(renderer: string | undefined) {
       <Button
         kind="icon"
         variant="standard"
-        aria-label="Previous page"
+        ariaLabel="Previous page"
         :disabled="!table.getCanPreviousPage()"
         @click="table.previousPage()"
       >
@@ -442,7 +439,7 @@ function rendererFor(renderer: string | undefined) {
       <Button
         kind="icon"
         variant="standard"
-        aria-label="Next page"
+        ariaLabel="Next page"
         :disabled="!table.getCanNextPage()"
         @click="table.nextPage()"
       >

@@ -5,7 +5,7 @@
  * `value` and `setValue`. Keep that compatibility boundary here so resource
  * forms and project overrides share one renderer registry.
  */
-import { defineAsyncComponent, defineComponent, h, type Component } from 'vue'
+import { defineAsyncComponent, defineComponent, h, type Component, type PropType } from 'vue'
 import { twMerge } from 'tailwind-merge'
 import FileInput from '../components/inputs/FileInput.vue'
 import type { FormRendererComponents } from './formContracts'
@@ -14,8 +14,8 @@ export const coreTextRenderer = defineComponent({
   name: 'CoreTextRenderer',
   inheritAttrs: false,
   props: {
-    value: { type: null, default: undefined },
-    setValue: { type: Function, required: true },
+    value: { type: [String, Number] as PropType<string | number>, default: undefined },
+    setValue: { type: Function as PropType<(value: string | number) => void>, required: true },
     disabled: Boolean,
     error: String,
     id: String,

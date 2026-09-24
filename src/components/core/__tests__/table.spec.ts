@@ -1,10 +1,35 @@
 import { describe, expect, it, vi } from 'vitest'
-import { defineComponent, h, ref } from 'vue'
-import Table from '../Table.vue'
+import { computed, defineComponent, h, ref } from 'vue'
+import { z } from 'zod'
+import TableComponent from '../Table.vue'
 import { createMemoryQueryLocationAdapter } from '../../../adapters/projectAdapters'
 import { deferred, flush, mountCore } from './harness'
 
-const fields = { name: { label: 'Nama', table: { sortable: true } }, status: { label: 'Status' } }
+function recordSchema(columns: unknown) {
+  const keys = columns && typeof columns === 'object' ? Object.keys(columns) : []
+  return z.object(Object.fromEntries(keys.map((key) => [key, z.unknown()])))
+}
+
+const Table = defineComponent({
+  inheritAttrs: false,
+  setup(_, context) {
+    const table = ref<{
+      refresh: () => Promise<void>
+      query: Record<string, unknown>
+      updateQuery: (query: Record<string, unknown>) => void
+      replaceQuery: (query: Record<string, unknown>) => void
+    }>()
+    context.expose({
+      refresh: () => table.value?.refresh() ?? Promise.resolve(),
+      query: computed(() => table.value?.query ?? {}),
+      updateQuery: (query: Record<string, unknown>) => table.value?.updateQuery(query),
+      replaceQuery: (query: Record<string, unknown>) => table.value?.replaceQuery(query),
+    })
+    return () => h(TableComponent, { ...context.attrs, schema: recordSchema(context.attrs.columns), ref: table }, context.slots)
+  },
+})
+
+const columns = { name: { label: 'Nama', sortable: true }, status: { label: 'Status' } }
 const rows = [
   { name: 'Admin', status: 'open' },
   { name: 'Editor', status: 'closed' },
@@ -25,19 +50,18 @@ function installStorage() {
 }
 
 describe('Table core', () => {
-  it('applies uniform table defaults before explicit projections', async () => {
+  it('applies alignment from the column definition', async () => {
     const view = mountCore(
       Table,
-      { fields: { name: { label: 'Nama' }, status: { label: 'Status', table: { align: 'start' } } }, data: rows },
-      { fieldDefaults: { table: { align: 'end', props: { dense: true } } } },
+      { columns: { name: { label: 'Nama' }, status: { label: 'Status', align: 'start' } }, data: rows },
     )
     await flush()
-    expect(view.all('tbody td').slice(0, 2).map((cell) => (cell as HTMLElement).style.textAlign)).toEqual(['end', 'start'])
+    expect(view.all('tbody td').slice(0, 2).map((cell) => (cell as HTMLElement).style.textAlign)).toEqual(['', 'start'])
     view.unmount()
   })
 
   it('renders externally controlled data with catalog labels', async () => {
-    const view = mountCore(Table, { fields, data: rows })
+    const view = mountCore(Table, { columns, data: rows })
     await flush()
 
     expect(view.all('th').map((cell) => cell.textContent)).toEqual(['Nama', 'Status'])
@@ -47,7 +71,7 @@ describe('Table core', () => {
   })
 
   it('fills its container while preserving column widths as a minimum', async () => {
-    const view = mountCore(Table, { fields, data: rows })
+    const view = mountCore(Table, { columns, data: rows })
     await flush()
 
     const table = view.find('table') as HTMLTableElement
@@ -58,7 +82,7 @@ describe('Table core', () => {
   })
 
   it('accepts a synchronous offline loader', async () => {
-    const view = mountCore(Table, { fields, load: () => ({ data: rows }) })
+    const view = mountCore(Table, { columns, load: () => ({ data: rows }) })
     await flush()
 
     expect(view.all('tbody tr')).toHaveLength(2)
@@ -67,7 +91,7 @@ describe('Table core', () => {
 
   it('accepts a canonical asynchronous collection result', async () => {
     const view = mountCore(Table, {
-      fields,
+      columns,
       load: async () => ({ data: rows, meta: { total: 20, pageSize: 10, totalPage: 2 } }),
     })
     await flush()
@@ -77,17 +101,58 @@ describe('Table core', () => {
     view.unmount()
   })
 
+  it('rejects an invalid query before calling the loader', async () => {
+    const load = vi.fn(() => ({ data: rows }))
+    const view = mountCore(Table, {
+      columns: { name: { label: 'Name' } },
+      query: { status: 'invalid' },
+      querySchema: z.object({ status: z.enum(['active']), page: z.number().optional(), limit: z.number().optional() }),
+      load,
+    })
+    await flush(12)
+
+    expect(load).not.toHaveBeenCalled()
+    expect(view.find('[role="alert"]')?.textContent).toContain('[loom][SURFACE_OPTION_INVALID] Table query does not match querySchema at "status".')
+    view.unmount()
+  })
+
+  it('validates the query output and preserves only framework paging keys stripped by the schema', async () => {
+    const load = vi.fn(({ query }: { query: Record<string, unknown> }) => ({ data: rows, meta: { totalPage: 2, total: 20 } }))
+    const view = mountCore(Table, {
+      columns: { name: { label: 'Name' } },
+      query: { status: 'active', page: 2, limit: 10, unsupported: 'drop' },
+      querySchema: z.object({ status: z.enum(['active']) }),
+      load,
+    })
+    await flush(12)
+
+    expect(load).toHaveBeenCalledOnce()
+    expect(load.mock.calls[0]?.[0].query).toEqual({ status: 'active', page: 2, limit: 10 })
+    view.unmount()
+  })
+
   it('rejects supplying both data and load', () => {
-    expect(() => mountCore(Table, { fields, data: rows, load: () => ({ data: rows }) })).toThrow(
-      'Table accepts either `data` or `load`, not both.',
+    expect(() => mountCore(Table, { columns, data: rows, load: () => ({ data: rows }) })).toThrow(
+      '[loom][SURFACE_DATA_SOURCE_INVALID] Table requires exactly one of "data" or "load".',
     )
+    expect(() => mountCore(Table, { columns, data: undefined, load: () => ({ data: rows }) })).toThrow(
+      '[loom][SURFACE_DATA_SOURCE_INVALID] Table requires exactly one of "data" or "load".',
+    )
+  })
+
+  it('accepts controlled empty data', async () => {
+    const view = mountCore(Table, { columns, data: [] })
+    await flush()
+
+    expect(view.text()).toContain('No data')
+    view.unmount()
   })
 
   it('writes its query to the URL under the supplied namespace', async () => {
     const location = createMemoryQueryLocationAdapter()
     const view = mountCore(
       Table,
-      { fields, namespace: 'roles', load: async () => ({ data: rows, meta: { total: 40, pageSize: 10, totalPage: 4 } }) },
+      { columns, namespace: 'roles', load: async () => ({ data: rows, meta: { total: 40, pageSize: 10, totalPage: 4 } }) },
       { adapters: { query: location } },
     )
     await flush()
@@ -107,7 +172,7 @@ describe('Table core', () => {
         const query = ref<Record<string, unknown>>({ page: 1, limit: 10 })
         expose({ query })
         return () => h(Table, {
-          fields,
+          columns,
           namespace: 'roles',
           query: query.value,
           load: () => ({ data: rows, meta: { total: 40, pageSize: 10, totalPage: 4 } }),
@@ -139,7 +204,7 @@ describe('Table core', () => {
         const query = ref<Record<string, unknown>>({ page: 1, limit: 10 })
         expose({ query })
         return () => h(Table, {
-          fields,
+          columns,
           namespace: 'roles',
           query: query.value,
           load: ({ query: activeQuery }: { query: Record<string, unknown> }) => ({
@@ -172,8 +237,8 @@ describe('Table core', () => {
   it('keeps duplicate instances independent through explicit namespaces', async () => {
     const location = createMemoryQueryLocationAdapter()
     const Host = defineComponent(() => () => [
-      h(Table, { fields, namespace: 'assignees', load: async () => ({ data: rows, meta: { total: 40, pageSize: 10, totalPage: 4 } }) }),
-      h(Table, { fields, namespace: 'archived', load: async () => ({ data: rows, meta: { total: 40, pageSize: 10, totalPage: 4 } }) }),
+      h(Table, { columns, namespace: 'assignees', load: async () => ({ data: rows, meta: { total: 40, pageSize: 10, totalPage: 4 } }) }),
+      h(Table, { columns, namespace: 'archived', load: async () => ({ data: rows, meta: { total: 40, pageSize: 10, totalPage: 4 } }) }),
     ])
     const view = mountCore(Host, {}, { adapters: { query: location } })
     await flush()
@@ -192,7 +257,7 @@ describe('Table core', () => {
       setup(_, { expose }) {
         const visible = ref(['name', 'status'])
         expose({ visible })
-        return () => h(Table, { fields, namespace: 'roles', data: rows, visibleColumns: visible.value, 'onUpdate:visibleColumns': (next: string[]) => (visible.value = next) })
+        return () => h(Table, { columns, namespace: 'roles', data: rows, visibleColumns: visible.value, 'onUpdate:visibleColumns': (next: string[]) => (visible.value = next) })
       },
     })
     const view = mountCore(Host, {})
@@ -212,7 +277,7 @@ describe('Table core', () => {
     const section = ref('a')
     const Host = defineComponent(() => () =>
       h(Table, {
-        fields,
+        columns,
         searchParameters: { section_id: section.value },
         load: ({ signal }: { signal?: AbortSignal }) => {
           signals.push(signal)
@@ -238,7 +303,7 @@ describe('Table core', () => {
   it('toggles sort direction and resets to the first page', async () => {
     const queries: Record<string, unknown>[] = []
     const view = mountCore(Table, {
-      fields,
+      columns,
       load: (context: { query: Record<string, unknown> }) => {
         queries.push({ ...context.query })
         return { data: rows }
@@ -263,7 +328,7 @@ describe('Table core', () => {
     ]
     const queries: Record<string, unknown>[] = []
     const view = mountCore(Table, {
-      fields,
+      columns,
       data: orderedRows,
       'onUpdate:query': (query: Record<string, unknown>) => queries.push(query),
     })
@@ -284,7 +349,7 @@ describe('Table core', () => {
 
   it('emits original row records with visible zero-based indexes', async () => {
     const onRowClick = vi.fn()
-    const view = mountCore(Table, { fields, data: rows, 'onRow-click': onRowClick })
+    const view = mountCore(Table, { columns, data: rows, 'onRow-click': onRowClick })
     await flush()
 
     view.all('tbody tr')[1].click()
@@ -294,11 +359,10 @@ describe('Table core', () => {
     view.unmount()
   })
 
-  it('uses field reads and excludes fields outside the table surface', async () => {
+  it('uses a computed column accessor', async () => {
     const view = mountCore(Table, {
-      fields: {
-        name: { label: 'Nama lengkap', display: { read: (record: { name: string }) => record.name.toUpperCase() } },
-        status: { label: 'Status', table: false },
+      columns: {
+        name: { label: 'Nama lengkap', read: (record: { name: string }) => record.name.toUpperCase() },
       },
       data: rows,
     })
@@ -312,9 +376,9 @@ describe('Table core', () => {
 
   it('keeps resolved alignment on table headers and cells', async () => {
     const view = mountCore(Table, {
-      fields: {
-        name: { label: 'Nama', table: { align: 'start' } },
-        status: { label: 'Status', table: { align: 'end' } },
+      columns: {
+        name: { label: 'Nama', align: 'start' },
+        status: { label: 'Status', align: 'end' },
       },
       data: rows,
     })
@@ -327,7 +391,7 @@ describe('Table core', () => {
 
   it('keeps pagination one-based and within normalized server bounds', async () => {
     const view = mountCore(Table, {
-      fields,
+      columns,
       load: () => ({ data: rows, meta: { total: 20, pageSize: 10, totalPage: 2 } }),
     })
     await flush()
@@ -346,7 +410,7 @@ describe('Table core', () => {
 
   it('defaults standalone table pagination to auto', async () => {
     const view = mountCore(Table, {
-      fields,
+      columns,
       load: () => ({ data: rows, meta: { total: 1, pageSize: 10, totalPage: 1 } }),
     })
     await flush()
@@ -357,7 +421,7 @@ describe('Table core', () => {
 
   it('can keep disabled pagination visible for a single known page', async () => {
     const view = mountCore(Table, {
-      fields,
+      columns,
       pagination: 'always',
       load: () => ({ data: rows, meta: { total: 1, pageSize: 10, totalPage: 1 } }),
     })
@@ -372,7 +436,7 @@ describe('Table core', () => {
     const onRowClick = vi.fn()
     const view = mountCore(
       Table,
-      { fields, data: rows, 'onRow-click': onRowClick },
+      { columns, data: rows, 'onRow-click': onRowClick },
       { slots: { 'row-actions': ({ record }) => h('button', { class: 'row-action' }, String((record as typeof rows[number]).name)) } },
     )
     await flush()
@@ -392,7 +456,7 @@ describe('Table core', () => {
 
   it('renders loading, empty, and error states', async () => {
     const pending = deferred<{ data: typeof rows }>()
-    const loading = mountCore(Table, { fields, load: () => pending.promise })
+    const loading = mountCore(Table, { columns, load: () => pending.promise })
     expect(loading.text()).toContain('Memuat')
     expect(loading.find('[role="status"]')?.parentElement?.classList.contains('bg-surface-container')).toBe(true)
     pending.resolve({ data: [] })
@@ -401,7 +465,7 @@ describe('Table core', () => {
     loading.unmount()
 
     const failing = mountCore(Table, {
-      fields,
+      columns,
       load: async () => {
         throw new Error('Gagal memuat')
       },
@@ -415,8 +479,8 @@ describe('Table core', () => {
     const Chip = defineComponent({ props: { value: null }, setup: (props) => () => h('em', String(props.value)) })
     const withRenderer = mountCore(
       Table,
-      { fields: { status: { label: 'Status', table: { renderer: 'chip' } } }, data: rows },
-      { renderers: { table: { chip: Chip } } },
+      { columns: { status: { label: 'Status', renderer: 'chip' } }, data: rows },
+      { renderers: { display: { chip: Chip } } },
     )
     await flush()
     expect(withRenderer.find('em')?.textContent).toBe('open')
@@ -424,7 +488,7 @@ describe('Table core', () => {
 
     const withSlot = mountCore(
       Table,
-      { fields, data: rows },
+      { columns, data: rows },
       { slots: { 'cell:name': (scope) => h('strong', String((scope as { value: unknown }).value)) } },
     )
     await flush()
@@ -435,7 +499,7 @@ describe('Table core', () => {
   it('emits query changes', async () => {
     const onUpdate = vi.fn()
     const view = mountCore(Table, {
-      fields,
+      columns,
       data: rows,
       'onUpdate:query': onUpdate,
     })
@@ -453,13 +517,13 @@ describe('Table core', () => {
     const view = mountCore(
       Table,
       {
-        fields: {
-          name: { label: 'Nama', table: { renderer: 'chip' } },
+        columns: {
+          name: { label: 'Nama', renderer: 'chip' },
         },
         data: rows,
       },
       {
-        renderers: { table: { chip: Chip } },
+        renderers: { display: { chip: Chip } },
         slots: {
           'cell:name': (cell) => {
             scopes.push(cell)
@@ -481,7 +545,7 @@ describe('Table core', () => {
     const pending = deferred<{ data: typeof rows }>()
     const loading = mountCore(
       Table,
-      { fields, load: () => pending.promise },
+      { columns, load: () => pending.promise },
       { slots: { loading: () => h('p', 'Memuat khusus'), empty: () => h('p', 'Kosong khusus') } },
     )
     expect(loading.text()).toContain('Memuat khusus')
@@ -492,7 +556,7 @@ describe('Table core', () => {
 
     const failing = mountCore(
       Table,
-      { fields, load: async () => Promise.reject(new Error('Gagal khusus')) },
+      { columns, load: async () => Promise.reject(new Error('Gagal khusus')) },
       { slots: { error: ({ error }) => h('p', `Error khusus: ${(error as Error).message}`) } },
     )
     await flush(12)
@@ -502,7 +566,7 @@ describe('Table core', () => {
 
   it('refreshes through the exposed API and keeps framework query state exposed', async () => {
     const load = vi.fn(() => ({ data: rows }))
-    const view = mountCore(Table, { fields, data: undefined, load })
+    const view = mountCore(Table, { columns, load })
     await flush()
 
     expect(view.exposed().query as Record<string, unknown>).toMatchObject({ page: 1, limit: 10 })
@@ -515,8 +579,8 @@ describe('Table core', () => {
 
   it('reacts to data and field changes without remounting', async () => {
     const data = ref(rows)
-    const reactiveFields = ref(fields)
-    const Host = defineComponent(() => () => h(Table, { fields: reactiveFields.value, data: data.value }))
+    const reactiveFields = ref(columns)
+    const Host = defineComponent(() => () => h(Table, { columns: reactiveFields.value, data: data.value }))
     const view = mountCore(Host, {})
     await flush()
 
@@ -535,7 +599,7 @@ describe('Table core', () => {
     const view = mountCore(
       Table,
       {
-        fields,
+        columns,
         namespace: 'roles',
         load: ({ query }: { query: Record<string, unknown> }) => ({
           data: query.page === 2 ? [{ name: 'Owner', status: 'active' }] : rows,

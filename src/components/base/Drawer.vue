@@ -63,7 +63,7 @@ watch(isOpen, (val) => {
     </DrawerTrigger>
     <DrawerPortal>
       <DrawerOverlay class="fixed inset-0 bg-black/40" />
-      <DrawerContent direction class="fixed right-0 top-0 z-50 flex h-full w-full max-w-[480px] flex-col rounded-l-[10px] bg-surface-container p-8 outline-none">
+      <DrawerContent class="fixed right-0 top-0 z-50 flex h-full w-full max-w-[480px] flex-col rounded-l-[10px] bg-surface-container p-8 outline-none">
         <slot name="content" v-bind="{ setOpen }"></slot>
       </DrawerContent>
     </DrawerPortal>

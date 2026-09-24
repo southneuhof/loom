@@ -1,24 +1,21 @@
-<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>">
+<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>, TFilterInput extends object = Partial<TQuery>">
 /**
  * Collection surface shell.
  *
  * Owns Card, page title, toolbar, filters, and the selected collection
  * presentation. Collection owns the one data lifecycle for the body.
  */
-import { computed, getCurrentInstance, ref, useSlots, watch } from "vue";
+import { computed, nextTick, ref, useSlots, watch } from "vue";
 import { toast } from "vue-sonner";
 import type {
-  CollectionLoadContext,
-  CollectionResult,
   CollectionSlotProps,
-  FieldsInput,
-  MaybePromise,
+  FormDefinition,
   QueryValues,
   RowReorderPayload,
+  SchemaParseResult,
   TableProps,
-  ValidationSchema,
 } from "../../contracts";
-import { resolveFields } from "../../fields";
+import { resolveDisplayFields } from "../../display/resolveDisplay";
 import Table from "../core/Table.vue";
 import Form from "../core/Form.vue";
 import Button from "../base/Button.vue";
@@ -31,13 +28,12 @@ import Switch from "../inputs/Switch.vue";
 import { exportTableRows, type ListExportOptions } from "../../services";
 import { useTablePreferences } from "../core/useTablePreferences";
 
-export interface ListFilters<TQuery extends object = Record<string, unknown>> {
-  fields: FieldsInput<TQuery, TQuery>;
-  schema?: ValidationSchema<TQuery>;
-  defaults?: Partial<TQuery>;
+export type ListFilters<TQuery extends object = Record<string, unknown>, TInput extends object = Partial<TQuery>> = Omit<FormDefinition<TInput, Partial<TQuery>>, "submit"> & {
+  submit?: never;
+  defaults?: Partial<TInput>;
   label?: string;
   resetLabel?: string;
-}
+};
 
 /**
  * Standard record actions forwarded to the collection presentation slot.
@@ -53,116 +49,63 @@ export interface ListFilters<TQuery extends object = Record<string, unknown>> {
  * Optional: a bare `table` ListView has no resource context, so it exposes no
  * actions — consumers must handle their absence.
  */
-export interface ListViewActions {
-  createRoute?: import("vue-router").RouteLocationRaw;
-  detailRoute?: (record: Record<string, unknown>) => import("vue-router").RouteLocationRaw | undefined;
-  updateRoute?: (record: Record<string, unknown>) => import("vue-router").RouteLocationRaw | undefined;
-  can?: (operation: import("../../contracts").ResourceOperation, record?: Record<string, unknown>) => boolean | undefined;
-  deleteRecord?: (record: Record<string, unknown>) => Promise<unknown>;
-}
-
-type ListReorderProps = {
-  reorderable?: boolean;
-  rowKey?: TableProps<TRecord, TQuery>["rowKey"];
-};
-
-type ListTableProps = Omit<TableProps<TRecord, TQuery>, "reorderable" | "rowKey"> &
-  ListReorderProps;
-
-type ListViewRunProps = {
-  run: (context: CollectionLoadContext<TQuery>) => MaybePromise<CollectionResult<TRecord>>;
-  fields: FieldsInput<TRecord>;
-  resource?: string;
-  namespace?: string;
-  searchParameters?: Record<string, unknown>;
-  schema?: ValidationSchema<TQuery>;
-  pagination?: TableProps<TRecord, TQuery>["pagination"];
-  pageSizeOptions?: readonly number[];
-  defaultPageSize?: number;
-  minColumnWidth?: number;
+export interface ListViewActions<TRecord extends object = Record<string, unknown>> {
   createRoute?: import("vue-router").RouteLocationRaw;
   detailRoute?: (record: TRecord) => import("vue-router").RouteLocationRaw | undefined;
   updateRoute?: (record: TRecord) => import("vue-router").RouteLocationRaw | undefined;
-  can?: (operation: import("../../contracts").ResourceOperation, record?: TRecord) => boolean;
+  can?: (operation: import("../../contracts").ResourceOperation, record?: TRecord) => boolean | undefined;
   deleteRecord?: (record: TRecord) => Promise<unknown>;
-  table?: never;
-} & ListReorderProps;
+}
 
 type ListViewProps = {
   title?: string;
   description?: string;
-  /** Controlled user collection state. Search/filter values belong here. */
-  query?: QueryValues;
-  /** Explicit query fields for live filtering; record fields are never inferred. */
-  filters?: ListFilters<TQuery>;
+  filters?: ListFilters<TQuery, TFilterInput>;
   export?: ListExportOptions<TRecord, TQuery> | false;
-} & (
-  | ListViewRunProps
-  | { table: ListTableProps }
-);
+  table: TableProps<TRecord, TQuery>;
+} & ListViewActions<TRecord>;
 
 const props = defineProps<ListViewProps>();
 const emit = defineEmits<{
-  (event: "update:query", query: QueryValues): void;
   (event: "export-error", error: unknown): void;
-  (event: "row-reorder", payload: RowReorderPayload): void;
+  (event: "row-reorder", payload: RowReorderPayload<TRecord>): void;
 }>();
 const slots = useSlots();
 defineSlots<{
-  [name: `cell:${string}`]: (props: { value: unknown; record: Record<string, unknown>; field: unknown; index: number }) => unknown;
-  collection?: (props: CollectionSlotProps<TRecord, TQuery> & { actions?: ListViewActions }) => unknown;
+  [name: `cell:${string}`]: (props: { value: unknown; record: TRecord; field: unknown; index: number }) => unknown;
+  collection?: (props: CollectionSlotProps<TRecord, TQuery> & { actions?: ListViewActions<TRecord> }) => unknown;
   /**
    * Per-standard-action overrides. The framework owns visibility: each region
    * renders only when its action is declared and permitted, so custom content
    * never needs its own permission checks. Props are for nuance only.
    */
-  "row-actions-view"?: (props: { record: Record<string, unknown>; can?: ListViewActions["can"]; target: import("vue-router").RouteLocationRaw }) => unknown;
-  "row-actions-edit"?: (props: { record: Record<string, unknown>; can?: ListViewActions["can"]; target: import("vue-router").RouteLocationRaw }) => unknown;
-  "row-actions-delete"?: (props: { record: Record<string, unknown>; can?: ListViewActions["can"]; deleteRecord?: ListViewActions["deleteRecord"] }) => unknown;
-  "create-action"?: (props: { can?: ListViewActions["can"]; target: import("vue-router").RouteLocationRaw }) => unknown;
+  "row-actions-view"?: (props: { record: TRecord; can?: ListViewActions<TRecord>["can"]; target: import("vue-router").RouteLocationRaw }) => unknown;
+  "row-actions-edit"?: (props: { record: TRecord; can?: ListViewActions<TRecord>["can"]; target: import("vue-router").RouteLocationRaw }) => unknown;
+  "row-actions-delete"?: (props: { record: TRecord; can?: ListViewActions<TRecord>["can"]; deleteRecord?: ListViewActions<TRecord>["deleteRecord"] }) => unknown;
+  "create-action"?: (props: { can?: ListViewActions<TRecord>["can"]; target: import("vue-router").RouteLocationRaw }) => unknown;
   "resource-action"?: () => unknown;
   header?: () => unknown;
   filters?: () => unknown;
   body?: (props: { table: TableProps<TRecord, TQuery> }) => unknown;
   footer?: () => unknown;
-  "row-actions"?: (props: { record: Record<string, unknown> }) => unknown;
+  "row-actions"?: (props: { record: TRecord }) => unknown;
 }>();
 
 type ListViewSurface = {
   table: TableProps<TRecord, TQuery>;
-} & ListViewActions;
+} & ListViewActions<TRecord>;
 
 const surface = computed<ListViewSurface>(() => {
-  if ("run" in props && props.run) {
-    return {
-      table: {
-        // @ts-ignore -- vue-tsc TS2590: union too complex under unbound generics in
-        // the app program only; remove when vue-tsc materializes this. plans/11
-        fields: props.fields,
-        load: props.run,
-        resource: props.resource,
-        namespace: props.namespace,
-        searchParameters: props.searchParameters,
-        schema: props.schema,
-        pagination: props.pagination || "always",
-        pageSizeOptions: props.pageSizeOptions,
-        defaultPageSize: props.defaultPageSize,
-        minColumnWidth: props.minColumnWidth,
-        reorderable: props.reorderable,
-        rowKey: props.rowKey,
-      } as unknown as TableProps<TRecord, TQuery>,
-      createRoute: props.createRoute,
-      detailRoute: props.detailRoute,
-      updateRoute: props.updateRoute,
-      can: props.can,
-      deleteRecord: props.deleteRecord as ((record: Record<string, unknown>) => Promise<unknown>) | undefined,
-    } as ListViewSurface;
-  }
   return {
     table: {
-      ...props.table!,
-      pagination: props.table!.pagination ?? "always",
+      ...props.table,
+      pagination: props.table.pagination ?? "always",
     },
+    createRoute: props.createRoute,
+    detailRoute: props.detailRoute,
+    updateRoute: props.updateRoute,
+    can: props.can,
+    deleteRecord: props.deleteRecord,
   };
 });
 
@@ -172,26 +115,18 @@ const surface = computed<ListViewSurface>(() => {
  * prop off the Table when the route did not bind one, so Collection's
  * uncontrolled URL-namespace mode stays intact.
  */
-const hasQueryBinding = "query" in (getCurrentInstance()?.vnode.props ?? {});
-const tableRef = ref<{ refresh: () => Promise<void>; updateQuery: (patch: QueryValues) => void; replaceQuery: (values: QueryValues) => void }>();
-const currentQuery = ref<QueryValues>({ page: 1 });
-watch(
-  () => props.query,
-  (value) => {
-    if (!hasQueryBinding || value === undefined) return;
-    currentQuery.value = {
-      page: 1,
-      ...(props.filters?.defaults ?? {}),
-      ...(value as QueryValues),
-    };
-  },
-  { immediate: true },
-);
+const hasControlledQuery = Object.hasOwn(props.table, "query");
+const tableRef = ref<{ refresh: () => Promise<void>; query: { value: QueryValues }; updateQuery: (patch: QueryValues) => void; replaceQuery: (values: QueryValues) => void }>();
+const currentQuery = ref<QueryValues>({ page: 1, ...(props.filters?.defaults ?? {}), ...(props.table.query as QueryValues | undefined) });
+const filterDraftState = ref<Partial<TFilterInput>>({ ...(props.filters?.defaults ?? {}), ...filterValues(currentQuery.value) });
+const filterDraft = computed(() => filterDraftState.value);
+const filterFormRef = ref<{ validate: () => Promise<SchemaParseResult<Partial<TQuery>>>; reset: () => void }>();
+let filterValidation = 0;
+let lastFilterOutputKeys = new Set<string>();
 
-/** Controlled query rides along only when the route actually bound one. */
 const tableBindings = computed(() => {
   const base = { ...surface.value.table };
-  if (hasQueryBinding) (base as Record<string, unknown>).query = props.query;
+  if (hasControlledQuery) base.query = currentQuery.value as TQuery;
   return base;
 });
 
@@ -200,31 +135,48 @@ function applyQuery(patch: QueryValues) {
 }
 
 function onTableQuery(values: QueryValues) {
+  filterValidation += 1;
   currentQuery.value = values;
-  emit("update:query", values);
 }
 
-function rowReorder(payload: RowReorderPayload) {
+function filterValues(values: QueryValues): Partial<TFilterInput> {
+  const keys = new Set([
+    ...Object.keys(props.filters?.fields ?? {}),
+    ...Object.keys(props.filters?.defaults ?? {}),
+  ]);
+  return Object.fromEntries([...keys].filter((key) => Object.hasOwn(values, key)).map((key) => [key, values[key]])) as Partial<TFilterInput>;
+}
+
+function rowReorder(payload: RowReorderPayload<TRecord>) {
   emit("row-reorder", payload);
 }
 
-function updateFilters(next: Record<string, unknown>) {
-  applyQuery({ ...next, page: 1 });
+async function updateFilters(next: Partial<TFilterInput>, baseQuery: QueryValues = currentQuery.value) {
+  filterDraftState.value = { ...next };
+  const validation = ++filterValidation;
+  await nextTick();
+  if (validation !== filterValidation) return;
+  const result = await filterFormRef.value?.validate();
+  if (!result?.success || validation !== filterValidation) return;
+
+  const filterKeys = new Set([
+    ...lastFilterOutputKeys,
+    ...Object.keys(props.filters?.fields ?? {}),
+    ...Object.keys(props.filters?.defaults ?? {}),
+    ...Object.keys(result.data),
+  ]);
+  const query = { ...baseQuery };
+  for (const key of filterKeys) delete query[key];
+  for (const [key, value] of Object.entries(result.data)) {
+    if (value !== undefined) query[key] = value;
+  }
+  query.page = 1;
+  lastFilterOutputKeys = new Set(Object.keys(result.data));
+  tableRef.value?.replaceQuery(query);
 }
 
 function resetFilters() {
-  const preserved = {
-    search: currentQuery.value.search,
-    limit: currentQuery.value.limit,
-  };
-  const restored: QueryValues = Object.assign(
-    {},
-    { page: 1 },
-    { limit: surface.value.table.defaultPageSize ?? 10 },
-    props.filters?.defaults ?? {},
-    preserved,
-  );
-  tableRef.value?.replaceQuery(restored);
+  filterFormRef.value?.reset();
 }
 
 const passthroughSlots = computed(() =>
@@ -249,7 +201,7 @@ const passthroughSlots = computed(() =>
 const deleting = ref(false);
 const exporting = ref(false);
 const columnFields = computed(() =>
-  resolveFields({ fields: surface.value.table.fields as never, surface: "table" }),
+  resolveDisplayFields({ entries: surface.value.table.columns, labels: surface.value.table.labels, surface: "table" }),
 );
 const columnKeys = computed(() => columnFields.value.map((field) => field.key));
 const tableNamespace = computed(() => surface.value.table.namespace);
@@ -288,7 +240,7 @@ function resetColumns() {
 }
 
 async function remove(
-  record: Record<string, unknown>,
+  record: TRecord,
   close: (value: boolean) => void,
 ) {
   if (deleting.value) return;
@@ -309,16 +261,16 @@ async function exportRows() {
   exporting.value = true;
   try {
     const { page: _page, limit: _limit, ...activeQuery } = currentQuery.value;
-    const fields = columnFields.value.filter((field) =>
+    const columns = columnFields.value.filter((field) =>
       columnPreferences.visibleKeys.value.includes(field.key),
     );
     await exportTableRows({
       activeQuery: activeQuery as TQuery,
       searchParameters: surface.value.table.searchParameters ?? {},
-      data: surface.value.table.data as TRecord[] | undefined,
-      load: surface.value.table.load as never,
-      fields,
-      options: (props.export ?? {}) as ListExportOptions<TRecord, TQuery>,
+      data: surface.value.table.data,
+      load: surface.value.table.load,
+      columns,
+      options: props.export ?? {},
       fallbackNamespace: surface.value.table.namespace,
     });
     toast.success("Export created.");
@@ -336,7 +288,7 @@ const canExport = computed(
     Boolean(surface.value.table.data || surface.value.table.load),
 );
 
-const customActions = computed<ListViewActions>(() => ({
+const customActions = computed<ListViewActions<TRecord>>(() => ({
   createRoute: surface.value.createRoute,
   detailRoute: surface.value.detailRoute,
   updateRoute: surface.value.updateRoute,
@@ -371,15 +323,18 @@ const customActions = computed<ListViewActions>(() => ({
               />
               <Popover v-if="filters">
                 <template #trigger>
-                  <Button kind="icon" variant="standard" aria-label="Filter">
+                  <Button kind="icon" variant="standard" ariaLabel="Filter">
                     <template #icon><Icon name="filter" /></template>
                   </Button>
                 </template>
                 <template #content>
                   <Form
+                    ref="filterFormRef"
                     :fields="filters.fields"
                     :schema="filters.schema"
-                    :model-value="currentQuery"
+                    :labels="filters.labels"
+                    :validators="filters.validators"
+                    :model-value="filterDraft"
                     @update:model-value="updateFilters"
                   />
                   <Button
@@ -392,7 +347,7 @@ const customActions = computed<ListViewActions>(() => ({
               </Popover>
               <Dialog>
                 <template #trigger>
-                  <Button kind="icon" variant="standard" aria-label="Columns">
+                  <Button kind="icon" variant="standard" ariaLabel="Columns">
                     <template #icon><Icon name="table" /></template>
                   </Button>
                 </template>
@@ -400,18 +355,18 @@ const customActions = computed<ListViewActions>(() => ({
                 <template #content>
                   <slot
                     name="column-dialog"
-                    :fields="columnFields"
+                    :columns="columnFields"
                     :reset="resetColumns"
                   >
                     <label
-                      v-for="field in columnFields"
-                      :key="field.key"
+                      v-for="column in columnFields"
+                      :key="column.key"
                       class="flex items-center justify-between gap-4"
                     >
-                      <span>{{ field.label ?? field.key }}</span>
+                      <span>{{ column.label ?? column.key }}</span>
                       <Switch
                         :model-value="
-                          columnPreferences.visibleKeys.value.includes(field.key)
+                          columnPreferences.visibleKeys.value.includes(column.key)
                         "
                         @update:model-value="
                           (visible) =>
@@ -419,10 +374,10 @@ const customActions = computed<ListViewActions>(() => ({
                               visible
                                 ? [
                                     ...columnPreferences.visibleKeys.value,
-                                    field.key,
+                                    column.key,
                                   ]
                                 : columnPreferences.visibleKeys.value.filter(
-                                    (key) => key !== field.key,
+                                    (key) => key !== column.key,
                                   ),
                             )
                         "
@@ -443,7 +398,7 @@ const customActions = computed<ListViewActions>(() => ({
                   v-if="canExport"
                   kind="icon"
                   variant="standard"
-                  aria-label="Export Excel"
+                  ariaLabel="Export Excel"
                   :disabled="exporting"
                   @click="exportRows"
                 >
@@ -455,7 +410,7 @@ const customActions = computed<ListViewActions>(() => ({
           <div v-if="surface.createRoute || $slots['resource-action']" class="flex flex-row justify-end gap-2">
             <template v-if="surface.createRoute">
               <slot name="create-action" v-bind="{ can: surface.can, target: surface.createRoute }">
-                <RouterLink :to="surface.createRoute">
+                <RouterLink v-if="surface.can?.('create') ?? true" :to="surface.createRoute">
                   <Button>
                     <template #icon><Icon name="add" /></template>Create
                   </Button>
@@ -516,7 +471,7 @@ const customActions = computed<ListViewActions>(() => ({
                             kind="icon"
                             variant="standard"
                             :href="href"
-                            aria-label="View"
+                            ariaLabel="View"
                             @click.stop="navigate"
                           >
                             <template #icon><Icon name="eye" size="base" /></template>
@@ -535,7 +490,7 @@ const customActions = computed<ListViewActions>(() => ({
                             kind="icon"
                             variant="standard"
                             :href="href"
-                            aria-label="Edit"
+                            ariaLabel="Edit"
                             @click.stop="navigate"
                           >
                             <template #icon><Icon name="edit" size="base" /></template>
@@ -554,7 +509,7 @@ const customActions = computed<ListViewActions>(() => ({
                               kind="icon"
                               variant="standard"
                               color="error"
-                              aria-label="Delete"
+                              ariaLabel="Delete"
                               @click.stop
                             >
                               <template #icon><Icon name="delete-bin" size="base" /></template>

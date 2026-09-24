@@ -52,7 +52,7 @@ setInterval(() => {
 </script>
 
 <template>
-  <div v-if="!($slots as any).trigger" :class="twMerge('relative flex aspect-square w-28 items-center justify-center rounded-xl bg-surface-container-high', $attrs.class as string)">
+  <div v-if="!$slots.trigger" :class="twMerge('relative flex aspect-square w-28 items-center justify-center rounded-xl bg-surface-container-high', $attrs.class as string)">
     <div
       v-if="!props.disableControls && (props.images?.[currentIndex]?.thumbnail || props.images?.[currentIndex]?.url)"
       class="absolute flex h-full w-full flex-row items-center justify-center gap-2 rounded-xl bg-black/[12%] text-on-surface opacity-0 transition-opacity duration-100 hover:opacity-100"
@@ -81,7 +81,7 @@ setInterval(() => {
       <DialogTitle class="sr-only">Image preview</DialogTitle>
       <DialogDescription class="sr-only">Preview selected image.</DialogDescription>
       <div class="relative">
-        <button data-testid="image-preview-close" aria-label="Close image preview" class="absolute right-4 top-4 z-10 text-on-surface" @click="closeDialog()">
+        <button v-bind="{ 'data-testid': 'image-preview-close' }" aria-label="Close image preview" class="absolute right-4 top-4 z-10 text-on-surface" @click="closeDialog()">
           <Icon name="close"></Icon>
         </button>
         <img class="h-full w-full rounded-xl object-scale-down" :src="props.images?.[currentIndex].url" />
