@@ -38,7 +38,13 @@ export function mountCore(component: Component, props: Record<string, unknown>, 
     uiDefaults: options.uiDefaults,
     queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }),
   })
-  app.mount(host)
+  try {
+    app.mount(host)
+  } catch (error) {
+    app.unmount()
+    host.remove()
+    throw error
+  }
 
   return {
     app,

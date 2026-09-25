@@ -1,4 +1,4 @@
-import type { SchemaFieldKind } from '../contracts/schema'
+type DisplaySchemaKind = 'string' | 'number' | 'boolean' | 'date' | 'enum' | 'object' | 'array' | 'unknown'
 
 export interface DisplayRequirementField {
   readonly format?: unknown
@@ -8,5 +8,5 @@ export interface DisplayRequirementField {
 
 export type DisplayRequirement = 'date-format' | 'text-or-renderer'
 
-export function displayRequirement(kind: SchemaFieldKind, field: DisplayRequirementField): DisplayRequirement | undefined
+export function displayRequirement(kind: DisplaySchemaKind, field: DisplayRequirementField): DisplayRequirement | undefined
 export function displayValueRequirement(value: unknown, field: DisplayRequirementField): DisplayRequirement | undefined

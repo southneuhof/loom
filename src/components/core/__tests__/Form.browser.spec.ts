@@ -23,6 +23,55 @@ afterEach(() => {
 })
 
 describe('Form control contracts in the browser', () => {
+  it('keeps authored renderer and span values while presentation changes both at runtime', async () => {
+    const form = defineForm({
+      schema: z.object({ mode: z.string(), body: z.string() }),
+      fields: {
+        mode: { renderer: 'text' },
+        body: {
+          renderer: 'text',
+          span: 2,
+          behavior: {
+            presentation: ({ draft }) => draft.mode === 'expanded'
+              ? { renderer: 'textarea', span: 4 }
+              : {},
+          },
+        },
+      },
+    })
+    const modelValue = ref({ mode: 'compact', body: 'Saved body' })
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(defineComponent({
+      setup: () => () => h(Form, {
+        ...form,
+        modelValue: modelValue.value,
+        'onUpdate:modelValue': (value) => { modelValue.value = value },
+      }),
+    }))
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await settle()
+
+    const authoredInput = host.querySelector<HTMLInputElement>('input[id$="-field-body"]')
+    const field = authoredInput?.closest('.is-form-field')
+    expect(authoredInput?.value).toBe('Saved body')
+    expect(field?.getAttribute('style')).toContain('span 2')
+
+    const modeInput = host.querySelector<HTMLInputElement>('input[id$="-field-mode"]')
+    if (!modeInput) throw new Error('The mode input did not render.')
+    modeInput.value = 'expanded'
+    modeInput.dispatchEvent(new Event('input', { bubbles: true }))
+    await settle()
+
+    await vi.waitFor(() => expect(host.querySelector('textarea')).not.toBeNull())
+    const dynamicInput = host.querySelector<HTMLTextAreaElement>('textarea')
+    expect(dynamicInput?.value).toBe('Saved body')
+    expect(dynamicInput?.closest('.is-form-field')?.getAttribute('style')).toContain('span 4')
+    expect(modelValue.value.body).toBe('Saved body')
+  })
+
   it('forwards canonical props to native controls and keeps direct and managed models live', async () => {
     const directValue = ref<string | number | undefined>('Direct value')
     const managedValue = ref<{ name?: string | null }>({ name: 'Managed value' })

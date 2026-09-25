@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, type PropType, watch, computed, type ComputedRef, onMounted } from 'vue'
+import { computed, onMounted, ref, watch, type PropType } from 'vue'
 import type { OptionLoad, QueryNamespace } from '../../contracts'
 import { useOptionSource } from './useOptionSource'
 import { commonProps } from './commonprops'
@@ -10,246 +10,311 @@ import SearchBox from '@southneuhof/loom/components/inputs/SearchBox.vue'
 import Card from '@southneuhof/loom/components/base/Card.vue'
 import Icon from '@southneuhof/loom/components/base/Icon.vue'
 
+type Option = Record<string, unknown>
+type SelectionContext = {
+  mode: 'data' | 'load' | 'none'
+  load: OptionLoad<Option> | undefined
+  namespace: QueryNamespace | undefined
+  searchParameters: unknown
+  pick: string
+  multi: boolean
+  asWhole: boolean
+  identityTransform: Readonly<Record<string, string>>
+  optionIdentities: readonly string[]
+}
+type SelectedIdentity = { kind: 'record' | 'value'; value: unknown }
+type ModelIdentity =
+  | { kind: 'empty' }
+  | { kind: 'single'; value: SelectedIdentity }
+  | { kind: 'multiple'; values: readonly SelectedIdentity[] }
+
 const props = defineProps({
-  placeholder: {
-    type: String,
-    required: false,
-    default: 'Pilih',
-  },
-  data: {
-    type: Array as PropType<readonly Record<string, any>[]>,
-    required: false,
-  },
-  load: Function as PropType<OptionLoad<Record<string, any>>>,
+  placeholder: { type: String, default: 'Pilih' },
+  data: Array as PropType<readonly Option[]>,
+  load: Function as PropType<OptionLoad<Option>>,
   namespace: String as PropType<QueryNamespace>,
-  searchParameters: {
-    type: Object as PropType<Record<string, unknown>>,
-    required: false,
-    default: () => ({}),
-  },
-  defaultToFirst: {
-    type: Boolean,
-    required: false,
-    default: false,
-  },
-  pick: {
-    type: String,
-    required: false,
-    default: 'id',
-  },
-  view: {
-    type: String,
-    required: false,
-    default: 'name',
-  },
-  multi: {
-    type: Boolean,
-    required: false,
-    default: false,
-  },
-  searchable: {
-    type: Boolean,
-    required: false,
-    default: true,
-  },
-  asWhole: {
-    type: Boolean,
-    required: false,
-    default: false,
-  },
-  transform: {
-    type: Object,
-  },
-  onSelect: {
-    type: Function,
-    default: () => {},
-  },
-  clearable: {
-    type: Boolean,
-    required: false,
-    default: true,
-  },
+  searchParameters: { type: Object as PropType<Record<string, unknown>>, default: () => ({}) },
+  defaultToFirst: { type: Boolean, default: false },
+  pick: { type: String, default: 'id' },
+  view: { type: String, default: 'name' },
+  multi: { type: Boolean, default: false },
+  searchable: { type: Boolean, default: true },
+  asWhole: { type: Boolean, default: false },
+  transform: Object as PropType<Record<string, string>>,
+  onSelect: { type: Function as PropType<(selection: Option | Option[] | null) => void>, default: () => {} },
+  clearable: { type: Boolean, default: true },
   ...commonProps,
 })
 const modelValue = defineModel<SelectModelValue>()
-const emit = defineEmits<{
-  (event: 'validation:touch'): void
-}>()
-
+const emit = defineEmits<{ (event: 'validation:touch'): void }>()
 const source = useOptionSource(props)
 const loading = source.loading
 const sourceError = source.error
-const data = computed(() => {
-  const values = [...source.options.value]
-  if (!props.transform) return values
-  const entries = Object.entries(props.transform)
-  return values.map((value: any) => {
+const query = ref('')
+const selected = ref<Option | Option[] | null>(null)
+let suppressDefault = false
+
+function isRecord(value: unknown): value is Option {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function transformedOptions(values: readonly Option[]): Option[] {
+  if (!props.transform) return [...values]
+  return values.map((value) => {
     const item = { ...value }
-    for (const [from, to] of entries) {
-      item[String(to)] = item[from]
+    for (const [from, to] of Object.entries(props.transform ?? {})) {
+      item[to] = item[from]
       delete item[from]
     }
     return item
   })
-})
-const query = ref('')
-const selected = ref<any[] | Record<string, string> | null>()
-
-function isRecord(value: unknown): value is Record<string, any> {
-  return value != null && typeof value === 'object' && !Array.isArray(value)
 }
 
-onMounted(() => {
-  if (modelValue.value != null) return
-  if (props.multi) {
-    modelValue.value = []
-    selected.value = []
-  }
-})
-
-let displayValue: ComputedRef<string>
+const data = computed(() => transformedOptions(source.options.value))
 const filteredData = computed(() => {
-  if (query.value) return data.value.filter((item: any) => item[props.view].toLowerCase().includes(query.value.toLowerCase()))
-  else return data.value
+  const search = query.value.toLowerCase()
+  if (!search) return data.value
+  return data.value.filter((item) => String(item[props.view] ?? '').toLowerCase().includes(search))
 })
 
-function isSameValue(a: any, b: any) {
-  if (a === b) return true
-  if ((a == null && b === '') || (a === '' && b == null)) return true
-
-  const aIsObject = a != null && typeof a === 'object'
-  const bIsObject = b != null && typeof b === 'object'
-
-  // For object values (asWhole mode), compare by picked key to avoid
-  // false positives like String({}) === String({}) => "[object Object]".
-  if (aIsObject || bIsObject) {
-    const aPicked = aIsObject ? (a as any)?.[props.pick] : a
-    const bPicked = bIsObject ? (b as any)?.[props.pick] : b
-    return String(aPicked) === String(bPicked)
-  }
-
-  return String(a) === String(b)
+function identity(value: unknown, pick = props.pick): unknown {
+  return isRecord(value) ? value[pick] : value
 }
 
-const currentPicked = computed(() => {
-  if (props.multi) return null
-  if (props.asWhole && modelValue.value && typeof modelValue.value === 'object') {
-    return (modelValue.value as any)[props.pick]
-  }
-  return modelValue.value as any
-})
+function normalizedIdentity(value: unknown): string | null {
+  return value == null || value === '' ? null : String(value)
+}
 
-function pickSelected() {
+function modelIdentity(value: SelectModelValue | undefined, context: SelectionContext): ModelIdentity {
+  if (value == null || value === '') return { kind: 'empty' }
+  if (Array.isArray(value)) {
+    return {
+      kind: 'multiple',
+      values: value.map((item) => ({
+        kind: isRecord(item) ? 'record' : 'value',
+        value: identity(item, context.pick),
+      })),
+    }
+  }
+  if (isRecord(value)) {
+    return { kind: 'single', value: { kind: 'record', value: identity(value, context.pick) } }
+  }
+  return { kind: 'single', value: { kind: 'value', value } }
+}
+
+function sameModelIdentity(left: ModelIdentity, right: ModelIdentity): boolean {
+  if (left.kind !== right.kind) return false
+  if (left.kind === 'empty' || right.kind === 'empty') return true
+  if (left.kind === 'single' && right.kind === 'single') {
+    return left.value.kind === right.value.kind && Object.is(left.value.value, right.value.value)
+  }
+  if (left.kind === 'multiple' && right.kind === 'multiple') {
+    return left.values.length === right.values.length && left.values.every((value, index) => (
+      value.kind === right.values[index]?.kind && value.value === right.values[index]?.value
+    ))
+  }
+  return false
+}
+
+function readContext(): SelectionContext {
+  const mode = props.data !== undefined ? 'data' : props.load ? 'load' : 'none'
+  const staticOptions = mode === 'data' ? transformedOptions(props.data ?? []) : []
+  return {
+    mode,
+    load: source.externalContext.value.load,
+    namespace: source.externalContext.value.namespace,
+    searchParameters: source.externalContext.value.searchParameters,
+    pick: props.pick,
+    multi: props.multi,
+    asWhole: props.asWhole,
+    identityTransform: Object.fromEntries(Object.entries(props.transform ?? {})
+      .filter(([from, to]) => from === props.pick || to === props.pick)),
+    optionIdentities: staticOptions.map((item) => normalizedIdentity(item[props.pick]) ?? 'null'),
+  }
+}
+
+function sameContext(left: SelectionContext, right: SelectionContext): boolean {
+  if (left.mode !== right.mode || left.pick !== right.pick || left.multi !== right.multi || left.asWhole !== right.asWhole) return false
+  if (left.mode === 'data' && right.mode === 'data') {
+    return left.optionIdentities.length === right.optionIdentities.length
+      && left.optionIdentities.every((value, index) => value === right.optionIdentities[index])
+  }
+  if (left.mode !== 'load' || right.mode !== 'load') return true
+  return left.load === right.load
+    && left.namespace === right.namespace
+    && JSON.stringify(left.searchParameters) === JSON.stringify(right.searchParameters)
+    && JSON.stringify(left.identityTransform) === JSON.stringify(right.identityTransform)
+}
+
+function modelOption(value: unknown, options = data.value): Option | undefined {
+  const valueIdentity = normalizedIdentity(identity(value))
+  return options.find((item) => normalizedIdentity(item[props.pick]) === valueIdentity)
+}
+
+function pickSelected(): void {
+  const value = modelValue.value
   if (props.multi) {
-    if (Array.isArray(modelValue.value) && modelValue.value.length) {
-      selected.value = data.value.filter((item: any) => (modelValue.value as any[]).some((modelItem) => (
-        isRecord(modelItem) && String(modelItem[props.pick]) === String(item[props.pick])
+    if (Array.isArray(value) && value.length > 0) {
+      selected.value = data.value.filter((item) => value.some((modelItem) => (
+        normalizedIdentity(identity(modelItem)) === normalizedIdentity(item[props.pick])
       )))
     } else {
-      selected.value = props.defaultToFirst ? [data.value[0]] : []
+      selected.value = !suppressDefault && props.defaultToFirst && data.value[0] ? [data.value[0]] : []
     }
     return
   }
-  if (Array.isArray(modelValue.value)) {
-    if (modelValue.value?.length)
-      (selected.value as any[]) = data.value.filter((item: any) => (modelValue.value as any[]).find((modelItem: any) => String(modelItem[props.pick]) === String(item[props.pick])))
-    else selected.value = props.defaultToFirst ? [data.value[0]] : []
-  } else {
-    if (modelValue.value) {
-      if (props.asWhole && typeof modelValue.value === 'object') {
-        selected.value = data.value.find((item: any) => String(item[props.pick]) === String((modelValue.value as any)?.[props.pick]))
-      } else {
-        selected.value = data.value.find((item: any) => String(item[props.pick]) === String(modelValue.value))
-      }
-    } else {
-      selected.value = props.defaultToFirst ? data.value[0] : null
-    }
+  if (Array.isArray(value)) {
+    selected.value = data.value.filter((item) => value.some((modelItem) => (
+      normalizedIdentity(identity(modelItem)) === normalizedIdentity(item[props.pick])
+    )))
+    return
   }
+  if (value == null || value === '') {
+    selected.value = !suppressDefault && props.defaultToFirst && data.value[0] ? data.value[0] : null
+    return
+  }
+  selected.value = modelOption(value) ?? null
 }
 
-displayValue = computed(() => {
-  if (props.multi) {
-    if (selected.value?.length)
-      return (
-        (selected.value as any[])
-          .slice(0, 2)
-          .map((item) => item[props.view])
-          .join(', ') + ((selected.value as any[]).length > 2 ? `, dan ${(selected.value as any[]).length - 2} lainnya` : '')
-      )
-    else return ''
-  } else {
-    if (selected.value != null) return (selected.value as any)[props.view]
-    else return ''
+const currentPicked = computed(() => props.multi ? null : identity(modelValue.value))
+const displayValue = computed(() => {
+  if (Array.isArray(selected.value)) {
+    const labels = selected.value.slice(0, 2).map((item) => String(item[props.view] ?? ''))
+    return labels.join(', ') + (selected.value.length > 2 ? `, dan ${selected.value.length - 2} lainnya` : '')
   }
+  return selected.value ? String(selected.value[props.view] ?? '') : ''
 })
 
-function reconcileSelection() {
-  if (loading.value) return
-  const hadValue = modelValue.value != null && (Array.isArray(modelValue.value) ? modelValue.value.length > 0 : true)
-  pickSelected()
-  if (!hadValue || props.multi) {
-    updateModelValue()
-  }
+function readModelIdentity(context = readContext()): ModelIdentity {
+  return modelIdentity(modelValue.value, context)
 }
 
-function updateModelValue() {
-  let nextValue: any
+let previousContext = readContext()
+let previousModelIdentity = readModelIdentity(previousContext)
+let initialState = true
 
-  if (props.multi) {
-    nextValue = Array.isArray(selected.value) ? selected.value : []
-  } else {
-    nextValue = selected.value == null ? null : props.asWhole ? (selected.value as any) : (selected.value as any)[props.pick]
-  }
-
-  if (props.multi) {
-    const currentValue = Array.isArray(modelValue.value) ? modelValue.value : []
-    const mappedCurrent = currentValue.map((item: any) => item?.[props.pick])
-    const mappedNext = Array.isArray(nextValue) ? nextValue.map((item: any) => item?.[props.pick]) : []
-
-    if (JSON.stringify(mappedCurrent) !== JSON.stringify(mappedNext)) {
-      modelValue.value = nextValue
-    }
-  } else if (!isSameValue(modelValue.value, nextValue)) {
-    modelValue.value = nextValue
-  }
-
-  props.onSelect(selected.value)
+function setModelValue(value: SelectModelValue): void {
+  const context = readContext()
+  const nextIdentity = modelIdentity(value, context)
+  if (sameModelIdentity(readModelIdentity(context), nextIdentity)) return
+  modelValue.value = value
+  previousModelIdentity = nextIdentity
 }
 
-function handleItemClick(item: any, setOpen: Function) {
-  if (item == null) {
-    if (!props.multi) {
-      selected.value = null
-      setOpen(false)
-    } else {
+function reconcileStaticSelection(value: SelectModelValue | undefined): void {
+  const staticOptions = transformedOptions(props.data ?? [])
+  if (props.multi) {
+    if (!Array.isArray(value)) {
+      if (value != null && value !== '') {
+        suppressDefault = true
+        setModelValue([])
+      }
       selected.value = []
+      return
     }
-    modelValue.value = props.multi ? [] : null
-    emit('validation:touch')
+    const surviving = value.filter((item) => staticOptions.some((option) => (
+      normalizedIdentity(option[props.pick]) === normalizedIdentity(identity(item))
+    )))
+    selected.value = staticOptions.filter((option) => surviving.some((item) => (
+      normalizedIdentity(option[props.pick]) === normalizedIdentity(identity(item))
+    )))
+    if (surviving.length !== value.length) {
+      suppressDefault = true
+      setModelValue(surviving)
+    }
     return
   }
-  if (!props.multi) {
+  if (Array.isArray(value)) {
+    if (value.length > 0) {
+      suppressDefault = true
+      setModelValue(null)
+    }
+    selected.value = null
+    return
+  }
+  if (value == null || value === '') return
+  if (!staticOptions.some((option) => normalizedIdentity(option[props.pick]) === normalizedIdentity(identity(value)))) {
+    suppressDefault = true
+    selected.value = null
+    setModelValue(null)
+  }
+}
+
+function hasSelection(value: SelectModelValue | undefined): boolean {
+  return Array.isArray(value) ? value.length > 0 : value != null && value !== ''
+}
+
+function handleContextChange(nextContext: SelectionContext, modelChanged: boolean): void {
+  if (nextContext.mode === 'data') {
+    reconcileStaticSelection(modelValue.value)
+    return
+  }
+  if (modelChanged || !hasSelection(modelValue.value)) return
+  suppressDefault = true
+  selected.value = props.multi ? [] : null
+  setModelValue(props.multi ? [] : null)
+}
+
+function selectionModelValue(): SelectModelValue {
+  if (props.multi) return Array.isArray(selected.value) ? selected.value : []
+  if (!selected.value || Array.isArray(selected.value)) return null
+  return props.asWhole ? selected.value : selected.value[props.pick] as string | number
+}
+
+function updateModelValue(): void {
+  setModelValue(selectionModelValue())
+}
+
+function handleItemClick(item: Option | null, setOpen: (value: boolean) => void): void {
+  if (props.disabled) return
+  if (item === null) {
+    selected.value = props.multi ? [] : null
+    setOpen(false)
+  } else if (!props.multi) {
     selected.value = item
     setOpen(false)
   } else {
-    // Ensure selected is an array for multi-select
-    const currentSelected = Array.isArray(selected.value) ? selected.value : []
-    if (currentSelected.map((s: any) => s[props.pick]).includes(item[props.pick])) {
-      selected.value = currentSelected.filter((selectedItem: any) => selectedItem[props.pick] !== item[props.pick])
-    } else {
-      selected.value = [...currentSelected, item]
-    }
+    const current = Array.isArray(selected.value) ? selected.value : []
+    const exists = current.some((entry) => normalizedIdentity(entry[props.pick]) === normalizedIdentity(item[props.pick]))
+    selected.value = exists
+      ? current.filter((entry) => normalizedIdentity(entry[props.pick]) !== normalizedIdentity(item[props.pick]))
+      : [...current, item]
   }
+  suppressDefault = false
   updateModelValue()
+  props.onSelect(selected.value)
   emit('validation:touch')
 }
 
-watch([data, loading], reconcileSelection, { immediate: true })
+watch(() => ({ context: readContext(), model: modelValue.value }), ({ context, model }) => {
+  const modelChanged = !sameModelIdentity(previousModelIdentity, modelIdentity(model, previousContext))
+  const contextChanged = !sameContext(previousContext, context)
+  const isInitialState = initialState
+  initialState = false
+  previousContext = context
+  previousModelIdentity = modelIdentity(model, context)
+  if (isInitialState && context.mode === 'data') reconcileStaticSelection(model)
+  else if (contextChanged) handleContextChange(context, modelChanged)
+  else if (modelChanged) suppressDefault = false
+  pickSelected()
+}, { immediate: true, deep: true, flush: 'pre' })
+
+watch([data, loading], () => {
+  pickSelected()
+  if (loading.value || suppressDefault || hasSelection(modelValue.value)) return
+  if (props.multi) {
+    if (!Array.isArray(modelValue.value)) setModelValue([])
+  } else if (props.defaultToFirst && data.value[0]) {
+    selected.value = data.value[0]
+    updateModelValue()
+  }
+}, { immediate: true })
 
 onMounted(() => {
-  watch(modelValue, () => {
-    pickSelected()
-  })
+  if (props.multi && modelValue.value == null) {
+    selected.value = []
+    setModelValue([])
+  }
 })
 </script>
 

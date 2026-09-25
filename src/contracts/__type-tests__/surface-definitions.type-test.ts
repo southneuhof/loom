@@ -113,6 +113,15 @@ const wrongInferredProps = { currency: 'USD' }
 const wrongInferredFragment = { props: wrongInferredProps }
 const wrongInferredFields = { name: wrongInferredFragment }
 const inferredTextSchema = z4.object({ name: z4.string() })
+const removedBehavior = { resetWhen: () => undefined } as const
+const removedBehaviorFields = { name: { renderer: 'text', behavior: removedBehavior } } as const
+type RemovedBehaviorIsRejected = Assert<
+  Equal<IsAssignable<{
+    schema: typeof inferredTextSchema
+    fields: typeof removedBehaviorFields
+  }, FormArgument<typeof inferredTextSchema, typeof removedBehaviorFields>>, false>
+>
+const removedBehaviorIsRejected: RemovedBehaviorIsRejected = true
 type InferredRendererPropsAreRejected = Assert<
   Equal<IsAssignable<{ schema: typeof inferredTextSchema; fields: typeof wrongInferredFields }, FormArgument<typeof inferredTextSchema, typeof wrongInferredFields>>, false>
 >
@@ -232,4 +241,5 @@ void [
   mixedValueDetail,
   mixedTextEntry,
   mixedTextPresentation,
+  removedBehaviorIsRejected,
 ]

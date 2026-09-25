@@ -10,7 +10,7 @@ import type { DetailProps, RecordLoadContext, RecordResult } from '../../contrac
 import DisplayValue from '../../display/DisplayValue.vue'
 import { resolveDisplayFields, resolveDisplayValue } from '../../display/resolveDisplay'
 import { useLoader } from '../../query'
-import { schemaOutputKeys } from '../../schemas/compileSchema'
+import { schemaOutputKeys } from '../../schemas/schemaRuntime'
 import { useRendererRegistry } from '../../renderers/registry'
 import { assertSingleDataSource, instanceIdentity, recordCacheKey } from './useCoreData'
 

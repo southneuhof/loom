@@ -5,7 +5,7 @@
 import { computed, onBeforeUnmount, ref, shallowRef, toRef, useSlots, watch } from 'vue'
 import { getCoreRowModel, useVueTable, type ColumnDef, type ColumnSizingState } from '@tanstack/vue-table'
 import type { QueryValues, RowReorderPayload, TableContentProps } from '../../contracts'
-import { compileSchema, schemaOutputKeys } from '../../schemas/compileSchema'
+import { createSchemaRuntime, schemaOutputKeys, schemaSortByValues } from '../../schemas/schemaRuntime'
 import { readDisplayValue, resolveDisplayFields, resolveDisplayValue, type ResolvedDisplayField } from '../../display/resolveDisplay'
 import DisplayValue from '../../display/DisplayValue.vue'
 
@@ -38,9 +38,9 @@ const slots = useSlots()
 const activeQuery = computed(() => props.query as unknown as QueryValues)
 
 const recordKeys = computed(() => schemaOutputKeys(props.schema))
-const compiledQuerySchema = computed(() => props.querySchema ? compileSchema(props.querySchema) : undefined)
-const queryKeys = computed(() => compiledQuerySchema.value?.inputKeys)
-const querySortKeys = computed(() => compiledQuerySchema.value?.fields.sort_by?.options)
+const querySchemaRuntime = computed(() => props.querySchema ? createSchemaRuntime(props.querySchema) : undefined)
+const queryKeys = computed(() => querySchemaRuntime.value?.inputKeys)
+const querySortKeys = computed(() => props.querySchema ? schemaSortByValues(props.querySchema) : undefined)
 const fields = computed(() => {
   const resolved = resolveDisplayFields({
     surface: 'table',

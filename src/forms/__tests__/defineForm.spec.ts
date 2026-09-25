@@ -1,7 +1,14 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod/v4'
-import { compileForm } from '../compileForm'
 import { defineForm } from '../defineForm'
+import Form from '../../components/core/Form.vue'
+import { flush, mountCore } from '../../components/core/__tests__/harness'
+
+const mounted: Array<ReturnType<typeof mountCore>> = []
+
+afterEach(() => {
+  for (const view of mounted.splice(0)) view.unmount()
+})
 
 describe('defineForm', () => {
   it('snapshots enumerable configuration and preserves component props and callbacks', () => {
@@ -30,7 +37,9 @@ describe('defineForm', () => {
     expect(definition.schema).toBe(schema)
     expect(definition.fields).not.toBe(fields)
     expect(definition.fields.name).not.toBe(fields.name)
+    expect(definition.fields.name.renderer).toBe('text')
     expect(definition.fields.name.props).toEqual({ placeholder: 'Name' })
+    expect(definition.fields.name.span).toBe(2)
     expect(definition.fields.name.initialValue).toBe(initialValue)
     expect(definition.fields.name.behavior?.visible).toBe(visible)
     expect(definition.labels).toEqual({ name: 'Name' })
@@ -42,28 +51,49 @@ describe('defineForm', () => {
     expect(initialValue).not.toHaveBeenCalled()
     expect(validate).not.toHaveBeenCalled()
     expect(submit).not.toHaveBeenCalled()
+  })
 
-    const compiled = compileForm(definition)
-    expect(compiled.definition).toBe(definition)
-    expect(compiled.fields.map(({ key, renderer, required }) => ({ key, renderer, required }))).toEqual([
-      { key: 'name', renderer: 'text', required: true },
-      { key: 'status', renderer: 'text', required: false },
-    ])
-    expect(compiled.definition.fields.name.behavior?.visible).toBe(visible)
-    expect(compiled.definition.labels).toBe(definition.labels)
-    expect(compiled.definition.validators).toBe(definition.validators)
-    expect(compiled.definition.submit).toBe(submit)
+  it('uses the same requiredness and runtime checks for constructed and plain definitions', async () => {
+    const schema = z.object({ requiredName: z.string(), optionalName: z.string().optional() })
+    const plain = {
+      schema,
+      fields: {
+        requiredName: { renderer: 'text' },
+        optionalName: { renderer: 'text' },
+      },
+    }
+    const definedView = mountCore(Form, { ...defineForm(plain), modelValue: { requiredName: 'Ada' } })
+    const plainView = mountCore(Form, { ...plain, modelValue: { requiredName: 'Ada' } })
+    mounted.push(definedView, plainView)
+    await flush()
+
+    const requiredness = (view: ReturnType<typeof mountCore>) => view.all('input').map((input) => (input as HTMLInputElement).required)
+    expect(requiredness(definedView)).toEqual([true, false])
+    expect(requiredness(plainView)).toEqual(requiredness(definedView))
   })
 
   it('rejects invalid JavaScript definitions and bare validators', () => {
     const schema = z.object({ name: z.string() })
     const invalidProps = { schema, fields: { name: { renderer: 'text', props: { required: true } } } }
+    const invalidBehavior = { schema, fields: { name: { renderer: 'text', behavior: { resetWhen: () => undefined } } } }
     const invalidValidator = { schema, fields: { name: { renderer: 'text' } }, validators: [() => undefined] }
     const unsafeFields = Object.create(null) as Record<string, unknown>
     unsafeFields.constructor = { renderer: 'text' }
 
+    expect(() => Reflect.apply(defineForm, undefined, [null])).toThrow(
+      '[loom][SURFACE_OPTION_INVALID] Form member "definition" must be an object.',
+    )
+    expect(() => Reflect.apply(defineForm, undefined, [{ fields: {} }])).toThrow(
+      '[loom][FORM_SCHEMA_REQUIRED] Form requires a raw schema.',
+    )
     expect(() => Reflect.apply(defineForm, undefined, [invalidProps])).toThrow(
       '[loom][SURFACE_OPTION_INVALID] Form field "name" member "props.required"',
+    )
+    expect(() => mountCore(Form, { ...invalidProps, modelValue: {} })).toThrow(
+      '[loom][SURFACE_OPTION_INVALID] Form field "name" member "props.required"',
+    )
+    expect(() => Reflect.apply(defineForm, undefined, [invalidBehavior])).toThrow(
+      '[loom][SURFACE_OPTION_INVALID] Form field "name" member "behavior.resetWhen"',
     )
     expect(() => Reflect.apply(defineForm, undefined, [invalidValidator])).toThrow(
       '[loom][SURFACE_OPTION_INVALID] Form member "validators[0]" must be a validator descriptor.',

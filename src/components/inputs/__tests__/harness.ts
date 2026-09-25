@@ -1,4 +1,5 @@
 import { createApp, defineComponent, h, nextTick, ref, type App, type Component } from 'vue'
+import type { QueryClient } from '@tanstack/vue-query'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import type { FrameworkAdaptersInput } from '../../../adapters/projectAdapters'
 import type { AssetAdapter, AssetValue } from '../../../assets/contracts'
@@ -22,6 +23,7 @@ export function mountInput<T>(component: Component, options: {
   model: T
   props?: Record<string, unknown>
   adapters?: FrameworkAdaptersInput
+  queryClient?: QueryClient
 }) {
   const model = ref(options.model)
   const props = ref(options.props ?? {})
@@ -33,7 +35,10 @@ export function mountInput<T>(component: Component, options: {
       'onUpdate:modelValue': (value: T) => { model.value = value },
     }),
   }))
-  app.use(FrameworkPlugin, { adapters: { assets: testAssetAdapter, ...options.adapters } })
+  app.use(FrameworkPlugin, {
+    adapters: { assets: testAssetAdapter, ...options.adapters },
+    queryClient: options.queryClient,
+  })
   app.mount(host)
   return {
     app,

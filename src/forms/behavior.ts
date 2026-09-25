@@ -1,11 +1,10 @@
 import { computed, watch, type ComputedRef, type WatchStopHandle } from 'vue'
-import type { FormBehaviorContext } from '../contracts/forms'
+import type { FormBehaviorContext, FormFields } from '../contracts/forms'
 import type { Label } from '../contracts/labels'
 import { resolveLabel } from '../labels/resolveLabel'
-import type { CompiledFormField } from './compileForm'
 import { isPlainRecord, snapshotEditable } from './draftValues'
 
-const behaviorMembers = new Set(['visible', 'disabled', 'props', 'presentation', 'derived', 'resetWhen'])
+const behaviorMembers = new Set(['visible', 'disabled', 'props', 'presentation', 'derived'])
 const presentationMembers = new Set(['renderer', 'label', 'props', 'span', 'required'])
 
 export interface FormBehaviorState {
@@ -23,15 +22,27 @@ export interface FormBehaviorRuntime {
   state: (key: string) => ComputedRef<FormBehaviorState>
   visibleKeys: ComputedRef<string[]>
   settle: () => void
-  connect: (write: (key: string, value: unknown) => void, reset: (key: string) => void) => WatchStopHandle
+  connect: (write: (key: string, value: unknown) => void) => WatchStopHandle
 }
 
-export interface FormBehaviorRuntimeOptions {
-  fields: readonly CompiledFormField[]
+export interface FormBehaviorRuntimeOptions<
+  TInput extends object,
+  TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>,
+> {
+  fields: readonly RuntimeFormField<TInput, TKeys>[]
   draft: object
   context: () => Readonly<Record<string, unknown>>
   labels: () => Readonly<Record<string, Label | undefined>> | undefined
-  resolveBaseProps: (field: CompiledFormField, renderer: string) => Record<string, unknown>
+  resolveBaseProps: (field: RuntimeFormField<TInput, TKeys>, renderer: string) => Record<string, unknown>
+}
+
+export type RuntimeFormField<
+  TInput extends object,
+  TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>,
+> = {
+  key: Extract<TKeys, string>
+  input: NonNullable<FormFields<TInput, TKeys>[Extract<TKeys, string>]>
+  required: boolean
 }
 
 interface FormPresentationRuntime {
@@ -59,9 +70,6 @@ export function assertFormBehavior(value: unknown, key: string): void {
   for (const [member, callback] of Object.entries(value)) {
     if (!behaviorMembers.has(member)) invalidBehavior(key, `behavior.${member}`, 'a supported behavior member')
     if (typeof callback !== 'function') invalidBehavior(key, `behavior.${member}`, 'a function')
-  }
-  if (typeof value.derived === 'function' && typeof value.resetWhen === 'function') {
-    throw new Error(`[loom][SURFACE_OPTION_INVALID] Form field "${key}" cannot use behavior.derived and behavior.resetWhen together.`)
   }
 }
 
@@ -92,14 +100,14 @@ function equalRecord(left: Readonly<Record<string, unknown>>, right: Readonly<Re
   return keys.length === Object.keys(right).length && keys.every((key) => Object.is(left[key], right[key]))
 }
 
-function callbackResult(
-  field: CompiledFormField,
+function callbackResult<TInput extends object, TKeys extends Extract<keyof TInput, string>>(
+  field: RuntimeFormField<TInput, TKeys>,
   member: string,
   draft: object,
   context: Readonly<Record<string, unknown>>,
   dependencies?: Set<string>,
 ): unknown {
-  const callback = field.behavior?.[member]
+  const callback = Reflect.get(field.input.behavior ?? {}, member)
   if (typeof callback !== 'function') return undefined
   const proxy = new Proxy(draft, {
     get(target, property, receiver) {
@@ -129,7 +137,7 @@ function callbackResult(
   return callback(behaviorContext)
 }
 
-function assertPresentation(field: CompiledFormField, value: unknown): FormPresentationRuntime | undefined {
+function assertPresentation<TInput extends object, TKeys extends Extract<keyof TInput, string>>(field: RuntimeFormField<TInput, TKeys>, value: unknown): FormPresentationRuntime | undefined {
   if (value === undefined) return undefined
   if (!isRecord(value)) invalidBehavior(field.key, 'behavior.presentation', 'an object')
   for (const member of Object.keys(value)) {
@@ -163,21 +171,19 @@ function assertPresentation(field: CompiledFormField, value: unknown): FormPrese
   return result
 }
 
-function assertProps(field: CompiledFormField, props: Readonly<Record<string, unknown>>, member: string): void {
+function assertProps<TInput extends object, TKeys extends Extract<keyof TInput, string>>(field: RuntimeFormField<TInput, TKeys>, props: Readonly<Record<string, unknown>>, member: string): void {
   if (Object.hasOwn(props, 'required')) invalidBehavior(field.key, `${member}.required`, 'controlled by the input schema')
 }
 
-export function createFormBehaviorRuntime(options: FormBehaviorRuntimeOptions): FormBehaviorRuntime {
-  for (const field of options.fields) {
-    if (field.behavior) assertFormBehavior(field.behavior, field.key)
-  }
-
-  const effectKeys = new Set(options.fields.filter((field) => field.behavior?.derived || field.behavior?.resetWhen).map((field) => field.key))
+export function createFormBehaviorRuntime<TInput extends object, TKeys extends Extract<keyof TInput, string>>(
+  options: FormBehaviorRuntimeOptions<TInput, TKeys>,
+): FormBehaviorRuntime {
+  const effectKeys = new Set<string>(options.fields.filter((field) => field.input.behavior?.derived).map((field) => field.key))
   const effectDependencies = new Map<string, readonly string[]>()
-  const evaluate = (field: CompiledFormField, member: string): unknown => {
-    const dependencies = member === 'derived' || member === 'resetWhen' ? new Set<string>() : undefined
+  const evaluate = (field: RuntimeFormField<TInput, TKeys>, member: string): unknown => {
+    const dependencies = member === 'derived' ? new Set<string>() : undefined
     const value = callbackResult(field, member, options.draft, options.context(), dependencies)
-    if (member === 'derived' || member === 'resetWhen') {
+    if (member === 'derived') {
       effectDependencies.set(field.key, [...(dependencies ?? [])].filter((dependency) => effectKeys.has(dependency)))
       const cycle = cycleIn(effectDependencies)
       if (cycle) throw new Error(`[loom][SURFACE_OPTION_INVALID] Form behavior value-effect cycle: ${cycle.join(' -> ')}.`)
@@ -187,17 +193,17 @@ export function createFormBehaviorRuntime(options: FormBehaviorRuntimeOptions): 
 
   const states = new Map<string, ComputedRef<FormBehaviorState>>()
   for (const field of options.fields) {
-    let previousProps: Readonly<Record<string, unknown>> = field.props
+    let previousProps: Readonly<Record<string, unknown>> = {}
     let previousState: FormBehaviorState | undefined
     states.set(field.key, computed(() => {
-      const behavior = field.behavior
+      const behavior = field.input.behavior
       const visibleResult = evaluate(field, 'visible')
       const disabledResult = evaluate(field, 'disabled')
       if (visibleResult !== undefined && typeof visibleResult !== 'boolean') invalidBehavior(field.key, 'behavior.visible', 'a boolean')
       if (disabledResult !== undefined && typeof disabledResult !== 'boolean') invalidBehavior(field.key, 'behavior.disabled', 'a boolean')
       const presentation = assertPresentation(field, evaluate(field, 'presentation'))
-      const rendererMember = presentation && Object.hasOwn(presentation, 'renderer') ? presentation.renderer : field.renderer
-      const renderer = typeof rendererMember === 'string' ? rendererMember : field.renderer
+      const rendererMember = presentation && Object.hasOwn(presentation, 'renderer') ? presentation.renderer : field.input.renderer
+      const renderer = typeof rendererMember === 'string' ? rendererMember : field.input.renderer
       let props = options.resolveBaseProps(field, renderer)
       const behaviorProps = evaluate(field, 'props')
       if (behaviorProps !== undefined) {
@@ -205,14 +211,14 @@ export function createFormBehaviorRuntime(options: FormBehaviorRuntimeOptions): 
         assertProps(field, behaviorProps, 'behavior.props')
         props = { ...props, ...behaviorProps }
       }
-      if (presentation?.props === null) props = { ...field.props }
+      if (presentation?.props === null) props = options.resolveBaseProps(field, field.input.renderer)
       else if (isRecord(presentation?.props)) {
         assertProps(field, presentation.props, 'behavior.presentation.props')
         props = { ...props, ...presentation.props }
       }
       assertProps(field, props, 'props')
       if (!equalRecord(props, previousProps)) previousProps = props
-      const labelMember = presentation && Object.hasOwn(presentation, 'label') ? presentation.label : field.label
+      const labelMember = presentation && Object.hasOwn(presentation, 'label') ? presentation.label : field.input.label
       const label = resolveLabel(field.key, labelMember, options.labels())
       const state: FormBehaviorState = {
         visible: visibleResult !== false,
@@ -222,7 +228,7 @@ export function createFormBehaviorRuntime(options: FormBehaviorRuntimeOptions): 
         required: presentation?.required == null ? field.required : presentation.required === true,
       }
       state.renderer = renderer
-      const span = presentation && Object.hasOwn(presentation, 'span') ? presentation.span : field.span
+      const span = presentation && Object.hasOwn(presentation, 'span') ? presentation.span : field.input.span
       if (typeof span === 'number') state.span = span
       if (typeof behavior?.derived === 'function') state.derived = evaluate(field, 'derived')
       if (previousState && previousState.visible === state.visible && previousState.disabled === state.disabled && previousState.label === state.label && previousState.renderer === state.renderer && previousState.props === state.props && previousState.span === state.span && previousState.required === state.required && Object.is(previousState.derived, state.derived)) {
@@ -243,24 +249,19 @@ export function createFormBehaviorRuntime(options: FormBehaviorRuntimeOptions): 
   const settle = () => {
     if (!write) return
     for (const field of options.fields) {
-      if (typeof field.behavior?.derived !== 'function') continue
+      if (typeof field.input.behavior?.derived !== 'function') continue
       const value = state(field.key).value.derived
       if (!Object.is(Reflect.get(options.draft, field.key), value)) write(field.key, value)
     }
   }
-  const connect = (nextWrite: (key: string, value: unknown) => void, nextReset: (key: string) => void): WatchStopHandle => {
+  const connect = (nextWrite: (key: string, value: unknown) => void): WatchStopHandle => {
     write = nextWrite
     const stops: WatchStopHandle[] = []
     for (const field of options.fields) {
-      if (typeof field.behavior?.derived === 'function') {
+      if (typeof field.input.behavior?.derived === 'function') {
         stops.push(watch(() => state(field.key).value.derived, (value) => {
           if (!Object.is(Reflect.get(options.draft, field.key), value)) nextWrite(field.key, value)
         }, { immediate: true, flush: 'sync' }))
-      }
-      if (typeof field.behavior?.resetWhen === 'function') {
-        stops.push(watch(() => evaluate(field, 'resetWhen'), (value, previous) => {
-          if (!Object.is(value, previous)) nextReset(field.key)
-        }, { flush: 'sync' }))
       }
     }
     return () => {

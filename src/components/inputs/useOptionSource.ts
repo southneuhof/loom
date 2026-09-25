@@ -1,4 +1,4 @@
-import { computed, getCurrentInstance, toRef, toValue, type MaybeRefOrGetter } from 'vue'
+import { computed, getCurrentInstance, toRef, toValue, watch, type MaybeRefOrGetter } from 'vue'
 import type { CollectionResult, OptionLoad, OptionLoadContext, QueryNamespace } from '../../contracts'
 import { useLoader } from '../../query/loader'
 import { stableValue } from '../../query/keys'
@@ -26,7 +26,21 @@ export function useOptionSource<TOption extends object>(
     load: toRef(props, 'load'),
   })
 
+  watch([() => props.data, () => props.load], ([data, load]) => {
+    if (data !== undefined && load) {
+      throw new Error('[loom] `data` and `load` are alternatives; supply only one.')
+    }
+  })
+  watch(() => props.load, (load, previousLoad) => {
+    if (props.data === undefined && load && previousLoad) void source.refresh()
+  })
+
   return {
+    externalContext: computed(() => ({
+      load: props.load,
+      namespace: props.namespace,
+      searchParameters: stableValue(toValue(searchParameters)),
+    })),
     options: computed<readonly TOption[]>(() => {
       const value = source.data.value
       return Array.isArray(value) ? value : (value as CollectionResult<TOption> | undefined)?.data ?? []

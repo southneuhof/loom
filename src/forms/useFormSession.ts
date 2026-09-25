@@ -9,8 +9,9 @@ import { useRendererRegistry } from '../renderers/registry'
 import { useLoader } from '../query'
 import { instanceIdentity, recordCacheKey } from '../components/core/useCoreData'
 import { formInputPendingKeyOf, provideFormInputPending } from '../components/core/useFormInputState'
-import { createFormBehaviorRuntime, type FormBehaviorRuntime } from './behavior'
-import { compileForm, type CompiledForm, type CompiledFormField } from './compileForm'
+import { createFormBehaviorRuntime, type FormBehaviorRuntime, type RuntimeFormField } from './behavior'
+import { createSchemaRuntime } from '../schemas/schemaRuntime'
+import { assertFormDefinition } from './assertFormDefinition'
 import { cloneEditable, isPlainRecord, snapshotEditable } from './draftValues'
 import type { FormProps } from './props'
 
@@ -27,7 +28,6 @@ export interface FormSession<
   TResult,
   TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>,
 > {
-  compiled: ComputedRef<CompiledForm<TInput, TOutput, TResult, TKeys>>
   behavior: ComputedRef<FormBehaviorRuntime>
   draft: ComputedRef<FormDraftSnapshot<TInput>>
   dirty: ComputedRef<boolean>
@@ -38,10 +38,11 @@ export interface FormSession<
   loading: ComputedRef<boolean>
   loadError: ComputedRef<SubmitError | undefined>
   issues: ComputedRef<readonly SchemaIssue[]>
-  visibleFields: ComputedRef<readonly CompiledFormField[]>
+  visibleFields: ComputedRef<readonly RuntimeFormField<TInput, TKeys>[]>
   visibleKeys: ComputedRef<readonly string[]>
   formId: string
   hasSubmit: ComputedRef<boolean>
+  fieldFor: (key: string) => RuntimeFormField<TInput, TKeys> | undefined
   controlValue: (key: string) => unknown
   setValue: (key: string, value: unknown) => void
   setControlValue: (key: string, value: unknown) => void
@@ -148,11 +149,14 @@ function definitionFromProps<
   }
 }
 
-function formDefaults(fields: readonly CompiledFormField[], overrides: readonly (object | undefined)[] = []): Record<string, unknown> {
+function formDefaults<TInput extends object, TKeys extends Extract<keyof TInput, string>>(
+  fields: readonly RuntimeFormField<TInput, TKeys>[],
+  overrides: readonly (object | undefined)[] = [],
+): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   for (const field of fields) {
-    if (field.initialValue && !overrides.some((value) => value !== undefined && hasOwn(value, field.key))) {
-      values[field.key] = cloneEditable(field.initialValue())
+    if (field.input.initialValue && !overrides.some((value) => value !== undefined && hasOwn(value, field.key))) {
+      values[field.key] = cloneEditable(field.input.initialValue())
     }
   }
   return values
@@ -195,6 +199,8 @@ export function useFormSession<
   props: FormProps<TInput, TOutput, TResult, TKeys>,
   events: FormSessionEvents<TInput, TResult>,
 ): FormSession<TInput, TOutput, TResult, TKeys> {
+  type RuntimeField = RuntimeFormField<TInput, TKeys>
+
   assertRemovedProps('Form')
   const modelValuePresent = isModelPropPresent()
   if (!props.schema) throw new Error('[loom][FORM_SCHEMA_REQUIRED] Form requires a raw schema.')
@@ -204,8 +210,23 @@ export function useFormSession<
 
   const adapters = useFrameworkAdapters()
   const renderers = useRendererRegistry('form')
-  const compiled = computed(() => compileForm(definitionFromProps(props)))
-  const initialCompiled = compiled.value
+  const definition = computed(() => definitionFromProps(props))
+  const schemaRuntime = computed(() => {
+    const currentDefinition = definition.value
+    const runtime = createSchemaRuntime(currentDefinition.schema)
+    assertFormDefinition(currentDefinition, runtime)
+    return runtime
+  })
+  const fields = computed<readonly RuntimeField[]>(() => {
+    const currentDefinition = definition.value
+    const runtime = schemaRuntime.value
+    return Object.keys(currentDefinition.fields).map((key) => {
+      const fieldKey = key as Extract<TKeys, string>
+      const input = currentDefinition.fields[fieldKey]!
+      return { key: fieldKey, input, required: runtime.requiredKeys.has(key) }
+    })
+  })
+  const initialFields = fields.value
   const idPrefix = useId()
   const formId = `form-${idPrefix}`
   const inputPendingCount = ref(0)
@@ -221,8 +242,8 @@ export function useFormSession<
     enabled: computed(() => !modelValuePresent && props.load !== undefined),
   })
   const initialModel = modelValuePresent ? props.modelValue : undefined
-  const defaults = shallowRef(formDefaults(initialCompiled.fields, [props.initialData, initialModel]))
-  const initialValues = mergeInputValues(initialCompiled.inputKeys, [
+  const defaults = shallowRef(formDefaults(initialFields, [props.initialData, initialModel]))
+  const initialValues = mergeInputValues(schemaRuntime.value.inputKeys, [
     defaults.value,
     props.initialData,
     initialModel,
@@ -250,8 +271,8 @@ export function useFormSession<
   let mutationSequence = 0
   let activeMutationOwner: number | undefined
 
-  const behaviorFor = (form: CompiledForm<TInput, TOutput, TResult, TKeys>): FormBehaviorRuntime => createFormBehaviorRuntime({
-    fields: form.fields,
+  const behaviorFor = (formFields: readonly RuntimeField[]): FormBehaviorRuntime => createFormBehaviorRuntime({
+    fields: formFields,
     draft,
     context: () => props.context ?? {},
     labels: () => props.labels,
@@ -259,16 +280,16 @@ export function useFormSession<
       if (!renderers.has(renderer)) {
         throw new Error(`[loom][RENDERER_NOT_REGISTERED] Form field "${field.key}" uses unregistered form renderer "${renderer}".`)
       }
-      return { ...field.props }
+      return { ...(field.input.props ?? {}) }
     },
   })
-  const behaviorRuntime = shallowRef(behaviorFor(initialCompiled))
+  const behaviorRuntime = shallowRef(behaviorFor(initialFields))
   const behavior = computed(() => behaviorRuntime.value)
   const loaded = computed(() => loader.data.value)
   const loading = computed(() => loader.loading.value)
   const loadError = computed(() => loader.error.value)
-  const visibleFields = computed(() => compiled.value.fields.filter((field) => behaviorRuntime.value.state(field.key).value.visible))
-  const visibleKeys = computed(() => visibleFields.value.map((field) => field.key))
+  const visibleFields = computed(() => fields.value.filter((field) => behaviorRuntime.value.state(field.key).value.visible))
+  const visibleKeys = computed<string[]>(() => visibleFields.value.map((field) => field.key))
   const hasSubmit = computed(() => typeof props.submit === 'function')
   const dirty = computed(() => !equalRecord(cloneRecord(draft), baseline.value))
   const readonlyDraft = computed(() => snapshotDraft<TInput>(draft))
@@ -310,8 +331,8 @@ export function useFormSession<
     events.updateModel(value)
   }
 
-  function fieldFor(key: string): CompiledFormField | undefined {
-    return compiled.value.fields.find((field) => field.key === key)
+  function fieldFor(key: string): RuntimeField | undefined {
+    return fields.value.find((field) => field.key === key)
   }
 
   function clearControlError(key: string): boolean {
@@ -332,11 +353,11 @@ export function useFormSession<
   }, { flush: 'post' })
 
   function setValue(key: string, value: unknown, userEdit = true): void {
-    if (!compiled.value.inputKeys.includes(key)) {
+    if (!schemaRuntime.value.inputKeys.includes(key)) {
       throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" is not in the schema input.`)
     }
     const field = fieldFor(key)
-    if (userEdit && field?.behavior?.derived) return
+    if (userEdit && field?.input.behavior?.derived) return
     if (userEdit) edited.add(key)
     const hadControlIssue = clearControlError(key)
     const previous = Reflect.get(draft, key)
@@ -353,13 +374,8 @@ export function useFormSession<
     setValue(key, value, false)
   }
 
-  function resetBehaviorValue(key: string): void {
-    edited.add(key)
-    setValue(key, undefined, false)
-  }
-
   function setControlError(key: string, message: string | undefined): void {
-    if (!compiled.value.inputKeys.includes(key)) {
+    if (!schemaRuntime.value.inputKeys.includes(key)) {
       throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" is not in the schema input.`)
     }
     clearControlError(key)
@@ -372,18 +388,18 @@ export function useFormSession<
   }
 
   function applyUneditedBaseline(value: Readonly<Record<string, unknown>>): void {
-    for (const key of compiled.value.inputKeys) {
+    for (const key of schemaRuntime.value.inputKeys) {
       if (edited.has(key)) continue
       if (hasOwn(value, key)) Reflect.set(draft, key, cloneEditable(value[key]))
       else Reflect.deleteProperty(draft, key)
     }
   }
 
-  let stopBehavior: WatchStopHandle = behaviorRuntime.value.connect(setDerivedValue, resetBehaviorValue)
-  watch(compiled, (next) => {
+  let stopBehavior: WatchStopHandle = behaviorRuntime.value.connect(setDerivedValue)
+  watch(fields, (next) => {
     stopBehavior()
     behaviorRuntime.value = behaviorFor(next)
-    stopBehavior = behaviorRuntime.value.connect(setDerivedValue, resetBehaviorValue)
+    stopBehavior = behaviorRuntime.value.connect(setDerivedValue)
   })
 
   function controlValue(key: string): unknown {
@@ -398,9 +414,9 @@ export function useFormSession<
 
   function candidateFor(snapshot: Readonly<Record<string, unknown>>): Record<string, unknown> {
     const visible = new Set(behaviorRuntime.value.visibleKeys.value)
-    const selected = new Set(compiled.value.fields.map((field) => field.key))
+    const selected = new Set<string>(fields.value.map((field) => field.key))
     const candidate: Record<string, unknown> = {}
-    for (const key of compiled.value.inputKeys) {
+    for (const key of schemaRuntime.value.inputKeys) {
       if (selected.has(key) && !visible.has(key)) continue
       if (hasOwn(snapshot, key)) candidate[key] = cloneEditable(snapshot[key])
     }
@@ -430,7 +446,7 @@ export function useFormSession<
     const generation = sessionGeneration.value
     const revision = draftRevision
     const snapshot = cloneRecord(draft)
-    const activeForm = compiled.value
+    const activeRuntime = schemaRuntime.value
     validating.value = true
     const validatorPaths = (props.validators ?? [])
       .filter((validator) => (validator.triggers ?? ['submit']).includes(trigger))
@@ -444,7 +460,7 @@ export function useFormSession<
         return result
       }
       const candidate = candidateFor(snapshot)
-      const parsed = await activeForm.parseAsync(candidate)
+      const parsed = await activeRuntime.parseAsync(candidate)
       if (!isCurrentValidation(run, controller, generation, revision)) return { success: false, issues: [] }
       if (!parsed.success) {
         issues.value = parsed.issues
@@ -622,9 +638,9 @@ export function useFormSession<
 
   function applyLoaded(value: FormDraft<TInput> | undefined): void {
     if (modelValuePresent || value === undefined || !mounted) return
-    const mapped = copyInputValues(value, compiled.value.inputKeys)
+    const mapped = copyInputValues(value, schemaRuntime.value.inputKeys)
     loadedValues.value = mapped
-    const nextBaseline = mergeInputValues(compiled.value.inputKeys, [
+    const nextBaseline = mergeInputValues(schemaRuntime.value.inputKeys, [
       defaults.value,
       props.initialData,
       loadedValues.value,
@@ -638,7 +654,7 @@ export function useFormSession<
   watch(loaded, (value) => applyLoaded(value), { immediate: true })
   watch(() => props.initialData, (value) => {
     if (modelValuePresent) return
-    const nextBaseline = mergeInputValues(compiled.value.inputKeys, [
+    const nextBaseline = mergeInputValues(schemaRuntime.value.inputKeys, [
       defaults.value,
       value,
       loadedValues.value,
@@ -650,7 +666,7 @@ export function useFormSession<
   }, { deep: true })
   watch(() => props.modelValue, (value) => {
     if (!modelValuePresent) return
-    const next = mergeInputValues(compiled.value.inputKeys, [
+    const next = mergeInputValues(schemaRuntime.value.inputKeys, [
       defaults.value,
       props.initialData,
       value,
@@ -663,7 +679,7 @@ export function useFormSession<
     issues.value = []
   }, { deep: true })
 
-  const keySignature = computed(() => JSON.stringify(compiled.value.fields.map((field) => field.key)))
+  const keySignature = computed(() => JSON.stringify(fields.value.map((field) => field.key)))
   const identitySignature = computed(() => JSON.stringify(recordCacheKey(owner.value, props.id, 'form', props.namespace, props.searchParameters ?? {})))
   watch([() => props.schema, keySignature, identitySignature], ([schema, keys, identity], previous) => {
     if (!previous) return
@@ -673,9 +689,9 @@ export function useFormSession<
     abandonSessionWork()
     cancelValidation()
     loadedValues.value = {}
-    const nextCompiled = compiled.value
-    defaults.value = formDefaults(nextCompiled.fields, [props.initialData, modelValuePresent ? props.modelValue : undefined])
-    const next = mergeInputValues(nextCompiled.inputKeys, [
+    const nextFields = fields.value
+    defaults.value = formDefaults(nextFields, [props.initialData, modelValuePresent ? props.modelValue : undefined])
+    const next = mergeInputValues(schemaRuntime.value.inputKeys, [
       defaults.value,
       props.initialData,
       modelValuePresent ? props.modelValue : undefined,
@@ -688,7 +704,7 @@ export function useFormSession<
     issues.value = []
     submitAttempted.value = false
     if (identity === previousIdentity) applyLoaded(loaded.value)
-    if (modelValuePresent && !equalRecord(next, mergeInputValues(nextCompiled.inputKeys, [props.modelValue]))) nextTick(emitModel)
+    if (modelValuePresent && !equalRecord(next, mergeInputValues(schemaRuntime.value.inputKeys, [props.modelValue]))) nextTick(emitModel)
   })
 
   onUnmounted(() => {
@@ -699,14 +715,13 @@ export function useFormSession<
     stopBehavior()
   })
 
-  if (modelValuePresent && !equalRecord(initialValues, mergeInputValues(initialCompiled.inputKeys, [props.modelValue]))) {
+  if (modelValuePresent && !equalRecord(initialValues, mergeInputValues(schemaRuntime.value.inputKeys, [props.modelValue]))) {
     nextTick(() => {
       if (mounted) emitModel()
     })
   }
 
   return {
-    compiled,
     behavior,
     draft: readonlyDraft,
     dirty,
@@ -721,6 +736,7 @@ export function useFormSession<
     visibleKeys,
     formId,
     hasSubmit,
+    fieldFor,
     controlValue,
     setValue: (key, value) => setValue(key, value),
     setControlValue,

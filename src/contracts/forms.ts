@@ -111,7 +111,6 @@ export interface FormBehavior<TInput extends object = Record<string, unknown>, T
   readonly props?: (context: FormBehaviorContext<TInput, TValue>) => FormRendererPropPatch<TRenderer>
   readonly presentation?: (context: FormBehaviorContext<TInput, TValue>) => FormInputPresentation
   readonly derived?: (context: FormBehaviorContext<TInput, TValue>) => TValue
-  readonly resetWhen?: (context: FormBehaviorContext<TInput, TValue>) => unknown
 }
 
 export interface FormDefinitionValidatorContext<TInput extends object, TOutput extends object, TContext extends object = Readonly<Record<string, unknown>>> {

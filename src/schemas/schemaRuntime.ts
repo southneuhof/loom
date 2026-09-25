@@ -1,11 +1,10 @@
-import type { RawSchema, RawSchemaInput, RawSchemaOutput, SchemaFieldKind, SchemaFieldMetadata, SchemaIssue, SchemaParseResult } from '../contracts/schema'
+import type { RawSchema, RawSchemaOutput, SchemaIssue, SchemaParseResult } from '../contracts/schema'
 
 type SchemaRecord = Record<PropertyKey, unknown>
 
 interface RuntimeSchema extends SchemaRecord {
   shape?: unknown
   _def?: unknown
-  meta?: () => unknown
   parseAsync?: (input: unknown) => Promise<unknown>
 }
 
@@ -16,22 +15,19 @@ interface SchemaDefinition extends SchemaRecord {
   schema?: unknown
   in?: unknown
   out?: unknown
-  element?: unknown
   values?: unknown
   entries?: unknown
   options?: unknown
-  coerce?: unknown
   effect?: unknown
   value?: unknown
   catchall?: unknown
   unknownKeys?: unknown
 }
 
-export interface CompiledSchema<TSchema extends RawSchema = RawSchema> {
-  schema: TSchema
-  inputKeys: readonly string[]
-  fields: Readonly<Record<string, SchemaFieldMetadata>>
-  parseAsync: (input: unknown) => Promise<SchemaParseResult<RawSchemaOutput<TSchema>>>
+export interface SchemaRuntime<TOutput extends object> {
+  readonly inputKeys: readonly string[]
+  readonly requiredKeys: ReadonlySet<string>
+  readonly parseAsync: (input: unknown) => Promise<SchemaParseResult<TOutput>>
 }
 
 const unsafeKeys = new Set(['__proto__', 'prototype', 'constructor'])
@@ -183,24 +179,6 @@ function stringOptions(schema: RuntimeSchema): string[] | undefined {
   return undefined
 }
 
-function fieldKind(schema: RuntimeSchema): { kind: SchemaFieldKind; options?: string[] } {
-  const input = unwrapInputSchema(schema)
-  const tag = typeTag(input)
-  const definition = definitionOf(input)
-
-  if (definition?.coerce === true) return { kind: 'unknown' }
-  if (tag === 'string') return { kind: 'string' }
-  if (tag === 'number') return { kind: 'number' }
-  if (tag === 'boolean') return { kind: 'boolean' }
-  if (tag === 'date') return { kind: 'date' }
-  if (tag === 'object') return { kind: 'object' }
-  if (tag === 'array') return { kind: 'array' }
-
-  const options = stringOptions(input)
-  if (options) return { kind: 'enum', options }
-  return { kind: 'unknown' }
-}
-
 function assertSchemaKey(key: string): void {
   if (unsafeKeys.has(key) || /^\d+$/.test(key)) {
     throw new Error(`[loom][FORM_SCHEMA_INPUT_UNSUPPORTED] Form schema input key "${key}" is unsafe. Expected a named object property.`)
@@ -249,7 +227,9 @@ function assertFiniteObjectInput(schema: RuntimeSchema): Record<string, unknown>
   return shape
 }
 
-export function compileSchema<TSchema extends RawSchema<object, object>>(schema: TSchema): CompiledSchema<TSchema> {
+export function createSchemaRuntime<TSchema extends RawSchema<object, object>>(
+  schema: TSchema,
+): SchemaRuntime<RawSchemaOutput<TSchema>> {
   const runtime = schemaRecord(schema)
   if (!runtime || typeof runtime.parseAsync !== 'function') {
     throw new Error('[loom][FORM_SCHEMA_INPUT_UNSUPPORTED] Form schema must be a raw Zod object schema.')
@@ -257,21 +237,18 @@ export function compileSchema<TSchema extends RawSchema<object, object>>(schema:
 
   const shape = assertFiniteObjectInput(runtime)
   const inputKeys = Object.keys(shape)
-  const fields = Object.fromEntries(inputKeys.map((key) => {
+  const requiredKeys = new Set<string>()
+  for (const key of inputKeys) {
     const field = schemaRecord(shape[key])
     if (!field) {
       throw new Error(`[loom][FORM_SCHEMA_INPUT_UNSUPPORTED] Form schema field "${key}" must be a Zod schema.`)
     }
-    const info = fieldKind(field)
-    const metadata: SchemaFieldMetadata = { kind: info.kind, required: isRequiredInput(field) }
-    if (info.options) metadata.options = info.options
-    return [key, metadata]
-  }))
+    if (isRequiredInput(field)) requiredKeys.add(key)
+  }
 
   return {
-    schema,
     inputKeys,
-    fields,
+    requiredKeys,
     parseAsync: async (input) => {
       try {
         const data = await schema.parseAsync(input)
@@ -286,6 +263,14 @@ export function compileSchema<TSchema extends RawSchema<object, object>>(schema:
       }
     },
   }
+}
+
+export function schemaSortByValues(schema: RawSchema): readonly string[] | undefined {
+  const runtime = schemaRecord(schema)
+  const objectInput = runtime ? discoverInputObject(runtime) : undefined
+  if (!objectInput) return undefined
+  const sortBy = schemaRecord(objectInput.shape.sort_by)
+  return sortBy ? stringOptions(unwrapInputSchema(sortBy)) : undefined
 }
 
 export function schemaOutputKeys(schema: RawSchema): readonly string[] | undefined {

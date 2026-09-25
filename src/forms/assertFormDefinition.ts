@@ -1,33 +1,6 @@
 import type { FormDefinition } from '../contracts/forms'
-import type { Label } from '../contracts/labels'
-import type { RawSchema } from '../contracts/schema'
-import { compileSchema } from '../schemas/compileSchema'
-import { assertFormBehavior } from './behavior'
+import { createSchemaRuntime, type SchemaRuntime } from '../schemas/schemaRuntime'
 import { assertFormInput, assertSafeFieldKey, isFormInputRecord } from './props'
-
-export interface CompiledFormField {
-  key: string
-  renderer: string
-  required: boolean
-  label?: Label
-  props: Readonly<Record<string, unknown>>
-  span?: number
-  initialValue?: () => unknown
-  behavior?: Readonly<Record<string, unknown>>
-}
-
-export interface CompiledForm<
-  TInput extends object,
-  TOutput extends object,
-  TResult,
-  TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>,
-> {
-  definition: FormDefinition<TInput, TOutput, TResult, TKeys>
-  schema: RawSchema<TInput, TOutput>
-  inputKeys: readonly string[]
-  fields: readonly CompiledFormField[]
-  parseAsync: (input: unknown) => Promise<import('../contracts/schema').SchemaParseResult<TOutput>>
-}
 
 const definitionMembers = new Set(['schema', 'fields', 'labels', 'validators', 'submit'])
 const validatorMembers = new Set(['validate', 'triggers', 'path'])
@@ -35,14 +8,6 @@ const validationTriggers = new Set(['blur', 'submit'])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isLabel(value: unknown): value is import('../contracts/labels').Label {
-  return typeof value === 'string' || typeof value === 'function'
-}
-
-function isFactory(value: unknown): value is () => unknown {
-  return typeof value === 'function'
 }
 
 function invalidOption(member: string, expected: string): never {
@@ -78,16 +43,17 @@ function assertValidators(value: unknown): void {
   }
 }
 
-export function compileForm<
+export function assertFormDefinition<
   TInput extends object,
   TOutput extends object,
   TResult,
   TKeys extends Extract<keyof TInput, string>,
->(definition: FormDefinition<TInput, TOutput, TResult, TKeys>): CompiledForm<TInput, TOutput, TResult, TKeys> {
+>(definition: FormDefinition<TInput, TOutput, TResult, TKeys>, schemaRuntime?: SchemaRuntime<TOutput>): void {
   if (!isRecord(definition)) invalidOption('definition', 'an object')
   if (!Object.hasOwn(definition, 'schema') || definition.schema == null) {
     throw new Error('[loom][FORM_SCHEMA_REQUIRED] Form requires a raw schema.')
   }
+  const runtime = schemaRuntime ?? createSchemaRuntime(definition.schema)
   for (const member of Object.keys(definition)) {
     if (!definitionMembers.has(member)) invalidOption(member, 'a FormDefinition member')
   }
@@ -97,34 +63,17 @@ export function compileForm<
   assertLabels(definition.labels)
   assertValidators(definition.validators)
 
-  const schema = compileSchema(definition.schema)
-  const fields: CompiledFormField[] = []
-
   for (const key of Reflect.ownKeys(definition.fields)) {
     if (typeof key !== 'string') {
       throw new Error('[loom][SURFACE_OPTION_INVALID] Form field keys must be strings.')
     }
     assertSafeFieldKey(key)
-    if (!schema.inputKeys.includes(key)) {
+    if (!runtime.inputKeys.includes(key)) {
       throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" is not in the schema input.`)
     }
 
-    const input = definition.fields[key]
+    const input = definition.fields[key as TKeys]
     if (!isFormInputRecord(input)) invalidOption(`fields.${key}`, 'a FormInput object')
-    const metadata = schema.fields[key]
-    if (!metadata) throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" has no schema metadata.`)
     assertFormInput(key, input)
-    const renderer = input.renderer
-    if (isRecord(input.behavior)) assertFormBehavior(input.behavior, key)
-
-    const props = isRecord(input.props) ? { ...input.props } : {}
-    const field: CompiledFormField = { key, renderer, required: metadata.required, props }
-    if (isLabel(input.label)) field.label = input.label
-    if (typeof input.span === 'number') field.span = input.span
-    if (isFactory(input.initialValue)) field.initialValue = input.initialValue
-    if (isRecord(input.behavior)) field.behavior = { ...input.behavior }
-    fields.push(field)
   }
-
-  return { definition, schema: definition.schema, inputKeys: schema.inputKeys, fields, parseAsync: schema.parseAsync }
 }

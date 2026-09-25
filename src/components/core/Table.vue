@@ -1,7 +1,7 @@
 <script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>">
 import { computed, getCurrentInstance, onBeforeUpdate, ref, useSlots } from 'vue'
 import type { CollectionLoadContext, CollectionProps, CollectionResult, QueryValues, RowReorderPayload, TableProps } from '../../contracts'
-import { compileSchema } from '../../schemas/compileSchema'
+import { createSchemaRuntime } from '../../schemas/schemaRuntime'
 import Collection from './Collection.vue'
 import TableContent from './TableContent.vue'
 import { assertSingleDataSource } from './useCoreData'
@@ -31,7 +31,7 @@ defineSlots<{
   [name: string]: unknown
 }>()
 const slots = useSlots()
-const compiledQuerySchema = computed(() => props.querySchema ? compileSchema(props.querySchema) : undefined)
+const querySchemaRuntime = computed(() => props.querySchema ? createSchemaRuntime(props.querySchema) : undefined)
 const forwardedSlots = computed(() => Object.fromEntries(
   Object.entries(slots).filter(([name]) => name !== 'collection'),
 ))
@@ -56,9 +56,9 @@ const collectionProps = computed<CollectionProps<TRecord, TQuery>>(() => {
   else {
     const load = props.load
     if (load !== undefined) value.load = async (context: CollectionLoadContext<TQuery>): Promise<CollectionResult<TRecord>> => {
-      const compiled = compiledQuerySchema.value
-      if (!compiled) return load(context)
-      const result = await compiled.parseAsync(context.query)
+      const runtime = querySchemaRuntime.value
+      if (!runtime) return load(context)
+      const result = await runtime.parseAsync(context.query)
       if (!result.success) {
         const issue = result.issues[0]
         const path = issue ? issue.path.map(String).join('.') || '$' : '$'

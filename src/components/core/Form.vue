@@ -37,12 +37,7 @@ const session = useFormSession(props, {
 const inputPending = session.inputPending
 const renderers = useRendererRegistry('form')
 const { submitLabel: defaultSubmitLabel } = useFrameworkUiDefaults()
-const visibleFields = computed(() =>
-  session.visibleFields.value.map((field) => ({
-    ...field,
-    key: field.key as TKeys,
-  }))
-)
+const visibleFields = session.visibleFields
 const draft = session.draft
 const behavior = session.behavior
 const loading = session.loading
@@ -78,9 +73,9 @@ function fieldState(key: string) {
 }
 
 function fieldRenderer(key: string): string {
-  const field = session.compiled.value.fields.find((entry) => entry.key === key)
+  const field = session.fieldFor(key)
   if (!field) throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" is not selected.`)
-  return fieldState(key).renderer ?? field.renderer
+  return fieldState(key).renderer ?? field.input.renderer
 }
 
 function fieldComponentKey(key: string): string {
@@ -88,8 +83,8 @@ function fieldComponentKey(key: string): string {
 }
 
 function fieldSpan(key: string): number {
-  const field = session.compiled.value.fields.find((entry) => entry.key === key)
-  return Math.min(12, Math.max(1, fieldState(key).span ?? field?.span ?? 12))
+  const field = session.fieldFor(key)
+  return Math.min(12, Math.max(1, fieldState(key).span ?? field?.input.span ?? 12))
 }
 
 function fieldLabel(key: string): string {
@@ -213,7 +208,14 @@ defineExpose({
             :name="`input:${field.key}`"
             :value="fieldValue(field.key)"
             :draft="draft"
-            :field="{ ...field, label: fieldLabel(field.key) }"
+            :field="{
+              key: field.key,
+              renderer: field.input.renderer,
+              label: fieldLabel(field.key),
+              required: field.required,
+              props: { ...(field.input.props ?? {}) },
+              span: field.input.span,
+            }"
             :set-value="(value: FormDraft<TInput>[TKeys]) => setSlotValue(field.key, value)"
             :error="issueFor(field.key)"
             :touched="session.touchedField(field.key)"

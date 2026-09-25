@@ -32,15 +32,30 @@ function openAndSelect(selector: string) {
   trigger.click()
 }
 
-async function chooseOne() {
+async function chooseOption(name = 'One') {
   await frame()
   const popover = document.querySelector<HTMLElement>('[data-reka-popper-content-wrapper]')
   if (!popover) throw new Error('SelectInput did not render its option popover.')
-  const option = [...popover.querySelectorAll<HTMLElement>('*')]
-    .find((element) => element.textContent?.trim() === 'One')
-  if (!option) throw new Error('SelectInput did not render the One option.')
+  const option = [...popover.querySelectorAll<HTMLElement>('[role="button"]')]
+    .find((element) => element.textContent?.trim() === name)
+  if (!option) throw new Error(`SelectInput did not render the ${name} option.`)
   option.click()
   await frame()
+}
+
+function openField(label: string): HTMLElement {
+  const field = [...document.querySelectorAll<HTMLElement>('.is-form-field')]
+    .find((element) => element.querySelector('label')?.textContent?.includes(label))
+  const trigger = field?.querySelector<HTMLElement>('[class*="focus-within:outline-secondary"]')
+  if (!trigger) throw new Error(`SelectInput trigger was not found for ${label}.`)
+  trigger.click()
+  return trigger
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise })
+  return { promise, resolve }
 }
 
 afterEach(() => {
@@ -108,11 +123,11 @@ describe('SelectInput form parity', () => {
     })
 
     openAndSelect('[data-surface="standalone"]')
-    await chooseOne()
+    await chooseOption()
     openAndSelect('[data-surface="form"]')
-    await chooseOne()
+    await chooseOption()
     openAndSelect('[data-surface="dialog"]')
-    await chooseOne()
+    await chooseOption()
 
     expect(directValue.value).toBe(1)
     expect(directUpdates.at(-1)).toBe(1)
@@ -121,5 +136,176 @@ describe('SelectInput form parity', () => {
     expect(standalone.textContent).toContain('One')
     expect(formHost.textContent).toContain('One')
     expect(document.querySelector('[role="dialog"]')?.textContent).toContain('One')
+  })
+
+  it('keeps a dependent Select clear across a pending uncontrolled Form refresh', async () => {
+    type Draft = { divisionId: string; approverId: string | null }
+    const northApprover = { id: 'north-1', name: 'North approver' }
+    const southApprover = { id: 'south-1', name: 'South approver' }
+    const childLoad = vi.fn(async ({ searchParameters }: { searchParameters: Record<string, unknown> }) => ({
+      data: searchParameters.divisionId === 'south' ? [southApprover] : [northApprover],
+      meta: { total: 1, page: 1, pageSize: 5 },
+    }))
+    const lateRefresh = deferred<Draft>()
+    let formLoadCount = 0
+    const load = vi.fn(() => {
+      formLoadCount += 1
+      return formLoadCount === 1 ? Promise.resolve({ divisionId: 'north', approverId: 'north-1' }) : lateRefresh.promise
+    })
+    const definition = defineForm({
+      schema: z.object({ divisionId: z.string(), approverId: z.string().nullable() }),
+      labels: { divisionId: 'Division', approverId: 'Approver' },
+      fields: {
+        divisionId: {
+          renderer: 'select',
+          props: { data: [{ id: 'north', name: 'North' }, { id: 'south', name: 'South' }], pick: 'id', view: 'name', searchable: false },
+        },
+        approverId: {
+          renderer: 'select',
+          props: { load: childLoad, namespace: 'dependent-refresh-approvers', pick: 'id', view: 'name', searchable: false },
+          behavior: {
+            disabled: ({ draft }) => !draft.divisionId,
+            props: ({ draft }) => ({ searchParameters: { divisionId: draft.divisionId } }),
+          },
+        },
+      },
+      submit: async (value) => value,
+    })
+    const host = document.createElement('div')
+    document.body.append(host)
+    const formRef = ref<{ refresh: () => Promise<void>; draft: Draft } | null>(null)
+    const app = createApp(defineComponent({
+      setup: () => () => h(Form, {
+        ref: formRef,
+        ...definition,
+        load,
+      }),
+    }))
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await vi.waitFor(() => expect(formRef.value?.draft).toEqual({ divisionId: 'north', approverId: 'north-1' }))
+
+    const refreshing = formRef.value!.refresh()
+    let refreshResolved = false
+    void refreshing.then(() => { refreshResolved = true })
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+    expect(refreshResolved).toBe(false)
+
+    openField('Division')
+    await chooseOption('South')
+    await frame()
+    expect(formRef.value!.draft).toEqual({ divisionId: 'south', approverId: null })
+
+    lateRefresh.resolve({ divisionId: 'north', approverId: 'north-old' })
+    await refreshing
+    await frame()
+    expect(formRef.value!.draft).toEqual({ divisionId: 'south', approverId: null })
+  })
+
+  it('emits one automatic clear and keeps Select callbacks for user choices', async () => {
+    type Draft = { divisionId: string; approverId: string | null }
+    const southApprover = { id: 'south-1', name: 'South approver' }
+    const onSelect = vi.fn()
+    const childLoad = vi.fn(async ({ searchParameters }: { searchParameters: Record<string, unknown> }) => ({
+      data: searchParameters.divisionId === 'south'
+        ? [southApprover]
+        : [{ id: 'north-1', name: 'North approver' }],
+      meta: { total: 1, page: 1, pageSize: 5 },
+    }))
+    const model = ref<FormDraftSnapshot<Draft>>({ divisionId: 'north', approverId: 'north-1' })
+    const updates: FormDraftSnapshot<Draft>[] = []
+    const definition = defineForm({
+      schema: z.object({ divisionId: z.string(), approverId: z.string().nullable() }),
+      labels: { divisionId: 'Division', approverId: 'Approver' },
+      fields: {
+        divisionId: {
+          renderer: 'select',
+          props: { data: [{ id: 'north', name: 'North' }, { id: 'south', name: 'South' }], pick: 'id', view: 'name', searchable: false },
+        },
+        approverId: {
+          renderer: 'select',
+          props: { load: childLoad, namespace: 'dependent-controlled-approvers', pick: 'id', view: 'name', searchable: false, onSelect },
+          behavior: {
+            disabled: ({ draft }) => !draft.divisionId,
+            props: ({ draft }) => ({ searchParameters: { divisionId: draft.divisionId } }),
+          },
+        },
+      },
+      submit: async (value) => value,
+    })
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(defineComponent({
+      setup: () => () => h(Form, {
+        ...definition,
+        modelValue: model.value,
+        'onUpdate:modelValue': (value: FormDraftSnapshot<Draft>) => {
+          model.value = value
+          updates.push(value)
+        },
+      }),
+    }))
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await frame()
+
+    const updateStart = updates.length
+    openField('Division')
+    await chooseOption('South')
+    await vi.waitFor(() => expect(model.value).toEqual({ divisionId: 'south', approverId: null }))
+    expect(updates.slice(updateStart).filter((value) => value.approverId === null)).toHaveLength(1)
+    expect(onSelect).not.toHaveBeenCalled()
+
+    const approverTrigger = openField('Approver')
+    await frame()
+    expect(approverTrigger.className).not.toContain('pointer-events-none')
+    expect(document.body.querySelector('[data-reka-popper-content-wrapper]')).not.toBeNull()
+    await chooseOption('South approver')
+    expect(onSelect).toHaveBeenCalledOnce()
+    expect(model.value).toEqual({ divisionId: 'south', approverId: 'south-1' })
+  })
+
+  it('keeps a same-update authoritative child replacement when the parent context changes', async () => {
+    type Draft = { divisionId: string; approverId: string | null }
+    const load = vi.fn(async ({ searchParameters }: { searchParameters: Record<string, unknown> }) => ({
+      data: searchParameters.divisionId === 'south'
+        ? [{ id: 'south-1', name: 'South approver' }]
+        : [{ id: 'north-1', name: 'North approver' }],
+      meta: { total: 1, page: 1, pageSize: 5 },
+    }))
+    const model = ref<FormDraftSnapshot<Draft>>({ divisionId: 'north', approverId: 'north-1' })
+    const definition = defineForm({
+      schema: z.object({ divisionId: z.string(), approverId: z.string().nullable() }),
+      labels: { divisionId: 'Division', approverId: 'Approver' },
+      fields: {
+        divisionId: { renderer: 'select', props: { data: [{ id: 'north', name: 'North' }, { id: 'south', name: 'South' }], pick: 'id', view: 'name', searchable: false } },
+        approverId: {
+          renderer: 'select',
+          props: { load, namespace: 'authoritative-approvers', pick: 'id', view: 'name', searchable: false },
+          behavior: { props: ({ draft }) => ({ searchParameters: { divisionId: draft.divisionId } }) },
+        },
+      },
+      submit: async (value) => value,
+    })
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(defineComponent({
+      setup: () => () => h(Form, {
+        ...definition,
+        modelValue: model.value,
+        'onUpdate:modelValue': (value: FormDraftSnapshot<Draft>) => { model.value = value },
+      }),
+    }))
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await frame()
+
+    model.value = { divisionId: 'south', approverId: 'south-1' }
+    await frame()
+
+    expect(model.value).toEqual({ divisionId: 'south', approverId: 'south-1' })
   })
 })

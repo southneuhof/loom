@@ -7,14 +7,6 @@ export interface RawSchema<TInput = unknown, TOutput = unknown> {
 export type RawSchemaInput<TSchema extends RawSchema> = TSchema['_input']
 export type RawSchemaOutput<TSchema extends RawSchema> = TSchema['_output']
 
-export type SchemaFieldKind = 'string' | 'number' | 'boolean' | 'date' | 'enum' | 'object' | 'array' | 'unknown'
-
-export interface SchemaFieldMetadata {
-  kind: SchemaFieldKind
-  required: boolean
-  options?: readonly string[]
-}
-
 export interface SchemaIssue {
   path: readonly (string | number)[]
   message: string

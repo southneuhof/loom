@@ -6,7 +6,7 @@ import type { AssetValue } from '../assets/contracts'
 import type { TextInputConstraint, TextInputModelValue } from '../components/inputs/textInput.types'
 import type { CheckboxGroupInputModelValue, RadioInputModelValue, SelectInputModelValue } from '../components/inputs/selectInput.types'
 import type { FormRendererKey, FormRendererModelValue, FormRendererPropBag, FormRendererProps } from '../renderers/formContracts'
-import { compileForm } from './compileForm'
+import { assertFormDefinition } from './assertFormDefinition'
 
 type UnsafeKey = '__proto__' | 'prototype' | 'constructor' | `${number}`
 type FiniteObjectGuard<TValue extends object> = string extends Extract<keyof TValue, string> ? never : unknown
@@ -256,7 +256,7 @@ export function defineForm<
   const TLabels extends LabelDictionary | undefined = undefined,
   const TValidators extends readonly FormValidatorEntry<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>>[] | undefined = undefined,
 >(definition: FormDefinitionInput<TSchema, TFields, TLabels, TValidators> & { submit?: SubmitFunction<RawSchemaOutput<TSchema>> }): unknown {
-  compileForm(definition)
+  assertFormDefinition(definition)
 
   const result: Record<string, unknown> = {
     schema: definition.schema,

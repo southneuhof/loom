@@ -45,7 +45,7 @@ export type {
   FormSubmit,
 } from '../forms/props'
 
-export type { RawSchema, RawSchemaInput, RawSchemaOutput, SchemaFieldKind, SchemaFieldMetadata, SchemaIssue, SchemaParseResult } from './schema'
+export type { RawSchema, RawSchemaInput, RawSchemaOutput, SchemaIssue, SchemaParseResult } from './schema'
 
 export type { ResourceOperation, StandardRowOperation, AccessRequest, AccessAdapter, AccessPolicy } from './access'
 

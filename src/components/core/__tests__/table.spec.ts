@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
 import { computed, defineComponent, h, ref } from 'vue'
 import { z } from 'zod'
+import { z as z3 } from 'zod/v3'
+import { z as z4 } from 'zod/v4'
 import TableComponent from '../Table.vue'
 import { createMemoryQueryLocationAdapter } from '../../../adapters/projectAdapters'
 import { deferred, flush, mountCore } from './harness'
@@ -128,6 +130,42 @@ describe('Table core', () => {
 
     expect(load).toHaveBeenCalledOnce()
     expect(load.mock.calls[0]?.[0].query).toEqual({ status: 'active', page: 2, limit: 10 })
+    view.unmount()
+  })
+
+  it('checks sortable columns against finite sort_by choices from the bound query schema', async () => {
+    const recordSchema = z4.object({ name: z4.string(), createdAt: z4.string() })
+    const data = [{ name: 'Ada', createdAt: '2026-09-25' }]
+    const columns = { createdAt: { label: 'Created at', sortable: true, sortKey: 'createdAt' } }
+
+    expect(() => mountCore(TableComponent, {
+      schema: recordSchema,
+      columns,
+      data,
+      querySchema: z4.object({ sort_by: z4.enum(['name']) }),
+    })).toThrow('[loom][SURFACE_OPTION_INVALID] Table column "createdAt" member "sortKey" must be a key in the bound query schema.')
+
+    const accepted = mountCore(TableComponent, {
+      schema: recordSchema,
+      columns,
+      data,
+      querySchema: z3.object({ sort_by: z3.enum(['createdAt']) }),
+    })
+    await flush()
+    expect(accepted.all('th').map((cell) => cell.textContent)).toEqual(['Created at'])
+    accepted.unmount()
+  })
+
+  it('leaves sortable query keys unbounded when sort_by has no finite string choices', async () => {
+    const view = mountCore(TableComponent, {
+      schema: z4.object({ name: z4.string(), createdAt: z4.string() }),
+      columns: { createdAt: { label: 'Created at', sortable: true, sortKey: 'createdAt' } },
+      data: [{ name: 'Ada', createdAt: '2026-09-25' }],
+      querySchema: z4.object({ sort_by: z4.string() }),
+    })
+    await flush()
+
+    expect(view.all('th').map((cell) => cell.textContent)).toEqual(['Created at'])
     view.unmount()
   })
 
