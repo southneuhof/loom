@@ -9,7 +9,7 @@ type Input = z.input<typeof schema>
 type Output = z.output<typeof schema>
 const formProps: FormProps<Input, Output, string> = {
   schema,
-  fields: { name: {} },
+  fields: { name: { renderer: 'text' } },
   submit: async ({ name }) => name,
 }
 </script>

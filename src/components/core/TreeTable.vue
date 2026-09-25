@@ -8,6 +8,7 @@ import type {
   TreeTableProps,
 } from '../../contracts'
 import type { ResolvedDisplayField } from '../../display/resolveDisplay'
+import DisplayValue from '../../display/DisplayValue.vue'
 import Table from './Table.vue'
 import { assertSingleDataSource } from './useCoreData'
 
@@ -165,7 +166,9 @@ defineExpose({ refresh, query, updateQuery })
           class="is-tree-table-label min-w-0 truncate"
           :style="{ paddingInlineStart: `${metadataFor(cell.record).depth * treeIndentationRem}rem` }"
         >
-          <slot name="tree-cell" v-bind="treeCellScope(cell)">{{ cell.value ?? '-' }}</slot>
+          <slot name="tree-cell" v-bind="treeCellScope(cell)">
+            <DisplayValue :value="cell.value" :record="originalRecord(cell.record)" :field="cell.field" :index="cell.index" />
+          </slot>
         </span>
       </span>
     </template>

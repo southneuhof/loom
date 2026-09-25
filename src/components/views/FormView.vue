@@ -1,9 +1,17 @@
-<script setup lang="ts" generic="TInput extends object = Record<string, unknown>, TOutput extends object = Record<string, unknown>, TResult = unknown">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+<script
+  setup
+  lang="ts"
+  generic="
+    TInput extends object = Record<string, unknown>,
+    TOutput extends object = Record<string, unknown>,
+    TResult = unknown,
+    TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>
+  "
+>
+import { computed, onBeforeUnmount, onMounted, ref, useSlots, watch } from 'vue'
 import { onBeforeRouteLeave, useRouter, type RouteLocationRaw } from 'vue-router'
 import { toast } from 'vue-sonner'
-import type { FormProps, MaybePromise, SubmitError } from '../../contracts'
-import type { FormSubmissionContext } from './FormView.types'
+import type { AfterSubmitContext, FormExposed, FormViewProps, FormViewSlots, SubmitError } from '../../contracts'
 import Form from '../core/Form.vue'
 import Button from '../base/Button.vue'
 import Card from '../base/Card.vue'
@@ -11,32 +19,49 @@ import Dialog from '../base/Dialog.vue'
 import NavigationHeader from './NavigationHeader.vue'
 import { useFrameworkUiDefaults } from './uiDefaults'
 
-type FormViewProps<TInput extends object, TOutput extends object, TResult> = {
-  form: FormProps<TInput, TOutput, TResult>
-  title?: string
-  description?: string
-  backTo?: RouteLocationRaw
-  defaultTo?: RouteLocationRaw | ((result: TResult) => RouteLocationRaw | undefined) | false
-  afterSubmit?: (context: FormSubmissionContext<TResult>) => MaybePromise<void>
-  successMessage?: string | false
-  submitLabel?: string
-  submittingLabel?: string
-}
-
-const props = defineProps<FormViewProps<TInput, TOutput, TResult>>()
+const props = defineProps<FormViewProps<TInput, TOutput, TResult, TKeys>>()
+defineSlots<FormViewSlots<TInput, TOutput, TResult, TKeys>>()
 const form = computed(() => props.form)
 const emit = defineEmits<{
   (event: 'submitted', result: TResult): void
   (event: 'error', error: SubmitError): void
 }>()
+const slots = useSlots()
 const router = useRouter()
 const { submitLabel: defaultSubmitLabel } = useFrameworkUiDefaults()
-const resolvedSubmitLabel = computed(() => props.submitLabel ?? defaultSubmitLabel)
-const resolvedSubmittingLabel = computed(() => props.submittingLabel ?? resolvedSubmitLabel.value)
-const instance = ref<{ submit: () => Promise<void>; reset: () => void; submitting: boolean; validating: boolean; dirty: boolean; inputPending: boolean } | null>(null)
+const submitLabel = computed(() => props.form.submitLabel ?? defaultSubmitLabel)
+const submittingLabel = computed(() => props.form.submittingLabel ?? submitLabel.value)
+const hasSubmit = computed(() => typeof props.form.submit === 'function')
+const instance = ref<FormExposed<TInput, TOutput> | null>(null)
+const draft = computed(() => instance.value?.draft)
+const dirty = computed(() => instance.value?.dirty ?? false)
+const submitting = computed(() => instance.value?.submitting ?? false)
+const submitPending = computed(() => instance.value?.submitPending ?? false)
+const validating = computed(() => instance.value?.validating ?? false)
+const inputPending = computed(() => instance.value?.inputPending ?? false)
 const discardDialogOpen = ref(false)
 const allowNextLeave = ref(false)
 let resolvePendingLeave: ((allow: boolean) => void) | undefined
+
+const formSlotNames = () => Object.keys(slots).filter((name) => name === 'loading' || name === 'load-error' || name.startsWith('input:'))
+
+function validate() {
+  return instance.value?.validate()
+}
+
+function submit() {
+  return instance.value?.submit()
+}
+
+function reset() {
+  instance.value?.reset()
+}
+
+function refresh() {
+  return instance.value?.refresh()
+}
+
+defineExpose({ draft, dirty, submitting, submitPending, validating, inputPending, validate, submit, reset, refresh })
 
 function settlePendingLeave(allow: boolean) {
   const resolve = resolvePendingLeave
@@ -65,11 +90,13 @@ async function submitted(result: TResult) {
   try {
     const target = props.defaultTo
     const defaultTo = target === false ? undefined : typeof target === 'function' ? target(result) : target
-    const context: FormSubmissionContext<TResult> = {
+    const context: AfterSubmitContext<TResult> = {
       result,
       defaultTo,
       navigate,
-      preventDefaultNavigation: () => { handled = true },
+      preventDefaultNavigation: () => {
+        handled = true
+      },
     }
     await props.afterSubmit?.(context)
     if (!handled && context.defaultTo) await navigate(context.defaultTo)
@@ -103,7 +130,7 @@ onMounted(() => {
       if (dirty) window.addEventListener('beforeunload', beforeUnload)
       else window.removeEventListener('beforeunload', beforeUnload)
     },
-    { immediate: true },
+    { immediate: true }
   )
 })
 
@@ -115,7 +142,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="is-form-view flex flex-col gap-2">
-    <NavigationHeader :title="title" :description="description" :back-to="backTo">
+    <NavigationHeader :title="title" :description="description" :back-to="backTo === false ? undefined : backTo">
       <template v-if="$slots.header" #header><slot name="header" /></template>
       <template v-if="$slots.controls" #controls><slot name="controls" /></template>
     </NavigationHeader>
@@ -123,25 +150,17 @@ onBeforeUnmount(() => {
     <Card variant="outlined" color="surfaceContainer" class="p-0">
       <div class="p-5 sm:p-6">
         <slot name="body" v-bind="{ form }">
-          <Form
-            ref="instance"
-            v-bind="form"
-            @submitted="submitted"
-            @error="emit('error', $event)"
-          >
-            <template v-for="(_, name) in $slots" #[name]="slotProps" :key="name">
+          <Form ref="instance" v-bind="form" @submitted="submitted" @error="emit('error', $event)">
+            <template v-for="name in formSlotNames()" #[name]="slotProps" :key="name">
               <slot :name="name" v-bind="slotProps ?? {}" />
             </template>
             <template #actions="actions">
-              <slot
-                name="form-actions"
-                :submit="() => instance?.submit()"
-                :reset="() => instance?.reset()"
-                :input-pending="actions.inputPending"
-              >
+              <slot name="actions" v-bind="actions">
                 <div class="is-form-view-controls flex flex-col gap-2 border-t border-outline-variant pt-5 sm:flex-row sm:justify-end">
                   <Button type="button" variant="text" class="w-full sm:w-auto" :disabled="instance?.submitting || instance?.validating" @click="router.back()">Cancel</Button>
-                  <Button type="submit" class="w-full sm:w-auto" :disabled="instance?.submitting || instance?.validating || actions.inputPending">{{ instance?.submitting ? resolvedSubmittingLabel : resolvedSubmitLabel }}</Button>
+                  <Button v-if="hasSubmit" type="submit" class="w-full sm:w-auto" :disabled="form.disabled === true || actions.submitPending || actions.inputPending">{{
+                    instance?.submitting ? submittingLabel : submitLabel
+                  }}</Button>
                 </div>
               </slot>
             </template>

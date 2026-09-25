@@ -1,34 +1,38 @@
 import { computed, getCurrentInstance, nextTick, onUnmounted, provide, reactive, ref, shallowReactive, shallowRef, useId, watch, type ComputedRef, type WatchStopHandle } from 'vue'
 import { toast } from 'vue-sonner'
-import type { FormDefinition } from '../contracts/forms'
+import type { FormDefinition, FormDraft, FormDraftSnapshot } from '../contracts/forms'
 import type { RecordLoadContext } from '../contracts/load'
 import type { SchemaIssue, SchemaParseResult } from '../contracts/schema'
 import type { SubmitError } from '../contracts/results'
 import { useFrameworkAdapters } from '../adapters/projectAdapters'
-import { useInputPropsRegistry } from '../renderers/inputProps'
 import { useRendererRegistry } from '../renderers/registry'
 import { useLoader } from '../query'
-import { resolveLabel } from '../labels/resolveLabel'
 import { instanceIdentity, recordCacheKey } from '../components/core/useCoreData'
 import { formInputPendingKeyOf, provideFormInputPending } from '../components/core/useFormInputState'
 import { createFormBehaviorRuntime, type FormBehaviorRuntime } from './behavior'
 import { compileForm, type CompiledForm, type CompiledFormField } from './compileForm'
+import { cloneEditable, isPlainRecord, snapshotEditable } from './draftValues'
 import type { FormProps } from './props'
-import { dateControlValueAdapter } from './controlValues'
 
 export interface FormSessionEvents<TInput extends object, TResult> {
-  updateModel: (value: Partial<TInput>) => void
+  updateModel: (value: FormDraftSnapshot<TInput>) => void
   submitted: (result: TResult) => void
   error: (error: SubmitError) => void
   reset: () => void
 }
 
-export interface FormSession<TInput extends object, TOutput extends object, TResult> {
-  compiled: ComputedRef<CompiledForm<TInput, TOutput, TResult>>
+export interface FormSession<
+  TInput extends object,
+  TOutput extends object,
+  TResult,
+  TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>,
+> {
+  compiled: ComputedRef<CompiledForm<TInput, TOutput, TResult, TKeys>>
   behavior: ComputedRef<FormBehaviorRuntime>
-  draft: Partial<TInput>
+  draft: ComputedRef<FormDraftSnapshot<TInput>>
   dirty: ComputedRef<boolean>
   submitting: ComputedRef<boolean>
+  submitPending: ComputedRef<boolean>
   validating: ComputedRef<boolean>
   inputPending: ComputedRef<boolean>
   loading: ComputedRef<boolean>
@@ -41,6 +45,8 @@ export interface FormSession<TInput extends object, TOutput extends object, TRes
   controlValue: (key: string) => unknown
   setValue: (key: string, value: unknown) => void
   setControlValue: (key: string, value: unknown) => void
+  setControlError: (key: string, message: string | undefined) => void
+  controlErrorKeys: () => readonly string[]
   issueFor: (key: string) => string | undefined
   validatingField: (key: string) => boolean
   touchedField: (key: string) => boolean
@@ -54,18 +60,6 @@ export interface FormSession<TInput extends object, TOutput extends object, TRes
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  if (!isRecord(value)) return false
-  const prototype = Object.getPrototypeOf(value)
-  return prototype === Object.prototype || prototype === null
-}
-
-function cloneEditable(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(cloneEditable)
-  if (!isPlainRecord(value)) return value
-  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, cloneEditable(entry)]))
 }
 
 function equalValue(left: unknown, right: unknown): boolean {
@@ -100,16 +94,13 @@ function mergeInputValues(inputKeys: readonly string[], sources: readonly (objec
   return result
 }
 
-function copyInputValues(value: object | undefined, inputKeys: readonly string[], fields: readonly CompiledFormField[], rendererFor: (field: CompiledFormField) => string, inputProps: ReturnType<typeof useInputPropsRegistry>): Record<string, unknown> {
+function copyInputValues(value: object | undefined, inputKeys: readonly string[]): Record<string, unknown> {
   if (!value) return {}
   const inputKeySet = new Set(inputKeys)
-  const fieldByKey = new Map(fields.map((field) => [field.key, field]))
   const result: Record<string, unknown> = {}
   for (const [key, rawValue] of Object.entries(value)) {
     if (!inputKeySet.has(key)) continue
-    const field = fieldByKey.get(key)
-    const hydrated = field ? inputProps.hydrate(rendererFor(field), rawValue) : rawValue
-    result[key] = cloneEditable(hydrated)
+    result[key] = cloneEditable(rawValue)
   }
   return result
 }
@@ -140,9 +131,14 @@ function isModelPropPresent(): boolean {
   return hasOwn(props, 'modelValue') || hasOwn(props, 'model-value')
 }
 
-function definitionFromProps<TInput extends object, TOutput extends object, TResult>(
-  props: FormProps<TInput, TOutput, TResult>,
-): FormDefinition<TInput, TOutput, TResult> {
+function definitionFromProps<
+  TInput extends object,
+  TOutput extends object,
+  TResult,
+  TKeys extends Extract<keyof TInput, string>,
+>(
+  props: FormProps<TInput, TOutput, TResult, TKeys>,
+): FormDefinition<TInput, TOutput, TResult, TKeys> {
   return {
     schema: props.schema,
     fields: props.fields,
@@ -168,14 +164,8 @@ function cloneRecord(value: object): Record<string, unknown> {
   return result
 }
 
-function cloneDraft<TInput extends object>(value: object): Partial<TInput> {
-  const result: Partial<TInput> = {}
-  for (const [key, entry] of Object.entries(value)) Reflect.set(result, key, cloneEditable(entry))
-  return result
-}
-
-function snapshotInput<TInput extends object>(value: object): Readonly<Partial<TInput>> {
-  return cloneDraft<TInput>(value)
+function snapshotDraft<TInput extends object>(value: object): FormDraftSnapshot<TInput> {
+  return snapshotEditable(value) as FormDraftSnapshot<TInput>
 }
 
 function isValidationIssue(value: unknown): value is SchemaIssue {
@@ -196,10 +186,15 @@ function normalizedValidatorIssues(value: unknown, fieldKey: string): SchemaIssu
   return issues
 }
 
-export function useFormSession<TInput extends object, TOutput extends object, TResult>(
-  props: FormProps<TInput, TOutput, TResult>,
+export function useFormSession<
+  TInput extends object,
+  TOutput extends object,
+  TResult,
+  TKeys extends Extract<keyof TInput, string>,
+>(
+  props: FormProps<TInput, TOutput, TResult, TKeys>,
   events: FormSessionEvents<TInput, TResult>,
-): FormSession<TInput, TOutput, TResult> {
+): FormSession<TInput, TOutput, TResult, TKeys> {
   assertRemovedProps('Form')
   const modelValuePresent = isModelPropPresent()
   if (!props.schema) throw new Error('[loom][FORM_SCHEMA_REQUIRED] Form requires a raw schema.')
@@ -209,7 +204,6 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
 
   const adapters = useFrameworkAdapters()
   const renderers = useRendererRegistry('form')
-  const inputProps = useInputPropsRegistry()
   const compiled = computed(() => compileForm(definitionFromProps(props)))
   const initialCompiled = compiled.value
   const idPrefix = useId()
@@ -220,7 +214,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
   const inputPending = computed(() => inputPendingCount.value > 0)
   const fallbackOwner = instanceIdentity('form')
   const owner = computed(() => props.resource ?? props.namespace ?? fallbackOwner)
-  const loader = useLoader<RecordLoadContext, Partial<TInput> | undefined>({
+  const loader = useLoader<RecordLoadContext, FormDraft<TInput> | undefined>({
     key: computed(() => recordCacheKey(owner.value, props.id, 'form', props.namespace, props.searchParameters ?? {})),
     context: computed(() => ({ id: props.id, searchParameters: props.searchParameters ?? {} })),
     load: computed(() => modelValuePresent ? undefined : props.load),
@@ -234,13 +228,14 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     initialModel,
   ])
   const baseline = ref(cloneRecord(initialValues))
-  const draft = shallowReactive<Partial<TInput>>({})
+  const draft = shallowReactive<FormDraft<TInput>>({})
   Object.assign(draft, cloneRecord(initialValues))
   const touched = reactive<Record<string, boolean>>({})
   const controlIssues = reactive<Record<string, string>>({})
   const issues = ref<SchemaIssue[]>([])
   const loadedValues = shallowRef<Record<string, unknown>>({})
   const submitting = ref(false)
+  const submitPending = ref(false)
   const validating = ref(false)
   const validatingPaths = ref(new Set<string>())
   const submitAttempted = ref(false)
@@ -250,9 +245,12 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
   let validationRun = 0
   let validationController: AbortController | undefined
   let mounted = true
-  let lastEmittedModel: Partial<TInput> | undefined
+  let lastEmittedModel: FormDraftSnapshot<TInput> | undefined
+  let activeSubmit: Promise<void> | undefined
+  let mutationSequence = 0
+  let activeMutationOwner: number | undefined
 
-  const behaviorFor = (form: CompiledForm<TInput, TOutput, TResult>): FormBehaviorRuntime => createFormBehaviorRuntime({
+  const behaviorFor = (form: CompiledForm<TInput, TOutput, TResult, TKeys>): FormBehaviorRuntime => createFormBehaviorRuntime({
     fields: form.fields,
     draft,
     context: () => props.context ?? {},
@@ -261,12 +259,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
       if (!renderers.has(renderer)) {
         throw new Error(`[loom][RENDERER_NOT_REGISTERED] Form field "${field.key}" uses unregistered form renderer "${renderer}".`)
       }
-      const label = resolveLabel(field.key, field.label, props.labels)
-      return inputProps.resolve(renderer, {
-        ...(field.source !== undefined ? { source: field.source } : {}),
-        props: { ...field.props },
-        context: { field: { key: field.key, label } },
-      })
+      return { ...field.props }
     },
   })
   const behaviorRuntime = shallowRef(behaviorFor(initialCompiled))
@@ -278,6 +271,13 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
   const visibleKeys = computed(() => visibleFields.value.map((field) => field.key))
   const hasSubmit = computed(() => typeof props.submit === 'function')
   const dirty = computed(() => !equalRecord(cloneRecord(draft), baseline.value))
+  const readonlyDraft = computed(() => snapshotDraft<TInput>(draft))
+
+  function cancelSubmitAttempt(): void {
+    if (submitting.value) return
+    activeSubmit = undefined
+    submitPending.value = false
+  }
 
   function cancelValidation(): void {
     validationController?.abort()
@@ -285,6 +285,15 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     validationRun += 1
     validating.value = false
     validatingPaths.value = new Set()
+    cancelSubmitAttempt()
+  }
+
+  function abandonSessionWork(): void {
+    mutationSequence += 1
+    activeMutationOwner = undefined
+    activeSubmit = undefined
+    submitting.value = false
+    submitPending.value = false
   }
 
   function replaceDraft(value: Readonly<Record<string, unknown>>): void {
@@ -296,7 +305,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
 
   function emitModel(): void {
     if (!modelValuePresent) return
-    const value = cloneDraft<TInput>(draft)
+    const value = snapshotDraft<TInput>(draft)
     lastEmittedModel = value
     events.updateModel(value)
   }
@@ -305,6 +314,23 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     return compiled.value.fields.find((field) => field.key === key)
   }
 
+  function clearControlError(key: string): boolean {
+    if (!hasOwn(controlIssues, key)) return false
+    const message = controlIssues[key]
+    delete controlIssues[key]
+    issues.value = issues.value.filter((issue) => issue.path[0] !== key || issue.path.length !== 1 || issue.message !== message)
+    return true
+  }
+
+  let previousVisibleKeys = new Set(visibleKeys.value)
+  watch(visibleKeys, (keys) => {
+    const nextVisibleKeys = new Set(keys)
+    for (const key of previousVisibleKeys) {
+      if (!nextVisibleKeys.has(key)) clearControlError(key)
+    }
+    previousVisibleKeys = nextVisibleKeys
+  }, { flush: 'post' })
+
   function setValue(key: string, value: unknown, userEdit = true): void {
     if (!compiled.value.inputKeys.includes(key)) {
       throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" is not in the schema input.`)
@@ -312,9 +338,11 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     const field = fieldFor(key)
     if (userEdit && field?.behavior?.derived) return
     if (userEdit) edited.add(key)
-    delete controlIssues[key]
-    if (Object.is(Reflect.get(draft, key), value)) return
-    Reflect.set(draft, key, cloneEditable(value))
+    const hadControlIssue = clearControlError(key)
+    const previous = Reflect.get(draft, key)
+    const changed = !Object.is(previous, value)
+    if (changed) Reflect.set(draft, key, cloneEditable(value))
+    if (!userEdit && !changed && !hadControlIssue) return
     draftRevision += 1
     cancelValidation()
     emitModel()
@@ -325,6 +353,24 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     setValue(key, value, false)
   }
 
+  function resetBehaviorValue(key: string): void {
+    edited.add(key)
+    setValue(key, undefined, false)
+  }
+
+  function setControlError(key: string, message: string | undefined): void {
+    if (!compiled.value.inputKeys.includes(key)) {
+      throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" is not in the schema input.`)
+    }
+    clearControlError(key)
+    if (message !== undefined) controlIssues[key] = message
+    cancelValidation()
+  }
+
+  function controlErrorKeys(): readonly string[] {
+    return Object.keys(controlIssues)
+  }
+
   function applyUneditedBaseline(value: Readonly<Record<string, unknown>>): void {
     for (const key of compiled.value.inputKeys) {
       if (edited.has(key)) continue
@@ -333,51 +379,20 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     }
   }
 
-  let stopBehavior: WatchStopHandle = behaviorRuntime.value.connect(setDerivedValue)
+  let stopBehavior: WatchStopHandle = behaviorRuntime.value.connect(setDerivedValue, resetBehaviorValue)
   watch(compiled, (next) => {
     stopBehavior()
     behaviorRuntime.value = behaviorFor(next)
-    stopBehavior = behaviorRuntime.value.connect(setDerivedValue)
+    stopBehavior = behaviorRuntime.value.connect(setDerivedValue, resetBehaviorValue)
   })
 
-  function fieldControlValue(field: CompiledFormField, value: unknown): unknown {
-    const state = behaviorRuntime.value.state(field.key).value
-    if (field.kind === 'date' && state.renderer === 'date') {
-      const withTime = state.props.withTimePicker === true
-      if (value === null || value === undefined) return dateControlValueAdapter.toControl(value, withTime, field.key)
-      if (!(value instanceof Date)) {
-        throw new Error(`[loom][FORM_CONTROL_VALUE_INVALID] Form field "${field.key}" expects a Date editable value.`)
-      }
-      return dateControlValueAdapter.toControl(value, withTime, field.key)
-    }
-    return value
-  }
-
   function controlValue(key: string): unknown {
-    const field = fieldFor(key)
-    const value = Reflect.get(draft, key)
-    return field ? fieldControlValue(field, value) : value
+    return snapshotEditable(Reflect.get(draft, key))
   }
 
   function setControlValue(key: string, value: unknown): void {
     const field = fieldFor(key)
     if (!field) throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" is not selected.`)
-    const renderer = behaviorRuntime.value.state(key).value.renderer
-    if (field.kind === 'date' && renderer === 'date') {
-      try {
-        if (value instanceof Date) {
-          dateControlValueAdapter.toControl(value, false, key)
-          setValue(key, value)
-        } else if (value === null || value === undefined || typeof value === 'string') {
-          setValue(key, dateControlValueAdapter.toEditable(value, key))
-        } else {
-          throw new Error(`[loom][FORM_CONTROL_VALUE_INVALID] Form field "${key}" expects a date control value.`)
-        }
-      } catch (error) {
-        controlIssues[key] = issueMessage(error)
-      }
-      return
-    }
     setValue(key, value)
   }
 
@@ -392,28 +407,13 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     return candidate
   }
 
-  function controlIssuesFor(snapshot: Readonly<Record<string, unknown>>): SchemaIssue[] {
+  function controlIssuesFor(): SchemaIssue[] {
     const nextIssues: SchemaIssue[] = []
     for (const field of visibleFields.value) {
-      const renderer = behaviorRuntime.value.state(field.key).value.renderer
-      if (!renderer || !hasOwn(snapshot, field.key)) continue
-      let value: unknown
-      try {
-        value = fieldControlValue(field, snapshot[field.key])
-      } catch (error) {
-        controlIssues[field.key] = issueMessage(error)
-      }
       const controlIssue = controlIssues[field.key]
-      if (controlIssue) {
-        nextIssues.push(schemaIssue([field.key], controlIssue))
-        continue
+      if (hasOwn(controlIssues, field.key)) {
+        nextIssues.push(schemaIssue([field.key], controlIssue ?? 'Invalid control value.'))
       }
-      const contract = inputProps.contract(renderer)
-      const message = contract.validate?.(value, {
-        field: { key: field.key, label: behaviorRuntime.value.state(field.key).value.label },
-        props: behaviorRuntime.value.state(field.key).value.props,
-      })
-      if (message) nextIssues.push(schemaIssue([field.key], message))
     }
     return nextIssues
   }
@@ -437,7 +437,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
       .flatMap((validator) => validator.path?.[0] === undefined ? [] : [String(validator.path[0])])
     validatingPaths.value = new Set(field === undefined ? validatorPaths : [...validatorPaths, field])
     try {
-      const inputIssues = controlIssuesFor(snapshot)
+      const inputIssues = controlIssuesFor()
       if (inputIssues.length > 0) {
         const result: SchemaParseResult<TOutput> = { success: false, issues: inputIssues }
         if (isCurrentValidation(run, controller, generation, revision)) issues.value = inputIssues
@@ -456,8 +456,8 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
         try {
           const result = await validator.validate({
             data: parsed.data,
-            draft: snapshotInput<TInput>(snapshot),
-            initial: snapshotInput<TInput>(baseline.value),
+            draft: snapshotDraft<TInput>(snapshot),
+            initial: snapshotDraft<TInput>(baseline.value),
             context: props.context ?? {},
             ...(field !== undefined ? { field } : {}),
             signal: controller.signal,
@@ -493,16 +493,20 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     return performValidation('submit')
   }
 
-  async function submit(): Promise<void> {
-    if (props.disabled || submitting.value || validating.value || loading.value || inputPending.value) return
-    behaviorRuntime.value.settle()
-    const generation = sessionGeneration.value
-    const revision = draftRevision
-    const submitTarget = props.submit
-    submitAttempted.value = true
+  async function runSubmit(
+    generation: number,
+    revision: number,
+    submitTarget: FormProps<TInput, TOutput, TResult>['submit'],
+  ): Promise<void> {
+    if (
+      !mounted
+      || generation !== sessionGeneration.value
+      || revision !== draftRevision
+      || props.submit !== submitTarget
+    ) return
     const result = await performValidation('submit')
     if (!result.success) {
-      await focusFirstInvalid()
+      if (mounted && generation === sessionGeneration.value) await focusFirstInvalid()
       return
     }
     if (
@@ -515,24 +519,51 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
       || inputPending.value
     ) return
     if (typeof submitTarget !== 'function') return
+    const mutationOwner = ++mutationSequence
+    activeMutationOwner = mutationOwner
     submitting.value = true
     try {
       const submitted = await submitTarget(result.data)
-      events.submitted(submitted)
+      if (mounted && generation === sessionGeneration.value && activeMutationOwner === mutationOwner) {
+        events.submitted(submitted)
+      }
     } catch (error) {
+      if (!mounted || generation !== sessionGeneration.value || activeMutationOwner !== mutationOwner) return
       const normalized = (props.normalizeError ?? adapters.data.normalizeError)(error)
       if (normalized.issues) issues.value = normalized.issues
       toast.error(normalized.message)
       events.error(normalized)
     } finally {
-      submitting.value = false
+      if (mounted && generation === sessionGeneration.value && activeMutationOwner === mutationOwner) {
+        activeMutationOwner = undefined
+        submitting.value = false
+      }
     }
+  }
+
+  function submit(): Promise<void> {
+    if (activeSubmit) return activeSubmit
+    if (props.disabled || submitting.value || loading.value || inputPending.value) return Promise.resolve()
+    behaviorRuntime.value.settle()
+    const generation = sessionGeneration.value
+    const revision = draftRevision
+    const submitTarget = props.submit
+    submitAttempted.value = true
+    submitPending.value = true
+    const attempt = Promise.resolve().then(() => runSubmit(generation, revision, submitTarget))
+    const ownedAttempt = attempt.finally(() => {
+      if (activeSubmit !== ownedAttempt) return
+      activeSubmit = undefined
+      submitPending.value = false
+    })
+    activeSubmit = ownedAttempt
+    return ownedAttempt
   }
 
   function touch(key: string): void {
     touched[key] = true
     behaviorRuntime.value.settle()
-    void performValidation('blur', key)
+    if (!submitPending.value) void performValidation('blur', key)
   }
 
   const visibleIssues = computed(() => issues.value.filter((issue) => {
@@ -589,9 +620,9 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     await loader.refresh()
   }
 
-  function applyLoaded(value: Partial<TInput> | undefined): void {
+  function applyLoaded(value: FormDraft<TInput> | undefined): void {
     if (modelValuePresent || value === undefined || !mounted) return
-    const mapped = copyInputValues(value, compiled.value.inputKeys, compiled.value.fields, (field) => behaviorRuntime.value.state(field.key).value.renderer ?? field.renderer, inputProps)
+    const mapped = copyInputValues(value, compiled.value.inputKeys)
     loadedValues.value = mapped
     const nextBaseline = mergeInputValues(compiled.value.inputKeys, [
       defaults.value,
@@ -639,6 +670,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     const [previousSchema, previousKeys, previousIdentity] = previous
     if (schema === previousSchema && keys === previousKeys && identity === previousIdentity) return
     sessionGeneration.value += 1
+    abandonSessionWork()
     cancelValidation()
     loadedValues.value = {}
     const nextCompiled = compiled.value
@@ -662,6 +694,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
   onUnmounted(() => {
     mounted = false
     sessionGeneration.value += 1
+    abandonSessionWork()
     cancelValidation()
     stopBehavior()
   })
@@ -675,9 +708,10 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
   return {
     compiled,
     behavior,
-    draft,
+    draft: readonlyDraft,
     dirty,
     submitting: computed(() => submitting.value),
+    submitPending: computed(() => submitPending.value),
     validating: computed(() => validating.value),
     inputPending,
     loading,
@@ -690,6 +724,8 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     controlValue,
     setValue: (key, value) => setValue(key, value),
     setControlValue,
+    setControlError,
+    controlErrorKeys,
     issueFor,
     validatingField,
     touchedField,

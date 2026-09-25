@@ -16,8 +16,6 @@ export interface ResourceRuntime {
   queryClient: QueryClient
 }
 
-export type ResourceOperationRuntime = Pick<ResourceRuntime, 'adapters' | 'queryClient'>
-
 let installed: ResourceRuntime | undefined
 
 export function registerResourceRuntime(runtime: ResourceRuntime): void {
@@ -39,8 +37,4 @@ export function useResourceRuntime(): ResourceRuntime {
     adapters: resolveFrameworkAdapters(),
     queryClient: createFrameworkQueryClient(),
   }
-}
-
-export function useResourceOperationRuntime(): ResourceOperationRuntime {
-  return useResourceRuntime()
 }

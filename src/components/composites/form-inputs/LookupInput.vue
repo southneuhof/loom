@@ -71,6 +71,7 @@ let loadController: AbortController | undefined
 let loadGeneration = 0
 let detailController: AbortController | undefined
 let detailGeneration = 0
+let stagingGeneration = 0
 let skipNextQueryLoad = false
 
 function copyRecord(record: TRecord): TRecord {
@@ -162,7 +163,26 @@ function updateQuery(values: QueryValues) {
   query.value = { ...values }
 }
 
-async function hydrate(value: unknown) {
+function selectionIdentity(records: readonly TRecord[], identity: unknown): unknown {
+  return records.length ? pickValue(records[0]!) : identity
+}
+
+function sameSelection(left: readonly TRecord[], leftIdentity: unknown, right: readonly TRecord[], rightIdentity: unknown): boolean {
+  if (props.multi) {
+    const leftValues = left.map(pickValue)
+    const rightValues = right.map(pickValue)
+    return leftValues.length === rightValues.length && leftValues.every((value, index) => Object.is(value, rightValues[index]))
+  }
+  return Object.is(selectionIdentity(left, leftIdentity), selectionIdentity(right, rightIdentity))
+}
+
+function invalidateDetailLoad(): void {
+  detailGeneration += 1
+  detailController?.abort()
+  detailController = undefined
+}
+
+async function hydrate(value: unknown, replaceSelection = true) {
   detailController?.abort()
   const generation = ++detailGeneration
   let records: TRecord[] = []
@@ -175,17 +195,25 @@ async function hydrate(value: unknown) {
     records = [copyRecord(value)]
   }
 
-  const current = committed.value[0]
-  if (!props.multi && identity !== undefined && current && pickValue(current) === identity && viewValue(current) != null) {
-    records = [copyRecord(current)]
-    identity = undefined
-  }
+  if (!replaceSelection && !props.multi && identity === undefined) identity = committedIdentity.value
 
-  committed.value = records
-  staged.value = copySelection(records)
-  committedIdentity.value = identity
-  stagedIdentity.value = identity
+  if (replaceSelection) {
+    const current = committed.value[0]
+    if (!props.multi && identity !== undefined && current && pickValue(current) === identity && viewValue(current) != null) {
+      records = [copyRecord(current)]
+      identity = undefined
+    }
+
+    committed.value = records
+    staged.value = copySelection(records)
+    committedIdentity.value = identity
+    stagedIdentity.value = identity
+    stagingGeneration += 1
+  }
   hydrationError.value = undefined
+
+  const current = committed.value[0]
+  if (!props.multi && identity !== undefined && current && pickValue(current) === identity && viewValue(current) != null) return
 
   const loadDetail = props.loadDetail
   if (
@@ -197,15 +225,20 @@ async function hydrate(value: unknown) {
 
   const controller = new AbortController()
   detailController = controller
+  const stagingAtStart = stagingGeneration
+  const stageFollowsCommitted = sameSelection(staged.value, stagedIdentity.value, committed.value, committedIdentity.value)
   try {
     const detail = await loadDetail({ id: identity, searchParameters: { ...props.searchParameters }, signal: controller.signal })
     if (generation !== detailGeneration || controller.signal.aborted) return
     if (!detail) return
     const record = copyRecord(detail)
+    if (committedIdentity.value !== identity) return
     committed.value = [record]
-    staged.value = [copyRecord(record)]
     committedIdentity.value = undefined
-    stagedIdentity.value = undefined
+    if (stageFollowsCommitted && stagingGeneration === stagingAtStart) {
+      staged.value = [copyRecord(record)]
+      stagedIdentity.value = undefined
+    }
   } catch (reason) {
     if (!controller.signal.aborted && generation === detailGeneration) {
       hydrationError.value = reason instanceof Error ? reason.message : String(reason)
@@ -213,25 +246,38 @@ async function hydrate(value: unknown) {
   }
 }
 
-watch([() => modelValue.value, () => props.searchParameters], ([value]) => {
+watch(() => modelValue.value, (value) => {
   void hydrate(value)
 }, { deep: true, immediate: true })
 
+watch(() => props.searchParameters, () => {
+  void hydrate(modelValue.value, false)
+}, { deep: true })
+
+let closedDuringHydration = false
 watch(dialogOpen, (open) => {
   if (!open) {
+    closedDuringHydration = true
+    invalidateDetailLoad()
+    stagingGeneration += 1
     staged.value = copySelection(committed.value)
     stagedIdentity.value = committedIdentity.value
+    return
+  }
+  if (closedDuringHydration) {
+    closedDuringHydration = false
+    void hydrate(modelValue.value, false)
   }
 })
 
 onBeforeUnmount(() => {
   loadGeneration += 1
-  detailGeneration += 1
+  invalidateDetailLoad()
   loadController?.abort()
-  detailController?.abort()
 })
 
 function toggle(record: TRecord) {
+  if (props.disabled) return
   const id = pickValue(record)
   if (!props.multi) {
     const selectedId = staged.value.length ? pickValue(staged.value[0]!) : stagedIdentity.value
@@ -242,15 +288,20 @@ function toggle(record: TRecord) {
       staged.value = [record]
       stagedIdentity.value = undefined
     }
+    stagingGeneration += 1
     return
   }
   const index = staged.value.findIndex((item) => pickValue(item) === id)
   staged.value = index < 0
     ? [...staged.value, record]
     : staged.value.filter((_, itemIndex) => itemIndex !== index)
+  stagingGeneration += 1
 }
 
 function commit() {
+  if (props.disabled) return
+  invalidateDetailLoad()
+  stagingGeneration += 1
   const selection = copySelection(staged.value)
   committed.value = copySelection(selection)
   committedIdentity.value = stagedIdentity.value
@@ -259,13 +310,16 @@ function commit() {
 }
 
 function remove(record: TRecord) {
+  if (props.disabled) return
   staged.value = committed.value.filter((item) => pickValue(item) !== pickValue(record))
   stagedIdentity.value = undefined
   return commit()
 }
 
 function removeStaged(index: number) {
+  if (props.disabled) return
   staged.value = staged.value.filter((_, itemIndex) => itemIndex !== index)
+  stagingGeneration += 1
 }
 
 const selectedIds = computed(() => [

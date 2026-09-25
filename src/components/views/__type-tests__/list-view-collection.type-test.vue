@@ -24,8 +24,8 @@ const table: TableProps<Role, RoleQuery> = {
       <button type="button" @click="updateQuery({ page: 1 })">Page</button>
       <template v-if="actions">
         <RouterLink v-if="actions.createRoute" :to="actions.createRoute">Create</RouterLink>
-        <button type="button" @click="actions.detailRoute?.(records[0]!)">View</button>
-        <button type="button" @click="actions.updateRoute?.(records[0]!)">Edit</button>
+        <button type="button" @click="typeof actions.detailRoute === 'function' && actions.detailRoute(records[0]!)">View</button>
+        <button type="button" @click="typeof actions.updateRoute === 'function' && actions.updateRoute(records[0]!)">Edit</button>
         <span v-if="actions.can?.('delete', records[0]!)" @click="actions.deleteRecord?.(records[0]!)">Delete</span>
       </template>
     </template>

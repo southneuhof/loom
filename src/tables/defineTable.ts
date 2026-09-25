@@ -1,64 +1,45 @@
 import type { LabelDictionary } from '../contracts/labels'
-import type { ReadonlySurfaceConfiguration } from '../contracts/display'
+import type { CompactDisplayField, DisplayFieldGuard, DisplayFieldValue } from '../display/compatibility'
 import type { RawSchema, RawSchemaOutput } from '../contracts/schema'
-import type { DisplayRendererHasValue, DisplayRendererKey, DisplayRendererProps, DisplayRendererValue } from '../renderers/displayContracts'
 import type { TableColumn, TableDefinition } from '../contracts/tables'
 
 type UnsafeKey = '__proto__' | 'prototype' | 'constructor' | `${number}`
 type FiniteRecordGuard<TRecord extends object> = string extends Extract<keyof TRecord, string> ? never : unknown
 type TableSchemaGuard<TSchema extends RawSchema<object, object>> = FiniteRecordGuard<RawSchemaOutput<TSchema>>
 type AllowedColumnMember = keyof TableColumn
+type KeysOfUnion<TValue> = TValue extends unknown ? keyof TValue : never
 
-type ReadValue<TRecord extends object, TKey extends string, TColumn> = TColumn extends { read: (record: TRecord) => infer TValue }
-  ? TValue
-  : TKey extends keyof TRecord ? TRecord[TKey] : never
-
-type DisplayRendererGuard<TColumn, TValue> = TColumn extends { renderer: infer TRenderer }
-  ? TRenderer extends DisplayRendererKey
-    ? DisplayRendererHasValue<TRenderer> extends true
-      ? TValue extends DisplayRendererValue<TRenderer> ? unknown : never
-      : unknown
-    : never
-  : unknown
-
-type DisplayPropsGuard<TColumn> = TColumn extends { renderer: infer TRenderer }
-  ? TRenderer extends DisplayRendererKey
-    ? 'props' extends keyof TColumn
-      ? TColumn extends { props?: infer TProps }
-        ? TProps extends DisplayRendererProps<TRenderer> ? unknown : never
-        : never
-      : unknown
-    : never
-  : unknown
-
-type TableRecordKeyGuard<TRecord extends object, TKey extends string, TColumn> =
-  TKey extends Extract<keyof TRecord, string>
-    ? unknown
-    : TColumn extends { read: (record: TRecord) => unknown } ? unknown : never
-
-type TableSortKeyGuard<TRecord extends object, TKey extends string, TColumn> = TColumn extends { sortable?: infer TSortable }
+type SortMemberValid<TRecord extends object, TKey extends string, TColumn> = TColumn extends { sortable?: infer TSortable }
   ? true extends TSortable
     ? TColumn extends { read: (record: TRecord) => unknown }
       ? TColumn extends { sortKey: infer TSortKey }
-        ? TSortKey extends Extract<keyof TRecord, string> ? unknown : never
-        : never
+        ? [TSortKey] extends [Extract<keyof TRecord, string>]
+          ? true
+          : false
+        : false
       : TColumn extends { sortKey: infer TSortKey }
-        ? TSortKey extends Extract<keyof TRecord, string> ? unknown : never
-        : TKey extends Extract<keyof TRecord, string> ? unknown : never
+        ? [TSortKey] extends [Extract<keyof TRecord, string>]
+          ? true
+          : false
+        : TKey extends Extract<keyof TRecord, string>
+          ? true
+          : false
     : TColumn extends { sortKey: infer TSortKey }
-      ? TSortKey extends Extract<keyof TRecord, string> ? unknown : never
-      : unknown
-  : unknown
+      ? [TSortKey] extends [Extract<keyof TRecord, string>]
+        ? true
+        : false
+      : true
+  : true
 
-type TableColumnGuard<TRecord extends object, TKey extends string, TColumn> =
-  TColumn extends TableColumn<TRecord, ReadValue<TRecord, TKey, TColumn>>
-    ? Exclude<keyof TColumn, AllowedColumnMember> extends never
-      ? TableRecordKeyGuard<TRecord, TKey, TColumn>
-        & TableSortKeyGuard<TRecord, TKey, TColumn>
-        & DisplayRendererGuard<TColumn, ReadValue<TRecord, TKey, TColumn>>
-        & DisplayPropsGuard<TColumn>
-      : never
+type TableSortKeyGuard<TRecord extends object, TKey extends string, TColumn> = EveryTrue<SortMemberValid<TRecord, TKey, TColumn>>
+
+type EveryTrue<TValue> = [TValue] extends [true] ? unknown : never
+
+type TableColumnGuard<TRecord extends object, TKey extends string, TColumn> = [TColumn] extends [TableColumn<TRecord, DisplayFieldValue<TRecord, TKey, TColumn>>]
+  ? Exclude<KeysOfUnion<TColumn>, AllowedColumnMember> extends never
+    ? DisplayFieldGuard<TRecord, TKey, TColumn> & TableSortKeyGuard<TRecord, TKey, TColumn>
     : never
+  : never
 
 type TableColumnsGuard<TRecord extends object, TColumns> = TColumns extends object
   ? TColumns extends readonly unknown[]
@@ -67,6 +48,20 @@ type TableColumnsGuard<TRecord extends object, TColumns> = TColumns extends obje
       ? { [TKey in keyof TColumns]: TKey extends string ? TableColumnGuard<NoInfer<TRecord>, TKey, TColumns[TKey]> : never }
       : never
   : never
+
+type CompactTableColumn<TRecord extends object, TKey extends string, TColumn> = CompactDisplayField<TRecord, DisplayFieldValue<TRecord, TKey, TColumn>, TColumn> & {
+  readonly sortable?: boolean
+  readonly sortKey?: TColumn extends { sortKey: infer TSortKey extends Extract<keyof TRecord, string> } ? TSortKey : never
+  readonly align?: 'start' | 'center' | 'end'
+  readonly class?: string
+  readonly headerClass?: string
+}
+
+type CompactTableColumns<TRecord extends object, TColumns extends object> = {
+  readonly [TKey in keyof TColumns]: TKey extends string ? CompactTableColumn<TRecord, TKey, TColumns[TKey]> : never
+}
+
+type DefinedTable<TSchema extends RawSchema<object, object>, TColumns extends object> = TableDefinition<RawSchemaOutput<TSchema>, CompactTableColumns<RawSchemaOutput<TSchema>, TColumns>>
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -112,10 +107,7 @@ function assertColumn(key: string, column: unknown): void {
 }
 
 function snapshotMap<T extends object>(value: T): T {
-  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
-    key,
-    isRecord(entry) ? { ...entry, ...(isRecord(entry.props) ? { props: { ...entry.props } } : {}) } : entry,
-  ])) as T
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, isRecord(entry) ? { ...entry, ...(isRecord(entry.props) ? { props: { ...entry.props } } : {}) } : entry])) as T
 }
 
 export function defineTable<
@@ -126,12 +118,7 @@ export function defineTable<
   readonly schema: TSchema & TableSchemaGuard<TSchema>
   readonly columns: TColumns & TableColumnsGuard<RawSchemaOutput<TSchema>, TColumns>
   readonly labels?: TLabels
-}): Omit<TableDefinition<RawSchemaOutput<TSchema>>, 'schema' | 'columns' | 'labels'> & {
-  readonly schema: TSchema
-  readonly columns: ReadonlySurfaceConfiguration<TColumns>
-} & (undefined extends TLabels
-  ? { readonly labels?: never }
-  : { readonly labels: ReadonlySurfaceConfiguration<TLabels> }) {
+}): DefinedTable<TSchema, TColumns> {
   if (!isRecord(definition)) invalidOption('definition', 'an object')
   for (const member of Object.keys(definition)) {
     if (!['schema', 'columns', 'labels'].includes(member)) invalidOption(member, 'a TableDefinition member')
@@ -146,12 +133,10 @@ export function defineTable<
     assertColumn(key, definition.columns[key])
   }
 
-  const result: Record<string, unknown> = { schema: definition.schema, columns: snapshotMap(definition.columns) }
-  if (definition.labels !== undefined) result.labels = { ...definition.labels }
-  return result as Omit<TableDefinition<RawSchemaOutput<TSchema>>, 'schema' | 'columns' | 'labels'> & {
-    readonly schema: TSchema
-    readonly columns: ReadonlySurfaceConfiguration<TColumns>
-  } & (undefined extends TLabels
-    ? { readonly labels?: never }
-    : { readonly labels: ReadonlySurfaceConfiguration<TLabels> })
+  const result: DefinedTable<TSchema, TColumns> = {
+    schema: definition.schema,
+    columns: snapshotMap(definition.columns),
+    ...(definition.labels !== undefined ? { labels: { ...definition.labels } } : {}),
+  }
+  return result
 }

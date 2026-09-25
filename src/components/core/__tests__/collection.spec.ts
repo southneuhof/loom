@@ -11,7 +11,6 @@ describe('Collection', () => {
       Collection,
       {
         namespace: 'collection-test',
-        query: { page: 1, limit: 10 },
         load: ({ query }: { query: Record<string, unknown> }) => {
           calls += 1
           return { data: [{ name: `Page ${query.page}` }], meta: { total: 1, totalPage: 1 } }

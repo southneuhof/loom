@@ -6,7 +6,6 @@ import { FrameworkPlugin } from '../../../adapters/plugin'
 import type { FrameworkPluginOptions } from '../../../adapters/plugin'
 import { createFrameworkQueryClient } from '../../../query'
 import { defineResource, resetResourceRuntimeForTests } from '../../../resources'
-import { createInputPropsRegistry } from '../../../renderers/inputProps'
 import DetailView from '../DetailView.vue'
 import FormView from '../FormView.vue'
 import ListView from '../ListView.vue'
@@ -218,16 +217,12 @@ describe('resource cache ownership', () => {
       () => h('div', [h(DetailView, records.detail({ id: 1 })), h(FormView, records.update({ id: 1 }))]),
       {
         renderers: { display: { 'detail-token': Token } },
-        inputProps: createInputPropsRegistry({
-          'detail-token': { value: { hydrate: (value) => `display:${value}` } },
-          text: { value: { hydrate: (value) => `form:${value}` } },
-        }),
       },
     )
     await vi.waitFor(() => {
       expect(read).toHaveBeenCalledTimes(2)
       expect(view.host.querySelector('[data-token]')?.textContent).toBe('Value')
-      expect(view.host.querySelector<HTMLInputElement>('input')?.value).toBe('form:Value')
+      expect(view.host.querySelector<HTMLInputElement>('input')?.value).toBe('Value')
     })
     reject = true
     await expect(records.update({ id: 1 }).form.submit({ name: 'Rejected' })).rejects.toThrow('No')

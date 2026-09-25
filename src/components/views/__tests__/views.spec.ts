@@ -1,14 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { createApp, defineComponent, h, ref } from 'vue'
+import { createApp, defineComponent, h, ref, toRaw } from 'vue'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { z } from 'zod'
+import type { QueryValues } from '../../../contracts'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import ListView from '../ListView.vue'
 import DetailView from '../DetailView.vue'
 import FormView from '../FormView.vue'
+import Form from '../../core/Form.vue'
 import { deferred, flush, mountCore } from '../../core/__tests__/harness'
+import { testAssetAdapter } from '../../inputs/__tests__/harness'
+import type { AssetAdapter } from '../../../assets/contracts'
 
 const viewsRoot = join(__dirname, '..')
 
@@ -21,6 +25,19 @@ const detailProps = {
   schema: z.object({ name: z.string() }),
   fields: { name: { label: 'Nama', read: (record: { name: string }) => record.name } },
   data: { name: 'Admin' },
+}
+
+function mountControlledListView(props: Record<string, unknown>) {
+  const table = props.table as Record<string, unknown>
+  const query = ref<QueryValues>({ ...(table.query as QueryValues) })
+  const Host = defineComponent({
+    setup: () => () => h(ListView, {
+      ...props,
+      table: { ...table, query: query.value },
+      'onUpdate:query': (value: QueryValues) => { query.value = { ...value } },
+    }),
+  })
+  return { view: mountCore(Host, {}), query }
 }
 
 function installStorage() {
@@ -393,7 +410,7 @@ describe('ListView', () => {
   it('sends debounced search through the table query and resets page', async () => {
     vi.useFakeTimers()
     const contexts: Record<string, unknown>[] = []
-    const view = mountCore(ListView, {
+    const { view } = mountControlledListView({
       table: {
         schema: z.object({ name: z.string() }),
         columns: { name: { label: 'Nama', read: (record: { name: string }) => record.name } },
@@ -419,7 +436,7 @@ describe('ListView', () => {
 
   it('renders model-bound filter Form and resets filters without clearing search or limit', async () => {
     const contexts: Record<string, unknown>[] = []
-    const view = mountCore(ListView, {
+    const { view } = mountControlledListView({
       table: {
         schema: z.object({ name: z.string() }),
         columns: { name: { label: 'Nama', read: (record: { name: string }) => record.name } },
@@ -431,7 +448,7 @@ describe('ListView', () => {
       },
       filters: {
         schema: z.object({ active: z.string() }),
-        fields: { active: { label: 'Aktif' } },
+        fields: { active: { label: 'Aktif', renderer: 'text' } },
         defaults: { active: 'yes' },
       },
     })
@@ -458,7 +475,7 @@ describe('ListView', () => {
       if (selection === 'slow') await slowParse.promise
       return selection ? { status: selection } : {}
     })
-    const view = mountCore(ListView, {
+    const { view } = mountControlledListView({
       table: {
         schema: z.object({ name: z.string() }),
         columns: { name: { label: 'Name' } },
@@ -470,7 +487,7 @@ describe('ListView', () => {
       },
       filters: {
         schema,
-        fields: { selection: { label: 'Status' } },
+        fields: { selection: { label: 'Status', renderer: 'text' } },
         defaults: { selection: 'default' },
       },
     })
@@ -577,6 +594,41 @@ describe('DetailView', () => {
     view.unmount()
   })
 
+  it('forwards loading and value slot scopes without repeating the load', async () => {
+    const result = deferred<{ name: string }>()
+    const record = { name: 'Loaded role' }
+    const load = vi.fn(() => result.promise)
+    const valueScopes: Array<Record<string, unknown>> = []
+    const view = mountCore(DetailView, {
+      title: 'Role',
+      detail: {
+        schema: z.object({ name: z.string() }),
+        fields: { name: { label: 'Name', read: (value: { name: string }) => value.name } },
+        load,
+      },
+    }, {
+      slots: {
+        loading: () => h('p', { 'data-detail-loading': '' }, 'Loading role'),
+        'value:name': (scope) => {
+          valueScopes.push(scope)
+          return h('em', { 'data-detail-value': '' }, String(scope.value))
+        },
+      },
+    })
+    await flush()
+    expect(view.find('[data-detail-loading]')?.textContent).toBe('Loading role')
+    expect(load).toHaveBeenCalledOnce()
+
+    result.resolve(record)
+    await flush()
+
+    expect(load).toHaveBeenCalledOnce()
+    expect(view.find('[data-detail-value]')?.textContent).toBe('Loaded role')
+    expect(valueScopes.at(-1)).toMatchObject({ value: 'Loaded role', record })
+    expect(toRaw(valueScopes.at(-1)?.record)).toBe(record)
+    view.unmount()
+  })
+
   it('contains no removed regions or router history logic', () => {
     const source = readFileSync(join(viewsRoot, 'DetailView.vue'), 'utf8')
 
@@ -589,9 +641,90 @@ describe('DetailView', () => {
 describe('FormView', () => {
   const formProps = (submit: () => Promise<unknown>) => ({
     schema: z.object({ name: z.string() }),
-    fields: { name: { label: 'Nama' } },
+    fields: { name: { label: 'Nama', renderer: 'text' } },
     initialData: { name: 'Admin' },
     submit,
+  })
+
+  it('shows Save only when the nested Form has a submit handler', async () => {
+    const schema = z.object({ name: z.string() })
+    const fields = { name: { label: 'Nama', renderer: 'text' } }
+    const modelOnlyForm = { schema, fields, modelValue: { name: 'Admin' } }
+    const Host = defineComponent({
+      setup: () => () => h('main', [
+        h('section', { id: 'direct-form' }, [h(Form, modelOnlyForm)]),
+        h('section', { id: 'form-view' }, [h(FormView, { form: modelOnlyForm })]),
+      ]),
+    })
+    const view = mountCore(Host, {})
+    await flush()
+
+    expect(view.find('#direct-form form button[type="submit"]')).toBeNull()
+    expect(view.find('#form-view form button[type="submit"]')).toBeNull()
+    expect(view.find('#form-view button[type="button"]')?.textContent).toContain('Cancel')
+    view.unmount()
+  })
+
+  it('exposes the managed Form state and methods through the parent ref', async () => {
+    const load = vi.fn(async () => ({ name: 'Loaded role' }))
+    const pending = deferred<{ id: number }>()
+    const submit = vi.fn(() => pending.promise)
+    const exposed = ref<Record<string, unknown> | null>(null)
+    const Host = defineComponent({
+      setup: () => () => h(FormView, {
+        form: {
+          schema: z.object({ name: z.string() }),
+          fields: { name: { renderer: 'text' } },
+          load,
+          submit,
+        },
+        successMessage: false,
+        ref: (value: unknown) => { exposed.value = value as Record<string, unknown> | null },
+      }),
+    })
+    const view = mountCore(Host, {})
+    await flush()
+
+    expect(load).toHaveBeenCalledOnce()
+    expect(exposed.value?.draft).toEqual({ name: 'Loaded role' })
+    expect(exposed.value?.dirty).toBe(false)
+    expect(exposed.value?.submitting).toBe(false)
+    expect(exposed.value?.validating).toBe(false)
+    expect(exposed.value?.inputPending).toBe(false)
+
+    const input = view.find<HTMLInputElement>('input')!
+    input.value = 'Updated role'
+    input.dispatchEvent(new Event('input'))
+    await flush()
+    expect(exposed.value?.draft).toEqual({ name: 'Updated role' })
+    expect(exposed.value?.dirty).toBe(true)
+
+    const validate = exposed.value?.validate as (() => Promise<{ success: boolean; data?: unknown }>) | undefined
+    const formSubmit = exposed.value?.submit as (() => Promise<void>) | undefined
+    const reset = exposed.value?.reset as (() => void) | undefined
+    const refresh = exposed.value?.refresh as (() => Promise<void>) | undefined
+    expect(validate).toBeTypeOf('function')
+    expect(formSubmit).toBeTypeOf('function')
+    expect(reset).toBeTypeOf('function')
+    expect(refresh).toBeTypeOf('function')
+    expect(await validate?.()).toEqual({ success: true, data: { name: 'Updated role' } })
+
+    const submitting = formSubmit!()
+    await flush()
+    expect(exposed.value?.submitting).toBe(true)
+    expect(exposed.value?.submitPending).toBe(true)
+    pending.resolve({ id: 1 })
+    await submitting
+    expect(submit).toHaveBeenCalledWith({ name: 'Updated role' })
+    expect(exposed.value?.submitting).toBe(false)
+
+    reset!()
+    await flush()
+    expect(exposed.value?.draft).toEqual({ name: 'Loaded role' })
+    expect(exposed.value?.dirty).toBe(false)
+    await refresh!()
+    expect(load).toHaveBeenCalledTimes(2)
+    view.unmount()
   })
 
   it('runs the same chrome for create-like and update-like props, with no mode anywhere', async () => {
@@ -655,8 +788,7 @@ describe('FormView', () => {
   it('renders submit and cancel chrome and re-emits form events', async () => {
     const onSubmitted = vi.fn()
     const view = mountCore(FormView, {
-      form: formProps(async () => ({ id: 1 })),
-      submitLabel: 'Kirim',
+      form: { ...formProps(async () => ({ id: 1 })), submitLabel: 'Kirim' },
       onSubmitted,
     })
     await flush()
@@ -669,9 +801,11 @@ describe('FormView', () => {
     view.unmount()
   })
 
-  it('uses responsive text and filled form actions while submitting', async () => {
+  it('uses nested submit labels while submitting', async () => {
     const pending = deferred<{ id: number }>()
-    const view = mountCore(FormView, { form: formProps(async () => pending.promise) })
+    const view = mountCore(FormView, {
+      form: { ...formProps(async () => pending.promise), submitLabel: 'Save role', submittingLabel: 'Saving role' },
+    })
     await flush()
 
     const actions = view.find('.is-form-view-controls')!
@@ -682,9 +816,10 @@ describe('FormView', () => {
     expect(cancel.classList.contains('bg-transparent')).toBe(true)
     expect(submit.classList.contains('bg-primary')).toBe(true)
     expect(cancel.classList.contains('w-full')).toBe(true)
+    expect(submit.textContent).toBe('Save role')
     view.find('form')!.dispatchEvent(new Event('submit'))
     await flush()
-    expect(view.text()).toContain('Submit')
+    expect(submit.textContent).toBe('Saving role')
     expect(cancel.disabled).toBe(true)
     expect(submit.disabled).toBe(true)
     pending.resolve({ id: 1 })
@@ -698,11 +833,11 @@ describe('FormView', () => {
     const view = mountCore(FormView, {
       form: {
         schema: z.object({ files: z.array(z.object({ kind: z.literal('file'), id: z.string(), url: z.string(), name: z.string() })) }),
-        fields: { files: { label: 'Files', renderer: 'file', props: { multi: true, upload } } },
+        fields: { files: { label: 'Files', renderer: 'file', props: { multi: true } } },
         initialData: { files: [] },
         submit: async () => undefined,
       },
-    })
+    }, { adapters: { assets: { ...testAssetAdapter, upload: upload as AssetAdapter['upload'] } } })
     await flush()
 
     const input = view.find<HTMLInputElement>('input[type="file"]')!
@@ -741,30 +876,54 @@ describe('FormView', () => {
     view.unmount()
   })
 
-  it('lets body, header, and form actions slots replace their defaults', async () => {
+  it('lets body and header slots replace their defaults', async () => {
     const view = mountCore(FormView, { title: 'Create Role', form: formProps(async () => undefined) }, {
       slots: {
         header: () => h('h2', { 'data-header-slot': '' }, 'Header khusus'),
         body: () => h('p', { 'data-body-slot': '' }, 'Badan khusus'),
-        'form-actions': () => h('button', { 'data-form-actions-slot': '' }, 'Custom action'),
       },
     })
     await flush()
 
     expect(view.find('[data-header-slot]')).not.toBeNull()
     expect(view.find('[data-body-slot]')).not.toBeNull()
-    expect(view.find('[data-form-actions-slot]')).toBeNull()
     expect(view.find('h1')).toBeNull()
     expect(view.find('form')).toBeNull()
     view.unmount()
+  })
 
-    const formActions = mountCore(FormView, { form: formProps(async () => undefined) }, {
-      slots: { 'form-actions': () => h('button', { 'data-form-actions-slot': '' }, 'Custom action') },
+  it('forwards the Form actions scope through the standard actions slot', async () => {
+    const pending = deferred<{ id: number }>()
+    const scopes: Array<Record<string, unknown>> = []
+    const view = mountCore(FormView, { form: formProps(async () => pending.promise) }, {
+      slots: {
+        actions: (scope) => {
+          scopes.push(scope)
+          return h('button', { type: 'submit', 'data-form-actions-slot': '' }, 'Save custom')
+        },
+      },
     })
     await flush()
-    expect(formActions.find('[data-form-actions-slot]')).not.toBeNull()
-    expect(formActions.find('.is-form-view-controls')).toBeNull()
-    formActions.unmount()
+
+    const initialScope = scopes.at(-1)!
+    expect(initialScope).toEqual(expect.objectContaining({
+      submit: expect.any(Function),
+      reset: expect.any(Function),
+      submitting: false,
+      submitPending: false,
+      validating: false,
+      dirty: false,
+      inputPending: false,
+    }))
+    expect(view.find('[data-form-actions-slot]')).not.toBeNull()
+    expect(view.find('.is-form-view-controls')).toBeNull()
+
+    view.find<HTMLButtonElement>('[data-form-actions-slot]')!.click()
+    await flush()
+    expect(scopes.at(-1)).toEqual(expect.objectContaining({ submitting: true, submitPending: true }))
+    pending.resolve({ id: 1 })
+    await flush()
+    view.unmount()
   })
 
   function actionForm(options: {
@@ -776,7 +935,7 @@ describe('FormView', () => {
     return {
       form: {
         schema: z.object({ name: z.string() }),
-        fields: { name: { label: 'Nama' } },
+        fields: { name: { label: 'Nama', renderer: 'text' } },
         initialData: { name: 'Admin' },
         submit: options.submit ?? (async () => ({ id: '1', name: 'Admin' })),
       },

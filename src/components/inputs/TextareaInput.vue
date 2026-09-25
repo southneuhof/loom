@@ -6,7 +6,7 @@ import { commonProps } from './commonprops'
 
 const props = defineProps({
   constraint: {
-    type: Array as PropType<Array<'number' | 'text'>>,
+    type: Array as PropType<readonly ('number' | 'text')[]>,
     default: ['text', 'number'],
   },
   placeholder: {
@@ -20,8 +20,11 @@ const props = defineProps({
   ...commonProps,
 })
 
-const modelValue = defineModel<string | number>()
+const modelValue = defineModel<string | number | undefined>()
 const inputValue = ref<string | number | undefined>(modelValue.value)
+const emit = defineEmits<{
+  (event: 'validation:error', message: string | undefined): void
+}>()
 const constraintRegex = {
   number: /^[0-9]*$/,
   text: /^[a-zA-Z\s]*$/,
@@ -32,15 +35,34 @@ function checkInput(e: InputEvent) {
   e.data && !constraintRegex[props.constraint[0]].test(e.data) ? e.preventDefault() : null
 }
 
-watch(inputValue, (val) => {
-  if (props.constraint[0] === 'number' && props.constraint.length === 1) modelValue.value = Number(inputValue.value)
-  else modelValue.value = String(inputValue.value)
-})
+watch(inputValue, (value) => {
+  if (props.constraint[0] === 'number' && props.constraint.length === 1) {
+    const text = value == null ? '' : String(value)
+    if (text === '') {
+      modelValue.value = undefined
+      emit('validation:error', undefined)
+      return
+    }
+    const numericValue = Number(text)
+    if (!/^\d+$/.test(text) || !Number.isFinite(numericValue)) {
+      emit('validation:error', 'Enter a valid number.')
+      return
+    }
+    modelValue.value = numericValue
+    emit('validation:error', undefined)
+    return
+  }
+  modelValue.value = value === undefined ? undefined : String(value)
+}, { flush: 'sync' })
 
 watch(
   () => modelValue.value,
   (newValue) => {
-    if (inputValue.value !== newValue) inputValue.value = newValue
+    const current = inputValue.value == null ? '' : String(inputValue.value)
+    const next = newValue == null ? '' : String(newValue)
+    if (current === next) return
+    if (props.constraint[0] === 'number' && props.constraint.length === 1 && typeof newValue === 'number' && current !== '' && Number(current) === newValue) return
+    inputValue.value = newValue
   },
   { immediate: true }
 )

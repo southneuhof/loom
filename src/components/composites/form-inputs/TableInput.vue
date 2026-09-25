@@ -1,6 +1,6 @@
 <script setup lang="ts" generic="TRow extends object = Record<string, unknown>, TInput extends object = TRow">
-import { computed, useAttrs } from 'vue'
-import type { RowReorderPayload } from '../../../contracts'
+import { computed, onBeforeUpdate, useAttrs } from 'vue'
+import type { FormDraft, RowReorderPayload } from '../../../contracts'
 import BaseInput from '../../inputs/BaseInput.vue'
 import Table from '../../core/Table.vue'
 import Button from '../../base/Button.vue'
@@ -26,20 +26,25 @@ function rejectMembers(value: object | undefined, owner: string, members: readon
   }
 }
 
-rejectMembers(props.table, 'table', ['data', 'load'])
-rejectMembers(props.form, 'form', ['submit', 'load', 'modelValue'])
+function validateBindings() {
+  rejectMembers(props.table, 'table', ['data', 'load'])
+  rejectMembers(props.form, 'form', ['submit', 'load', 'modelValue'])
 
-if ((props.form === undefined) !== (props.toDraft === undefined)) {
-  throw new Error('[loom][COMPOSITE_BINDING_CONFLICT] TableInput editor requires both form and toDraft.')
+  if ((props.form === undefined) !== (props.toDraft === undefined)) {
+    throw new Error('[loom][COMPOSITE_BINDING_CONFLICT] TableInput editor requires both form and toDraft.')
+  }
+
+  if (props.form === undefined && (props.reorderable || props.rowKey !== undefined)) {
+    throw new Error('[loom][COMPOSITE_BINDING_CONFLICT] TableInput read-only mode cannot reorder rows.')
+  }
+
+  if (props.reorderable && !props.rowKey) {
+    throw new Error('[loom] TableInput reorderable mode requires rowKey.')
+  }
 }
 
-if (props.form === undefined && (props.reorderable || props.rowKey !== undefined)) {
-  throw new Error('[loom][COMPOSITE_BINDING_CONFLICT] TableInput read-only mode cannot reorder rows.')
-}
-
-if (props.reorderable && !props.rowKey) {
-  throw new Error('[loom] TableInput reorderable mode requires rowKey.')
-}
+validateBindings()
+onBeforeUpdate(validateBindings)
 
 const modelValue = defineModel<TRow[]>({ required: true })
 const emit = defineEmits<{ (event: 'validation:touch'): void }>()
@@ -54,6 +59,7 @@ const baseInputProps = computed(() => ({
 }))
 
 function updateRows(rows: TRow[]) {
+  if (props.disabled) return
   modelValue.value = rows
   emit('validation:touch')
 }
@@ -73,10 +79,11 @@ function deleteRow(index: number) {
 }
 
 function reorderRows(payload: RowReorderPayload<TRow>) {
+  if (props.disabled) return
   updateRows([...payload.rows])
 }
 
-function draftFor(row: TRow): Partial<TInput> {
+function draftFor(row: TRow): FormDraft<TInput> {
   const toDraft = props.toDraft
   if (!toDraft) throw new Error('[loom][COMPOSITE_BINDING_CONFLICT] TableInput edit requires toDraft.')
   return toDraft(row)
@@ -90,6 +97,7 @@ function draftFor(row: TRow): Partial<TInput> {
         <DialogForm
           v-if="!disabled && form"
           v-bind="form"
+          :disabled="disabled"
           title="Tambah baris"
           cancel-label="Batal"
           :submit="createRow"
@@ -113,6 +121,7 @@ function draftFor(row: TRow): Partial<TInput> {
           <div class="flex items-center justify-end gap-1" aria-label="Row actions">
             <DialogForm
               v-bind="form"
+              :disabled="disabled"
               :initial-data="draftFor(record)"
               title="Ubah baris"
               cancel-label="Batal"

@@ -12,6 +12,7 @@
     ".": "./src/index.ts",
     "./services": "./src/services/index.ts",
     "./adapters/*": "./src/adapters/*",
+    "./assets": "./src/assets/index.ts",
     "./components/*": "./src/components/*",
     "./renderers/*": "./src/renderers/*",
     "./utilities/*": "./src/utilities/*",

@@ -4,17 +4,7 @@
  * parallel concepts.
  */
 
-export type {
-  Load,
-  LoadSignalContext,
-  CollectionLoadContext,
-  RecordLoadContext,
-  MaybePromise,
-  RecordIdentity,
-  RecordIdentityValue,
-  OptionLoadContext,
-  OptionLoad,
-} from './load'
+export type { Load, LoadSignalContext, CollectionLoadContext, RecordLoadContext, MaybePromise, RecordIdentity, RecordIdentityValue, OptionLoadContext, OptionLoad } from './load'
 
 export type { CollectionMeta, CollectionResult, RecordResult, SubmitError } from './results'
 export type { UploadProgress, UploadContext, UploadOperation } from './upload'
@@ -30,6 +20,12 @@ export type {
   FormBehavior,
   FormInput,
   FormFields,
+  FormDraft,
+  FormInputSlotField,
+  FormInputSlotProps,
+  FormActionSlotProps,
+  FormExposed,
+  FormSlots,
   FormDefinitionValidatorContext,
   FormDefinitionValidatorResult,
   FormValidatorDescriptor,
@@ -41,6 +37,7 @@ export type {
   DialogFormCloseContext,
   DialogFormCloseReason,
   DialogFormPresentationProps,
+  DialogFormSlots,
   DialogFormProps,
   FormBindingProps,
   FormProps,
@@ -48,31 +45,11 @@ export type {
   FormSubmit,
 } from '../forms/props'
 
-export type {
-  RawSchema,
-  RawSchemaInput,
-  RawSchemaOutput,
-  SchemaFieldKind,
-  SchemaFieldMetadata,
-  SchemaIssue,
-  SchemaParseResult,
-} from './schema'
+export type { RawSchema, RawSchemaInput, RawSchemaOutput, SchemaFieldKind, SchemaFieldMetadata, SchemaIssue, SchemaParseResult } from './schema'
 
 export type { ResourceOperation, StandardRowOperation, AccessRequest, AccessAdapter, AccessPolicy } from './access'
 
-export type {
-  QueryNamespace,
-  QueryValues,
-  QueryLocationAdapter,
-  QueryKey,
-} from './query'
+export type { QueryNamespace, QueryValues, QueryLocationAdapter, QueryKey } from './query'
 
-export type {
-  CollectionProps,
-  CollectionSlotProps,
-  TableProps,
-  TreeTableProps,
-  TableContentProps,
-  DetailProps,
-  RowReorderPayload,
-} from './components'
+export type { CollectionProps, CollectionSlotProps, TableProps, TreeTableProps, TableContentProps, DetailProps, RowReorderPayload } from './components'
+export type { AfterSubmitContext, DetailViewProps, FormViewProps, FormViewSlots, ListFilters, ListViewActions, ListViewProps } from './views'

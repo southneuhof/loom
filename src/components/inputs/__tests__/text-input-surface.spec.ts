@@ -1,9 +1,10 @@
 import { createApp, defineComponent, h, nextTick, ref, type Component } from 'vue'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import TextInput from '../TextInput.vue'
 import TextareaInput from '../TextareaInput.vue'
 import NumberInput from '../NumberInput.vue'
+import PasswordInput from '../PasswordInput.vue'
 import SelectInput from '../SelectInput.vue'
 
 const mounted: Array<ReturnType<typeof createApp>> = []
@@ -93,5 +94,218 @@ describe('text-like input surfaces', () => {
     input.blur()
     await nextTick()
     expect(input.value).toBe('40.000')
+  })
+
+  it.each([
+    ['en-US', '1,000'],
+    ['id-ID', '1.000'],
+  ])('accepts valid %s grouped numbers', async (locale, text) => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const model = ref<number | null | undefined>()
+    const validationErrors = vi.fn()
+    const app = createApp(defineComponent({
+      setup: () => () => h(NumberInput, {
+        locale,
+        modelValue: model.value,
+        'onUpdate:modelValue': (value: number | null | undefined) => { model.value = value },
+        'onValidation:error': validationErrors,
+      }),
+    }))
+    app.use(FrameworkPlugin)
+    mounted.push(app)
+    app.mount(host)
+
+    const input = host.querySelector<HTMLInputElement>('input')
+    if (!input) throw new Error('NumberInput did not render its input.')
+    input.value = text
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: text }))
+    await nextTick()
+
+    expect(model.value).toBe(1000)
+    expect(validationErrors).toHaveBeenLastCalledWith(undefined)
+  })
+
+  it('reports invalid pasted and partial number text without replacing the number model', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const model = ref<number | undefined>(8)
+    const validationErrors = vi.fn()
+    const app = createApp(defineComponent({
+      setup: () => () => h(NumberInput, {
+        modelValue: model.value,
+        'onUpdate:modelValue': (value: number | undefined) => { model.value = value },
+        'onValidation:error': validationErrors,
+      }),
+    }))
+    app.use(FrameworkPlugin)
+    mounted.push(app)
+    app.mount(host)
+
+    const input = host.querySelector<HTMLInputElement>('input')
+    if (!input) throw new Error('NumberInput did not render its input.')
+    input.value = '12abc'
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: '12abc' }))
+    await nextTick()
+    expect(input.value).toBe('12abc')
+    expect(model.value).toBe(8)
+    expect(validationErrors).toHaveBeenLastCalledWith('Enter a valid number.')
+
+    input.value = '-'
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: '-' }))
+    await nextTick()
+
+    expect(input.value).toBe('-')
+    expect(model.value).toBe(8)
+    expect(validationErrors).toHaveBeenLastCalledWith('Enter a valid number.')
+
+    input.value = '12'
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: '12' }))
+    await nextTick()
+
+    expect(model.value).toBe(12)
+    expect(validationErrors).toHaveBeenLastCalledWith(undefined)
+  })
+
+  it('emits an unset number when the control is cleared', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const model = ref<number | undefined>(9)
+    const validationErrors = vi.fn()
+    const app = createApp(defineComponent({
+      setup: () => () => h(NumberInput, {
+        modelValue: model.value,
+        'onUpdate:modelValue': (value: number | undefined) => { model.value = value },
+        'onValidation:error': validationErrors,
+      }),
+    }))
+    app.use(FrameworkPlugin)
+    mounted.push(app)
+    app.mount(host)
+
+    const input = host.querySelector<HTMLInputElement>('input')
+    if (!input) throw new Error('NumberInput did not render its input.')
+    input.value = ''
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward', data: null }))
+    await nextTick()
+
+    expect(model.value).toBeUndefined()
+    expect(validationErrors).toHaveBeenLastCalledWith(undefined)
+  })
+
+  it('keeps invalid numeric textarea drafts local and emits valid number and unset values', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const model = ref<string | number | undefined>(9)
+    const validationErrors = vi.fn()
+    const app = createApp(defineComponent({
+      setup: () => () => h(TextareaInput, {
+        constraint: ['number'] as const,
+        modelValue: model.value,
+        'onUpdate:modelValue': (value: string | number | undefined) => { model.value = value },
+        'onValidation:error': validationErrors,
+      }),
+    }))
+    app.use(FrameworkPlugin)
+    mounted.push(app)
+    app.mount(host)
+
+    const textarea = host.querySelector<HTMLTextAreaElement>('textarea')
+    if (!textarea) throw new Error('TextareaInput did not render its textarea.')
+    textarea.value = '.'
+    textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: '.' }))
+    await nextTick()
+
+    expect(textarea.value).toBe('.')
+    expect(model.value).toBe(9)
+    expect(validationErrors).toHaveBeenLastCalledWith('Enter a valid number.')
+
+    textarea.value = '12abc'
+    textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: '12abc' }))
+    await nextTick()
+
+    expect(textarea.value).toBe('12abc')
+    expect(model.value).toBe(9)
+    expect(validationErrors).toHaveBeenLastCalledWith('Enter a valid number.')
+
+    textarea.value = '6'
+    textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: '6' }))
+    await nextTick()
+
+    expect(model.value).toBe(6)
+    expect(validationErrors).toHaveBeenLastCalledWith(undefined)
+
+    textarea.value = ''
+    textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward', data: null }))
+    await nextTick()
+
+    expect(model.value).toBeUndefined()
+    expect(validationErrors).toHaveBeenLastCalledWith(undefined)
+    model.value = undefined
+    await nextTick()
+
+    expect(textarea.value).toBe('')
+  })
+
+  it('keeps a numeric PasswordInput clear unset through its text model', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const model = ref<string | undefined>('9')
+    const app = createApp(defineComponent({
+      setup: () => () => h(PasswordInput, {
+        constraint: ['number'] as const,
+        modelValue: model.value,
+        'onUpdate:modelValue': (value: string | undefined) => { model.value = value },
+      }),
+    }))
+    app.use(FrameworkPlugin)
+    mounted.push(app)
+    app.mount(host)
+
+    const input = host.querySelector<HTMLInputElement>('input')
+    if (!input) throw new Error('PasswordInput did not render its input.')
+    input.value = ''
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'deleteContentBackward', data: null }))
+    await nextTick()
+
+    expect(model.value).toBeUndefined()
+
+    input.value = '6'
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: '6' }))
+    await nextTick()
+
+    expect(model.value).toBe('6')
+  })
+
+  it('replaces retained invalid text when the parent replaces the number model', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const model = ref<number | null | undefined>(8)
+    const validationErrors = vi.fn()
+    const app = createApp(defineComponent({
+      setup: () => () => h(NumberInput, {
+        modelValue: model.value,
+        'onUpdate:modelValue': (value: number | null | undefined) => { model.value = value },
+        'onValidation:error': validationErrors,
+      }),
+    }))
+    app.use(FrameworkPlugin)
+    mounted.push(app)
+    app.mount(host)
+
+    const input = host.querySelector<HTMLInputElement>('input')
+    if (!input) throw new Error('NumberInput did not render its input.')
+    input.focus()
+    input.value = '12abc'
+    input.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertFromPaste', data: '12abc' }))
+    await nextTick()
+    expect(input.value).toBe('12abc')
+    expect(validationErrors).toHaveBeenLastCalledWith('Enter a valid number.')
+
+    model.value = 24
+    await nextTick()
+
+    expect(input.value).toBe('24')
+    expect(validationErrors).toHaveBeenLastCalledWith(undefined)
   })
 })

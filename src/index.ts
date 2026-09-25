@@ -1,4 +1,5 @@
 export type * from './contracts'
+export * from './assets'
 export * from './query'
 export { defineForm } from './forms'
 export { defineTable } from './tables'

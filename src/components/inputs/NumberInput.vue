@@ -38,47 +38,84 @@ const props = defineProps({
   ...commonProps,
 })
 
-const modelValue = defineModel<number>()
+const modelValue = defineModel<number | null | undefined>()
 if (modelValue.value == null && props.defaultValue != null) modelValue.value = props.defaultValue
+const emit = defineEmits<{
+  (event: 'validation:error', message: string | undefined): void
+  (event: 'validation:touch'): void
+}>()
 const editing = ref(false)
 const numberValue = ref('')
+const invalidValue = ref(false)
 
 function checkInput(e: InputEvent) {
   if (e.inputType !== 'insertText') return
   e.data && !/^[0-9\.\-]*$/.test(e.data) ? e.preventDefault() : null
 }
 
-function deformat(value: string) {
-  if (value[0] === '0') value = value.slice(1)
-  if (value[0] == '-' && value.length == 1) value = '-0'
-  return value.replace(/[^0-9\-\.]/g, '')
+function parseNumber(value: string): number | undefined | null {
+  if (value === '') return undefined
+  const parts = new Intl.NumberFormat(props.locale).formatToParts(1234567890123)
+  const group = parts.find((part) => part.type === 'group')?.value
+  const decimal = parts.find((part) => part.type === 'decimal')?.value ?? '.'
+  const groups = parts.filter((part) => part.type === 'integer').map((part) => part.value)
+  const primaryGroupSize = groups[groups.length - 1]?.length
+  const secondaryGroupSize = groups[groups.length - 2]?.length ?? primaryGroupSize
+  const groupPattern = group ? group.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') : ''
+  const decimalPattern = decimal.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const groupedInteger = group && primaryGroupSize && secondaryGroupSize
+    ? `\\d{1,${secondaryGroupSize}}(?:${groupPattern}\\d{${secondaryGroupSize}})*${groupPattern}\\d{${primaryGroupSize}}`
+    : '\\d+'
+  const integerPattern = group ? `(?:\\d+|${groupedInteger})` : '\\d+'
+  const localizedPattern = new RegExp(`^-?${integerPattern}(?:${decimalPattern}\\d*)?$`)
+  const canonicalPattern = /^-?(?:\d+(?:\.\d*)?|\.\d+)$/
+  const localized = localizedPattern.test(value)
+  if (!localized && !canonicalPattern.test(value)) return null
+  const normalized = localized && group ? value.split(group).join('') : value
+  const canonical = decimal === '.' || !localized ? normalized : normalized.replace(decimal, '.')
+  const number = Number(canonical)
+  return Number.isFinite(number) ? number : null
 }
 
 function emitChange(event: Event) {
   const value = (event.target as HTMLInputElement).value
   numberValue.value = value
-  const number = Number(deformat(value))
-  if (Number.isFinite(number)) modelValue.value = number
+  const number = parseNumber(value)
+  if (number !== null) {
+    modelValue.value = number
+    invalidValue.value = false
+    emit('validation:error', undefined)
+  } else {
+    invalidValue.value = true
+    emit('validation:error', 'Enter a valid number.')
+  }
 }
 
 function formatValue() {
+  if (invalidValue.value) return
   numberValue.value = modelValue.value == null || Number.isNaN(modelValue.value)
     ? ''
     : new Intl.NumberFormat(props.locale).format(modelValue.value)
 }
 
-watch(modelValue, () => {
+watch(modelValue, (value, previous) => {
+  if (invalidValue.value && !Object.is(value, previous)) {
+    invalidValue.value = false
+    numberValue.value = value == null ? '' : String(value)
+    emit('validation:error', undefined)
+  }
   if (!editing.value) formatValue()
 }, { immediate: true })
 
 function focus() {
   editing.value = true
-  numberValue.value = modelValue.value == null ? '' : String(modelValue.value)
+  if (!invalidValue.value) numberValue.value = modelValue.value == null ? '' : String(modelValue.value)
 }
 
 function blur() {
   editing.value = false
-  formatValue()
+  if (!invalidValue.value) formatValue()
+  emit('validation:touch')
 }
 
 const localizedPrefix = computed(() => {

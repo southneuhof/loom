@@ -57,7 +57,7 @@
     "checkUnknownEvents": false,
     "checkUnknownDirectives": false,
     "checkUnknownComponents": false,
-    "checkUnknownSlots": false,
+    "checkUnknownSlots": true,
     "checkUnknownAttributes": false
   }
 }

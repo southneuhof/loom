@@ -25,6 +25,23 @@ describe('default data adapter', () => {
     expect(defaultDataAdapter.normalizeError({ message: 'refused' }).message).toBe('refused')
     expect(defaultDataAdapter.normalizeError(null).message).toBe('Request failed.')
   })
+
+  it('keeps post-write error details when it normalizes the message', () => {
+    const error = Object.assign(new Error('The write may have completed.'), {
+      code: 'RESOURCE_RESULT_INVALID',
+      operation: 'create',
+      retryable: false,
+      postWrite: true,
+    })
+
+    expect(defaultDataAdapter.normalizeError(error)).toEqual({
+      message: 'The write may have completed.',
+      code: 'RESOURCE_RESULT_INVALID',
+      operation: 'create',
+      retryable: false,
+      postWrite: true,
+    })
+  })
 })
 
 describe('adapter resolution', () => {

@@ -4,7 +4,6 @@ import { VueQueryPlugin } from '@tanstack/vue-query'
 import { frameworkAdaptersKey, resolveFrameworkAdapters, type FrameworkAdaptersInput } from './projectAdapters'
 import { createFrameworkQueryClient, frameworkQueryClientKey } from '../query/client'
 import { createRendererRegistries, rendererRegistriesKey, type RendererRegistriesInput } from '../renderers/registry'
-import { emptyInputPropsRegistry, inputPropsRegistryKey, type InputPropsRegistry } from '../renderers/inputProps'
 import { registerResourceRuntime } from '../resources/runtime'
 import {
   frameworkUiDefaultsKey,
@@ -18,8 +17,6 @@ export interface FrameworkPluginOptions {
   queryClient?: QueryClient
   /** Project renderer implementations, registered per surface. */
   renderers?: RendererRegistriesInput
-  /** App-owned source-to-native-input-props registry. */
-  inputProps?: InputPropsRegistry
   /** App-level chrome defaults for view shells. */
   uiDefaults?: FrameworkUiDefaultsInput
 }
@@ -30,8 +27,6 @@ export const FrameworkPlugin: Plugin<[options?: FrameworkPluginOptions]> = {
     app.provide(frameworkAdaptersKey, adapters)
 
     app.provide(rendererRegistriesKey, createRendererRegistries(options?.renderers))
-    const inputProps = options.inputProps ?? emptyInputPropsRegistry()
-    app.provide(inputPropsRegistryKey, inputProps)
     app.provide(frameworkUiDefaultsKey, resolveFrameworkUiDefaults(options.uiDefaults))
 
     const queryClient = options.queryClient ?? createFrameworkQueryClient(adapters.queryDefaults)

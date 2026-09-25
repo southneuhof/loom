@@ -5,6 +5,7 @@ import type { FormFields } from '../../../contracts/forms'
 import Form from '../../core/Form.vue'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import { createFrameworkQueryClient } from '../../../query'
+import type { AssetAdapter, AssetValue } from '../../../assets/contracts'
 
 type Asset = {
   kind: 'file'
@@ -28,6 +29,21 @@ function asset(name: string): Asset {
     id: `/uploads/${name}`,
     url: `https://files.test/${name}`,
     name,
+  }
+}
+
+function assetsFor(upload: AssetAdapter['upload'] = async () => asset('unused.pdf')): AssetAdapter {
+  return {
+    read(value) {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+      const candidate = value as Record<string, unknown>
+      if (candidate.kind !== 'file' || typeof candidate.id !== 'string' || typeof candidate.url !== 'string' || typeof candidate.name !== 'string') return null
+      return value as AssetValue
+    },
+    preview(value) {
+      return { imageURL: value.url, thumbnailURL: value.url }
+    },
+    upload,
   }
 }
 
@@ -65,7 +81,7 @@ describe('FileInput browser behavior', () => {
       }),
     })
     const app = createApp(Root)
-    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.use(FrameworkPlugin, { adapters: { assets: assetsFor() }, queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
     app.mount(host)
     apps.push(app)
     await settle()
@@ -89,13 +105,13 @@ describe('FileInput browser behavior', () => {
     const Root = defineComponent({
       setup: () => () => h(Form, {
         schema: rejectedFileSchema,
-        fields: { ...fields, file: { ...fields.file, props: { upload } } },
+        fields,
         initialData: { file: null },
         submit: async () => undefined,
       }),
     })
     const app = createApp(Root)
-    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.use(FrameworkPlugin, { adapters: { assets: assetsFor(upload) }, queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
     app.mount(host)
     apps.push(app)
     await settle()
@@ -128,13 +144,13 @@ describe('FileInput browser behavior', () => {
     const Root = defineComponent({
       setup: () => () => h(Form, {
         schema,
-        fields: { ...fields, file: { ...fields.file, props: { upload } } },
+        fields,
         modelValue: model.value,
         'onUpdate:modelValue': (value: Partial<Input>) => { model.value = value },
       }),
     })
     const app = createApp(Root)
-    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.use(FrameworkPlugin, { adapters: { assets: assetsFor(upload) }, queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
     app.mount(host)
     apps.push(app)
     await settle()
@@ -155,14 +171,14 @@ describe('FileInput browser behavior', () => {
     const Root = defineComponent({
       setup: () => () => h(Form, {
         schema: multiSchema,
-        fields: { ...multiFields, files: { ...multiFields.files, props: { multi: true, upload } } },
+        fields: multiFields,
         initialData: { files: [] },
         modelValue: model.value,
         'onUpdate:modelValue': (value: Partial<MultiInput>) => { model.value = value },
       }),
     })
     const app = createApp(Root)
-    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.use(FrameworkPlugin, { adapters: { assets: assetsFor(upload) }, queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
     app.mount(host)
     apps.push(app)
     await settle()
@@ -187,24 +203,22 @@ describe('FileInput browser behavior', () => {
     expect(host.textContent).toContain('Letakkan file anda di sini')
   })
 
-  it('blocks button and Enter submission during deferred upload and conversion, then submits once', async () => {
+  it('blocks button and Enter submission during a deferred upload, then submits once', async () => {
     let resolveUpload!: (value: Asset) => void
-    let resolveModel!: (value: Asset) => void
     const upload = () => new Promise<Asset>((resolve) => { resolveUpload = resolve })
-    const toModel = () => new Promise<Asset>((resolve) => { resolveModel = resolve })
     const submit = vi.fn(async () => undefined)
     const host = document.createElement('div')
     document.body.append(host)
     const Root = defineComponent({
       setup: () => () => h(Form, {
         schema,
-        fields: { ...fields, file: { ...fields.file, props: { upload, toModel } } },
+        fields,
         initialData: { file: null },
         submit,
       }),
     })
     const app = createApp(Root)
-    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.use(FrameworkPlugin, { adapters: { assets: assetsFor(upload) }, queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
     app.mount(host)
     apps.push(app)
     await settle()
@@ -224,14 +238,6 @@ describe('FileInput browser behavior', () => {
     expect(submit).not.toHaveBeenCalled()
 
     resolveUpload(asset('first.pdf'))
-    await settle()
-    expect(button.disabled).toBe(true)
-    button.click()
-    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
-    await settle()
-    expect(submit).not.toHaveBeenCalled()
-
-    resolveModel(asset('first.pdf'))
     await settle()
     expect(button.disabled).toBe(false)
 

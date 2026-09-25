@@ -1,7 +1,7 @@
 <script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>">
-import { computed, getCurrentInstance, ref, toRef, watch } from 'vue'
+import { computed, getCurrentInstance, nextTick, onBeforeUpdate, ref, toRef, watch } from 'vue'
 import type { CollectionLoadContext, CollectionProps, CollectionResult, CollectionSlotProps, QueryValues } from '../../contracts'
-import { useLoader, useNamespacedQuery } from '../../query'
+import { coerceQueryValues, useLoader, useNamespacedQuery } from '../../query'
 import { assertSingleDataSource, collectionCacheKey, instanceIdentity } from './useCoreData'
 
 const props = withDefaults(defineProps<CollectionProps<TRecord, TQuery>>(), {
@@ -17,29 +17,39 @@ const emit = defineEmits<{
 
 assertSingleDataSource('Collection', props.data, props.load)
 
+const instance = getCurrentInstance()
 const defaults = computed<QueryValues>(() => ({ page: 1, limit: props.defaultPageSize }))
-const hasControlledQuery = 'query' in (getCurrentInstance()?.vnode.props ?? {})
-const controlled = ref<QueryValues>({ ...defaults.value, ...(props.query as QueryValues | undefined) })
+const hasControlledQuery = ref(hasQueryProp())
 const query = useNamespacedQuery({
   namespace: toRef(() => props.namespace ?? 'collection'),
   defaults,
-  local: hasControlledQuery || !props.namespace ? controlled : undefined,
 })
 
-watch(
-  () => props.query,
-  (value) => {
-    if (!hasControlledQuery) return
-    controlled.value = { ...defaults.value, ...((value ?? {}) as QueryValues) }
-  },
-)
+const queryValues = computed<QueryValues>(() => {
+  hasControlledQuery.value
+  return hasQueryProp()
+    ? coerceQueryValues((props.query ?? {}) as QueryValues, defaults.value)
+    : query.values.value
+})
 
-if (!hasControlledQuery) watch(query.values, (value) => emit('update:query', value), { deep: true })
+onBeforeUpdate(() => {
+  hasControlledQuery.value = hasQueryProp()
+})
+
+let namespaceChange = false
+watch(() => props.namespace ?? 'collection', () => {
+  namespaceChange = true
+  void nextTick().then(() => { namespaceChange = false })
+}, { flush: 'sync' })
+
+watch(query.values, (value) => {
+  if (!hasControlledQuery.value && !namespaceChange) emit('update:query', value)
+}, { deep: true })
 
 const fallbackOwner = instanceIdentity('collection')
 const owner = computed(() => props.resource ?? props.namespace ?? fallbackOwner)
 const effectiveQuery = computed<QueryValues>(() => {
-  const values = query.values.value
+  const values = queryValues.value
   if (!props.reorderable) return values
   const { page: _page, limit: _limit, sort_by: _sortBy, sort: _sort, ...filters } = values
   return filters
@@ -56,13 +66,14 @@ const meta = computed(() => loaded.data.value?.meta)
 const empty = computed(() => !loaded.loading.value && !loaded.error.value && records.value.length === 0)
 
 function updateQuery(patch: QueryValues) {
-  query.update(patch)
-  if (hasControlledQuery) emit('update:query', query.values.value)
+  if (hasControlledQuery.value) emit('update:query', { ...queryValues.value, ...patch })
+  else query.update(patch)
 }
 
 function replaceQuery(values: QueryValues) {
-  query.replace(values)
-  if (hasControlledQuery) emit('update:query', query.values.value)
+  const next = coerceQueryValues(values, defaults.value)
+  if (hasControlledQuery.value) emit('update:query', next)
+  else query.replace(next)
 }
 
 const slotProps = computed<CollectionSlotProps<TRecord, TQuery>>(() => ({
@@ -71,12 +82,17 @@ const slotProps = computed<CollectionSlotProps<TRecord, TQuery>>(() => ({
   loading: loaded.loading.value,
   error: loaded.error.value,
   empty: empty.value,
-  query: query.values.value as TQuery,
+  query: queryValues.value as TQuery,
   refresh: loaded.refresh,
   updateQuery,
 }))
 
-defineExpose({ refresh: loaded.refresh, query: query.values, updateQuery, replaceQuery })
+defineExpose({ refresh: loaded.refresh, query: queryValues, updateQuery, replaceQuery })
+
+function hasQueryProp(): boolean {
+  const vnodeProps = instance?.vnode.props ?? {}
+  return Object.hasOwn(vnodeProps, 'query') || Object.hasOwn(vnodeProps, 'query-value')
+}
 </script>
 
 <template>

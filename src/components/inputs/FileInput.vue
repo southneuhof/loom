@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { defineAsyncComponent, ref, watch, computed, onBeforeUnmount, useAttrs, type PropType } from 'vue'
-import type { UploadOperation, UploadProgress } from '../../contracts'
+import { defineAsyncComponent, ref, watch, computed, onBeforeUnmount, useAttrs } from 'vue'
+import type { UploadProgress } from '../../contracts'
+import type { AssetValue } from '../../assets/contracts'
+import { useAssetAdapter } from '../../assets/provider'
 import { useFormInputPending } from '../core/useFormInputState'
 import FileComponent from '@southneuhof/loom/components/utils/FileComponent.vue'
 import { toast } from 'vue-sonner'
@@ -12,9 +14,9 @@ import Tooltip from '@southneuhof/loom/components/base/Tooltip.vue'
 import Button from '@southneuhof/loom/components/base/Button.vue'
 import Popover from '@southneuhof/loom/components/base/Popover.vue'
 import { Dialog, DialogContent } from '@southneuhof/loom/components/base/Dialog/index'
-import { toInputAssetValue, type InputAssetValue } from './assetValue'
 import { useDropZone } from '@vueuse/core'
-import { useOptionalAssetProvider, type ManagedAsset } from './optionalAssetProvider'
+import type { ManagedAsset } from '../../file-manager/contracts'
+import { useOptionalFileManager } from '../../file-manager/provider'
 import { useUploadMutation } from './useUploadMutation'
 
 defineOptions({ inheritAttrs: false })
@@ -39,8 +41,6 @@ const props = defineProps({
     type: String,
     default: '',
   },
-  upload: Function as PropType<UploadOperation>,
-  toModel: { type: Function as PropType<(result: unknown) => unknown | Promise<unknown>>, default: (result: unknown) => result },
   ...commonProps,
 })
 const attrs = useAttrs()
@@ -50,22 +50,26 @@ const controlAttrs = computed(() => Object.fromEntries(
 const wrapperAttrs = computed(() => Object.fromEntries(
   Object.entries(attrs).filter(([key]) => key === 'class' || key === 'style'),
 ))
-const fileManager = useOptionalAssetProvider()
+const fileManager = useOptionalFileManager()
 const AssetPicker = defineAsyncComponent(() => import('../../file-manager/AssetPicker.vue'))
-const mutation = useUploadMutation(() => props.upload)
+const assets = useAssetAdapter()
+const mutation = useUploadMutation(() => assets.upload)
 const inputPending = useFormInputPending()
 let disposed = false
-const pendingOperations = new Set<{ release: () => void }>()
-function releaseOperation(operation: { release: () => void }) {
+const pendingOperations = new Map<string, { release: () => void; released: () => boolean }>()
+function releaseOperation(id: string) {
+  const operation = pendingOperations.get(id)
+  if (!operation) return
   operation.release()
-  pendingOperations.delete(operation)
+  pendingOperations.delete(id)
 }
 onBeforeUnmount(() => {
   disposed = true
-  for (const operation of [...pendingOperations]) releaseOperation(operation)
+  for (const id of pendingOperations.keys()) releaseOperation(id)
 })
 const emit = defineEmits<{
   (event: 'validation:touch'): void
+  (event: 'validation:error', message: string | undefined): void
 }>()
 
 const acceptTypes = computed(() => props.accept ?? [])
@@ -75,7 +79,12 @@ const acceptTypesPretty = computed(() => acceptTypes.value.map((type: string) =>
 type PersistedFileRow = {
   id: string
   kind: 'persisted'
-  item: InputAssetValue
+  item: AssetValue
+}
+
+type InvalidFileRow = {
+  id: string
+  kind: 'invalid'
 }
 
 type PendingFileRow = {
@@ -85,45 +94,47 @@ type PendingFileRow = {
   progress?: UploadProgress
 }
 
-type FileRow = PersistedFileRow | PendingFileRow
+type FileRow = PersistedFileRow | InvalidFileRow | PendingFileRow
 
 const rows = ref<FileRow[]>([])
+const invalidAsset = ref(false)
+let targetGeneration = 0
+let selectionGeneration = 0
 let rowSequence = 0
 const sourcePopoverOpen = ref(false)
 const fileManagerOpen = ref(false)
 const fileInput = ref<HTMLInputElement>()
 const dropZoneRef = ref<HTMLDivElement>()
 
-const modelValue = defineModel<InputAssetValue | InputAssetValue[] | null>()
-if (modelValue.value) {
-  if (Array.isArray(modelValue.value)) {
-    rows.value = modelValue.value
-      .map((item) => toInputAssetValue(item))
-      .filter((item): item is InputAssetValue => Boolean(item))
-      .map((item) => persistedRow(item))
-  } else {
-    const normalized = toInputAssetValue(modelValue.value)
-    if (normalized) rows.value.push(persistedRow(normalized))
-  }
-}
+const modelValue = defineModel<AssetValue | AssetValue[] | null>()
 
 function nextRowID() {
   rowSequence += 1
   return `file-upload-${rowSequence}`
 }
 
-function persistedRow(item: InputAssetValue): PersistedFileRow {
+function persistedRow(item: AssetValue): PersistedFileRow {
   return { id: nextRowID(), kind: 'persisted', item }
+}
+
+function invalidRow(): InvalidFileRow {
+  return { id: nextRowID(), kind: 'invalid' }
 }
 
 function persistedItems() {
   return rows.value.flatMap((row) => row.kind === 'persisted' ? [row.item] : [])
 }
 
+function cancelPendingRows() {
+  for (const id of pendingOperations.keys()) releaseOperation(id)
+}
+
 function emitChanges() {
+  if (invalidAsset.value) return
   const items = persistedItems()
   if (props.multi) modelValue.value = items
   else modelValue.value = items[0] || null
+  emit('validation:error', undefined)
 }
 
 function progressPercentage(progress?: UploadProgress) {
@@ -131,7 +142,7 @@ function progressPercentage(progress?: UploadProgress) {
   return Math.min(100, Math.max(0, Math.round((progress.loaded / progress.total) * 100)))
 }
 
-function sameAsset(left: InputAssetValue, right: InputAssetValue) {
+function sameAsset(left: AssetValue, right: AssetValue) {
   return left.id === right.id
     && left.kind === right.kind
     && left.url === right.url
@@ -143,27 +154,38 @@ function sameAsset(left: InputAssetValue, right: InputAssetValue) {
 }
 
 function syncPersistedRows(value: unknown) {
-  const values = Array.isArray(value) ? value : (value === undefined || value === null ? [] : [value])
-  for (const item of values) {
-    if (item !== null && typeof item === 'object' && toInputAssetValue(item) === null) {
-      throw new Error('[loom] FileInput received a malformed asset value.')
-    }
+  if (value === undefined || value === null) {
+    const current = persistedItems()
+    if (current.length === 0 && !invalidAsset.value) return
+    cancelPendingRows()
+    rows.value = []
+    targetGeneration += 1
+    invalidAsset.value = false
+    emit('validation:error', undefined)
+    return
   }
+  const values = Array.isArray(value) ? value : [value]
+  const resolved = values.map((item) => assets.read(item))
+  const normalized = resolved.filter((item): item is AssetValue => item !== null)
+  const hasInvalidAsset = resolved.some((item) => item === null)
   const current = persistedItems()
-  const normalized = values
-    .map((item) => toInputAssetValue(item))
-    .filter((item): item is InputAssetValue => Boolean(item))
-  if (current.length === normalized.length && current.every((item, index) => sameAsset(item, normalized[index]))) return
+  const sameValues = current.length === normalized.length && current.every((item, index) => sameAsset(item, normalized[index]))
+  if (sameValues && invalidAsset.value === hasInvalidAsset) return
+  if (!sameValues || hasInvalidAsset !== invalidAsset.value) cancelPendingRows()
 
-  const pending = rows.value.filter((row): row is PendingFileRow => row.kind === 'pending')
-  rows.value = [...normalized.map((item) => persistedRow(item)), ...pending]
+  rows.value = [...normalized.map((item) => persistedRow(item)), ...(hasInvalidAsset ? [invalidRow()] : [])]
+  targetGeneration += 1
+  invalidAsset.value = hasInvalidAsset
+  emit('validation:error', hasInvalidAsset ? 'Invalid asset value.' : undefined)
 }
 
 function startFileUpload(file: File) {
+  if (props.disabled || invalidAsset.value) return
   const row: PendingFileRow = { id: nextRowID(), kind: 'pending', file }
   rows.value.push(row)
+  targetGeneration += 1
   const operation = inputPending.begin()
-  pendingOperations.add(operation)
+  pendingOperations.set(row.id, operation)
 
   void (async () => {
     try {
@@ -173,10 +195,9 @@ function startFileUpload(file: File) {
         )
         if (current) current.progress = progress
       })
-      const model = await props.toModel(uploaded)
       if (disposed || operation.released()) return
-      const normalized = toInputAssetValue(model)
-      if (!normalized) throw new Error('Invalid upload response')
+      const normalized = assets.read(uploaded)
+      if (!normalized) throw new Error('Upload returned an invalid asset.')
       const index = rows.value.findIndex((candidate) => candidate.id === row.id && candidate.kind === 'pending')
       if (index === -1) return
       rows.value.splice(index, 1, { id: row.id, kind: 'persisted', item: normalized })
@@ -188,12 +209,13 @@ function startFileUpload(file: File) {
       if (index !== -1) rows.value.splice(index, 1)
       toast.error(`Gagal mengunggah berkas: ${mutation.error.value?.message ?? String(err)}`)
     } finally {
-      releaseOperation(operation)
+      releaseOperation(row.id)
     }
   })()
 }
 
 const handleFileUpload = (files: File | File[]) => {
+  if (props.disabled || invalidAsset.value) return
   const incomingFiles = Array.isArray(files) ? files : [files]
   const fileArray = props.multi ? incomingFiles : incomingFiles.slice(0, 1)
 
@@ -206,18 +228,22 @@ const handleFileUpload = (files: File | File[]) => {
 
 function handleInputChange(event: Event) {
   const target = event.target as HTMLInputElement
+  if (props.disabled) {
+    target.value = ''
+    return
+  }
   handleFileUpload(Array.from(target.files ?? []))
   target.value = ''
 }
 
 function openDevicePicker() {
-  if (!props.upload) return
+  if (props.disabled || invalidAsset.value) return
   sourcePopoverOpen.value = false
   fileInput.value?.click()
 }
 
 function openFileManager() {
-  if (!fileManager) return
+  if (props.disabled || invalidAsset.value || !fileManager) return
   sourcePopoverOpen.value = false
   fileManagerOpen.value = true
 }
@@ -235,13 +261,21 @@ function validateFileLike(contentType?: string, size?: number): boolean {
 }
 
 async function selectFileManagerAsset(payload: ManagedAsset) {
-  if (!fileManager || payload.kind === 'folder') return
-  const normalized = toInputAssetValue(await fileManager.values.toModel(payload))
-  if (!normalized) return
+  if (props.disabled || disposed || invalidAsset.value || !fileManager || payload.kind === 'folder') return
+  const selection = ++selectionGeneration
+  const target = targetGeneration
+  const model = await fileManager.values.toModel(payload)
+  if (props.disabled || disposed || selection !== selectionGeneration || target !== targetGeneration) return
+  const normalized = assets.read(model)
+  if (!normalized) {
+    toast.error('Invalid asset value.')
+    return
+  }
   if (!validateFileLike(normalized.mimeType, normalized.size)) return
 
   if (props.multi) rows.value.push(persistedRow(normalized))
   else rows.value = [persistedRow(normalized)]
+  targetGeneration += 1
 
   emitChanges()
   emit('validation:touch')
@@ -249,21 +283,33 @@ async function selectFileManagerAsset(payload: ManagedAsset) {
 }
 
 function handleFileDelete(id: string) {
-  const index = rows.value.findIndex((row) => row.id === id && row.kind === 'persisted')
+  if (props.disabled) return
+  const index = rows.value.findIndex((row) => row.id === id)
   if (index === -1) return
+  const row = rows.value[index]
+  if (invalidAsset.value && row.kind !== 'invalid') return
+  if (row.kind === 'pending') releaseOperation(id)
   rows.value.splice(index, 1)
+  if (row.kind === 'invalid') {
+    invalidAsset.value = false
+    emit('validation:error', undefined)
+  }
+  targetGeneration += 1
   emitChanges()
   emit('validation:touch')
 }
 
-watch(modelValue, syncPersistedRows)
+watch(modelValue, syncPersistedRows, { immediate: true, flush: 'sync' })
+watch(() => props.disabled, (disabled) => {
+  if (disabled) selectionGeneration += 1
+}, { flush: 'sync' })
 
 function onDrop(files?: File[] | null) {
-  if (files?.length) handleFileUpload(files)
+  if (!props.disabled && files?.length) handleFileUpload(files)
 }
 
 const { isOverDropZone } = useDropZone(dropZoneRef, onDrop)
-const canAddFile = computed(() => props.multi || rows.value.length === 0)
+const canAddFile = computed(() => !invalidAsset.value && (props.multi || rows.value.length === 0))
 </script>
 
 <template>
@@ -273,7 +319,7 @@ const canAddFile = computed(() => props.multi || rows.value.length === 0)
       ref="fileInput"
       type="file"
       hidden
-      :disabled="!props.upload || (!props.multi && rows.length > 0)"
+      :disabled="props.disabled || (!props.multi && rows.length > 0)"
       :multiple="props.multi"
       :accept="acceptTypes.join(',') || undefined"
       class="rounded-md p-2"
@@ -284,16 +330,14 @@ const canAddFile = computed(() => props.multi || rows.value.length === 0)
         <template v-for="row in rows" :key="row.id">
           <FileComponent
             v-if="row.kind === 'persisted'"
-            :filename="row.item.name"
-            :url="row.item.url"
-            :ext="row.item.url?.split('.')[1]"
-            :action="{
+            :asset="row.item"
+            :action="props.disabled ? undefined : {
               label: 'Hapus',
               action: () => handleFileDelete(row.id),
             }"
           />
           <div
-            v-else
+            v-else-if="row.kind === 'pending'"
             v-bind="{ 'data-upload-id': row.id, 'data-testid': 'file-upload-progress' }"
             class="relative flex max-w-max overflow-hidden rounded-md bg-surface-container p-4"
           >
@@ -310,7 +354,14 @@ const canAddFile = computed(() => props.multi || rows.value.length === 0)
                   Mengunggah<span v-if="progressPercentage(row.progress) != null"> {{ progressPercentage(row.progress) }}%</span>
                 </p>
               </div>
+              <Button type="button" kind="icon" color="error" ariaLabel="Remove pending upload" :disabled="props.disabled" @click="handleFileDelete(row.id)">
+                <template #icon><Icon name="delete-bin" /></template>
+              </Button>
             </div>
+          </div>
+          <div v-else role="alert" class="flex items-center gap-3 rounded-md bg-error-container p-3 text-on-error-container">
+            <span>Invalid asset value.</span>
+            <Button type="button" variant="text" :disabled="props.disabled" @click="handleFileDelete(row.id)">Remove invalid value</Button>
           </div>
         </template>
       </div>
@@ -321,7 +372,7 @@ const canAddFile = computed(() => props.multi || rows.value.length === 0)
             <div class="text-black-light">/</div>
             <Popover v-model="sourcePopoverOpen" contentClass="p-0">
               <template #trigger>
-                <Button type="button">
+                <Button type="button" :disabled="props.disabled">
                   <template #icon>
                     <Icon name="add-circle"></Icon>
                   </template>
@@ -330,11 +381,11 @@ const canAddFile = computed(() => props.multi || rows.value.length === 0)
               </template>
               <template #content>
                 <div class="flex flex-col">
-                  <button v-if="props.upload" type="button" class="overlay flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active" @click="openDevicePicker">
+                  <button type="button" :disabled="props.disabled" class="overlay flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active" @click="openDevicePicker">
                     <Icon name="upload-cloud" size="sm" />
                     <span>Upload from device</span>
                   </button>
-                  <button v-if="fileManager" type="button" class="overlay flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active" @click="openFileManager">
+                  <button v-if="fileManager" type="button" :disabled="props.disabled" class="overlay flex w-full items-center gap-2 rounded-md px-3 py-2 text-left text-sm after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active" @click="openFileManager">
                     <Icon name="folder-2" size="sm" />
                     <span>Choose from file manager</span>
                   </button>

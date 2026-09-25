@@ -1,5 +1,5 @@
 import type { CollectionLoadContext, CollectionResult, RawSchema, TableProps } from '../../../contracts'
-import type { ListFilters } from '../ListView.vue'
+import type { ListFilters } from '../../../contracts/views'
 import ListView from '../ListView.vue'
 
 type Role = { id: string; name: string }
@@ -24,7 +24,7 @@ const table: TableProps<Role, RoleQuery> = {
 }
 const transformedFilters = {
   schema: filterSchema,
-  fields: { state: { label: 'State' } },
+  fields: { state: { renderer: 'select', label: 'State', props: { data: [{ id: 'active', name: 'Active' }, { id: 'archived', name: 'Archived' }] } } },
   defaults: { state: 'active' },
 } satisfies ListFilters<RoleQuery, FilterInput>
 
@@ -37,7 +37,7 @@ const invalidFilters = {
     _output: null as unknown as { unrelated: string },
     parseAsync: async () => ({ unrelated: 'value' }),
   },
-  fields: { state: {} },
+  fields: { state: { renderer: 'text' } },
 }
 
 // @ts-expect-error Filter schema output must be a partial table query.

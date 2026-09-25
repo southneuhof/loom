@@ -16,6 +16,7 @@ import type {
   QueryValues,
   SubmitError,
 } from '../contracts'
+import type { AssetAdapter } from '../assets/contracts'
 
 export interface DataAdapter {
   /** Normalizes any backend collection envelope into rows plus metadata. */
@@ -46,6 +47,7 @@ export interface FrameworkAdaptersInput {
   queryDefaults?: QueryRuntimeDefaults
   /** UI environment signals; defaults to a static light scheme. */
   ui?: UiAdapter
+  assets?: AssetAdapter
 }
 
 export interface ResolvedFrameworkAdapters {
@@ -54,6 +56,7 @@ export interface ResolvedFrameworkAdapters {
   access: AccessAdapter
   queryDefaults: Required<QueryRuntimeDefaults>
   ui: UiAdapter
+  assets?: AssetAdapter
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -75,6 +78,16 @@ function collectMeta(source: Record<string, unknown>) {
   return Object.values(meta).some((value) => value !== undefined) ? meta : undefined
 }
 
+function submitErrorMetadata(error: unknown): Pick<SubmitError, 'code' | 'operation' | 'retryable' | 'postWrite'> {
+  if (!isRecord(error)) return {}
+  return {
+    ...(typeof error.code === 'string' ? { code: error.code } : {}),
+    ...(typeof error.operation === 'string' ? { operation: error.operation } : {}),
+    ...(typeof error.retryable === 'boolean' ? { retryable: error.retryable } : {}),
+    ...(typeof error.postWrite === 'boolean' ? { postWrite: error.postWrite } : {}),
+  }
+}
+
 export const defaultDataAdapter: DataAdapter = {
   normalizeCollection: <TRecord extends object>(payload: unknown): CollectionResult<TRecord> => {
     if (Array.isArray(payload)) return { data: payload as TRecord[] }
@@ -92,8 +105,8 @@ export const defaultDataAdapter: DataAdapter = {
     return payload as TRecord
   },
   normalizeError: (error: unknown): SubmitError => {
-    if (error instanceof Error) return { message: error.message }
-    if (isRecord(error) && typeof error.message === 'string') return { message: error.message }
+    if (error instanceof Error) return { message: error.message, ...submitErrorMetadata(error) }
+    if (isRecord(error) && typeof error.message === 'string') return { message: error.message, ...submitErrorMetadata(error) }
     return { message: 'Request failed.' }
   },
 }
@@ -135,12 +148,21 @@ export const defaultUiAdapter: UiAdapter = {
 }
 
 export function resolveFrameworkAdapters(input: FrameworkAdaptersInput = {}): ResolvedFrameworkAdapters {
+  if (input.assets !== undefined && (
+    !input.assets
+    || typeof input.assets.read !== 'function'
+    || typeof input.assets.preview !== 'function'
+    || typeof input.assets.upload !== 'function'
+  )) {
+    throw new Error('[loom] Asset adapter must provide read, preview, and upload functions.')
+  }
   return {
     data: { ...defaultDataAdapter, ...input.data },
     query: input.query ?? createMemoryQueryLocationAdapter(),
     access: input.access ?? defaultAccessAdapter,
     queryDefaults: { ...defaultQueryRuntimeDefaults, ...input.queryDefaults },
     ui: input.ui ?? defaultUiAdapter,
+    ...(input.assets ? { assets: input.assets } : {}),
   }
 }
 

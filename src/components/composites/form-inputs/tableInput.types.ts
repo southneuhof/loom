@@ -1,4 +1,4 @@
-import type { FormDefinition } from '../../../contracts/forms'
+import type { FormDefinition, FormDraft } from '../../../contracts/forms'
 import type { TableColumn, TableDefinition, TableProps } from '../../../contracts'
 
 export type TableInputTable<TRow extends object> = Omit<TableDefinition<TRow>, 'columns'> & {
@@ -26,7 +26,7 @@ interface TableInputBase<TInput extends object, TRow extends object> {
 
 type TableInputEditor<TInput extends object, TRow extends object> = {
   form: TableInputForm<TInput, TRow>
-  toDraft: (row: TRow) => Partial<TInput>
+  toDraft: (row: TRow) => FormDraft<TInput>
 } & TableInputReordering<TRow>
 
 type TableInputReadOnly = {

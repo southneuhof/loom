@@ -27,6 +27,7 @@ const props = defineProps({
     required: false,
     default: true,
   },
+  disabled: Boolean,
   required: Boolean,
 })
 const emit = defineEmits<{ (event: 'validation:touch'): void }>()

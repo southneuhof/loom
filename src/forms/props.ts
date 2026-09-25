@@ -1,26 +1,46 @@
-import type { FormDefinition } from '../contracts/forms'
+import type { FormActionSlotProps, FormDefinition, FormDraft, FormSlots } from '../contracts/forms'
 import type { MaybePromise, RecordIdentity, RecordLoadContext } from '../contracts/load'
 import type { QueryNamespace } from '../contracts/query'
-import type { SchemaFieldMetadata } from '../contracts/schema'
 import type { SubmitError } from '../contracts/results'
+import type { AriaAttributes, ClassValue, StyleValue } from 'vue'
 import { assertFormBehavior } from './behavior'
 
-export interface FormInputProps {
-  label?: string | (() => string)
-  renderer?: string
-  props?: Record<string, unknown>
-  source?: object
-  span?: number
-  initialValue?: () => unknown
-  behavior?: object
+export type FormNativeAttributes = {
+  readonly acceptCharset?: string
+  readonly action?: string
+  readonly autocomplete?: string
+  readonly enctype?: string
+  readonly method?: string
+  readonly name?: string
+  readonly novalidate?: boolean | '' | 'true' | 'false'
+  readonly target?: string
+  readonly accesskey?: string
+  readonly contenteditable?: boolean | 'true' | 'false' | 'inherit' | 'plaintext-only'
+  readonly dir?: 'ltr' | 'rtl' | 'auto'
+  readonly draggable?: boolean | 'true' | 'false'
+  readonly hidden?: boolean | '' | 'hidden' | 'until-found'
+  readonly inert?: boolean | 'true' | 'false'
+  readonly lang?: string
+  readonly role?: string
+  readonly spellcheck?: boolean | 'true' | 'false'
+  readonly tabindex?: number | string
+  readonly class?: ClassValue
+  readonly style?: StyleValue
 }
+  & AriaAttributes
+
+export const formNativeAttributeNames = [
+  'acceptCharset', 'action', 'autocomplete', 'enctype', 'method', 'name', 'novalidate', 'target',
+  'accesskey', 'contenteditable', 'dir', 'draggable', 'hidden', 'inert', 'lang', 'role',
+  'spellcheck', 'tabindex', 'class', 'style',
+] as const satisfies readonly (keyof FormNativeAttributes)[]
 
 export type FormSubmit<TOutput extends object, TResult> = (output: TOutput) => MaybePromise<TResult>
 
 export interface FormRuntimeProps<TInput extends object> {
-  modelValue?: Partial<TInput> | undefined
-  initialData?: Partial<TInput>
-  load?: (context: RecordLoadContext) => MaybePromise<Partial<TInput> | undefined>
+  modelValue?: FormDraft<TInput> | undefined
+  initialData?: FormDraft<TInput>
+  load?: (context: RecordLoadContext) => MaybePromise<FormDraft<TInput> | undefined>
   id?: RecordIdentity
   resource?: string
   namespace?: QueryNamespace
@@ -33,16 +53,18 @@ export interface FormRuntimeProps<TInput extends object> {
 }
 
 export type FormBindingProps<TInput extends object, TOutput extends object, TResult> =
-  | { submit: FormSubmit<TOutput, TResult>; modelValue?: Partial<TInput> | undefined }
-  | { submit?: never; modelValue: Partial<TInput> | undefined }
+  | { submit: FormSubmit<TOutput, TResult>; modelValue?: FormDraft<TInput> | undefined }
+  | { submit?: never; modelValue: FormDraft<TInput> | undefined }
 
 export type FormProps<
   TInput extends object = Record<string, unknown>,
   TOutput extends object = Record<string, unknown>,
   TResult = unknown,
-> = Omit<FormDefinition<TInput, TOutput, TResult>, 'submit'>
+  TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>,
+> = Omit<FormDefinition<TInput, TOutput, TResult, TKeys>, 'submit'>
   & FormRuntimeProps<TInput>
   & FormBindingProps<TInput, TOutput, TResult>
+  & FormNativeAttributes
 
 export type DialogFormCloseReason = 'cancel' | 'dismiss'
 
@@ -66,10 +88,35 @@ export type DialogFormProps<
   TInput extends object = Record<string, unknown>,
   TOutput extends object = Record<string, unknown>,
   TResult = unknown,
-> = FormProps<TInput, TOutput, TResult> & DialogFormPresentationProps
+  TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>,
+> = FormProps<TInput, TOutput, TResult, TKeys> & DialogFormPresentationProps
 
-const formInputMembers = new Set(['label', 'renderer', 'props', 'source', 'span', 'initialValue', 'behavior'])
+export type DialogFormSlots<
+  TInput extends object,
+  TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>,
+> = Omit<FormSlots<TInput, TKeys>, 'actions'> & {
+  actions?: (props: Omit<FormActionSlotProps, 'submit'> & {
+    submit: () => Promise<void> | undefined
+    requestClose: (reason: DialogFormCloseReason) => Promise<boolean>
+  }) => unknown
+  trigger?: (props: { readonly setOpen: (value: boolean) => void; readonly disabled: boolean }) => unknown
+  title?: (props: { readonly requestClose: (reason: DialogFormCloseReason) => Promise<boolean> }) => unknown
+  description?: (props: { readonly requestClose: (reason: DialogFormCloseReason) => Promise<boolean> }) => unknown
+  header?: (props: { readonly requestClose: (reason: DialogFormCloseReason) => Promise<boolean> }) => unknown
+  footer?: (props: { readonly requestClose: (reason: DialogFormCloseReason) => Promise<boolean> }) => unknown
+}
+
+const formInputMembers = new Set(['label', 'renderer', 'props', 'span', 'initialValue', 'behavior'])
 const unsafeKeys = new Set(['__proto__', 'prototype', 'constructor'])
+
+interface FormInputRuntime {
+  renderer: string
+  label?: unknown
+  props?: unknown
+  span?: unknown
+  initialValue?: unknown
+  behavior?: unknown
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -85,7 +132,7 @@ export function assertSafeFieldKey(key: string): void {
   }
 }
 
-export function assertFormInput(key: string, value: unknown, metadata: SchemaFieldMetadata): asserts value is FormInputProps {
+export function assertFormInput(key: string, value: unknown): asserts value is FormInputRuntime {
   if (!isRecord(value)) invalidOption(key, 'field', 'an object')
 
   for (const member of Object.keys(value)) {
@@ -100,9 +147,6 @@ export function assertFormInput(key: string, value: unknown, metadata: SchemaFie
   if (isRecord(value.props) && Object.hasOwn(value.props, 'required')) {
     invalidOption(key, 'props.required', 'controlled by the input schema')
   }
-  if ('source' in value && (!isRecord(value.source) || typeof value.source.load !== 'function')) {
-    invalidOption(key, 'source', 'an input source object with a load function')
-  }
   if ('span' in value && (typeof value.span !== 'number' || !Number.isInteger(value.span) || value.span < 1)) {
     invalidOption(key, 'span', 'a positive integer')
   }
@@ -111,9 +155,7 @@ export function assertFormInput(key: string, value: unknown, metadata: SchemaFie
   }
   if ('behavior' in value) assertFormBehavior(value.behavior, key)
 
-  if (typeof value.renderer !== 'string' && !['string', 'number', 'boolean', 'date', 'enum'].includes(metadata.kind)) {
-    throw new Error(`[loom][INPUT_RENDERER_REQUIRED] Form field "${key}" has schema kind "${metadata.kind}" and needs an explicit renderer.`)
-  }
+  if (typeof value.renderer !== 'string') throw new Error(`[loom][INPUT_RENDERER_REQUIRED] Form field "${key}" needs an explicit renderer.`)
 }
 
 export function isFormInputRecord(value: unknown): value is Record<string, unknown> {

@@ -9,7 +9,7 @@ import { displayValueRequirement } from './requirements'
 export type DisplaySurface = 'table' | 'detail'
 
 export interface ResolvedDisplayField<TRecord extends object = Record<string, unknown>>
-  extends DisplayField<TRecord, unknown> {
+  extends Omit<DisplayField<TRecord, unknown>, 'props'> {
   readonly key: string
   readonly label: string
   readonly props: Readonly<Record<string, unknown>>
@@ -153,11 +153,12 @@ export function resolveDisplayFields<TRecord extends object>(
     }
     const entry = entries[key]
     validateEntry<TRecord>(surface, key, entry, recordKeys, queryKeys, querySortKeys)
+    const props: unknown = Reflect.get(entry, 'props')
     const resolved: ResolvedDisplayField<TRecord> = {
       ...entry,
       key,
       label: resolveLabel(key, entry.label, labels),
-      props: isRecord(entry.props) ? { ...entry.props } : {},
+      props: isRecord(props) ? { ...props } : {},
       surface,
     }
     return resolved

@@ -1,23 +1,12 @@
 import { computed, watch, type ComputedRef, type WatchStopHandle } from 'vue'
 import type { FormBehaviorContext } from '../contracts/forms'
 import type { Label } from '../contracts/labels'
-import type { SchemaFieldKind } from '../contracts/schema'
 import { resolveLabel } from '../labels/resolveLabel'
 import type { CompiledFormField } from './compileForm'
+import { isPlainRecord, snapshotEditable } from './draftValues'
 
 const behaviorMembers = new Set(['visible', 'disabled', 'props', 'presentation', 'derived', 'resetWhen'])
 const presentationMembers = new Set(['renderer', 'label', 'props', 'span', 'required'])
-const compatibleInputKinds: Readonly<Record<string, readonly SchemaFieldKind[]>> = {
-  text: ['string', 'enum'],
-  textarea: ['string'],
-  password: ['string'],
-  number: ['number'],
-  select: ['string', 'enum', 'object', 'array'],
-  radio: ['string', 'enum'],
-  date: ['date'],
-  switch: ['boolean'],
-  checkbox: ['boolean'],
-}
 
 export interface FormBehaviorState {
   visible: boolean
@@ -34,7 +23,7 @@ export interface FormBehaviorRuntime {
   state: (key: string) => ComputedRef<FormBehaviorState>
   visibleKeys: ComputedRef<string[]>
   settle: () => void
-  connect: (write: (key: string, value: unknown) => void) => WatchStopHandle
+  connect: (write: (key: string, value: unknown) => void, reset: (key: string) => void) => WatchStopHandle
 }
 
 export interface FormBehaviorRuntimeOptions {
@@ -73,17 +62,6 @@ export function assertFormBehavior(value: unknown, key: string): void {
   }
   if (typeof value.derived === 'function' && typeof value.resetWhen === 'function') {
     throw new Error(`[loom][SURFACE_OPTION_INVALID] Form field "${key}" cannot use behavior.derived and behavior.resetWhen together.`)
-  }
-}
-
-export function assertRendererInputCompatibility(key: string, kind: SchemaFieldKind, renderer?: string): void {
-  if (renderer === undefined) {
-    if (kind === 'string' || kind === 'enum') return
-    throw new Error(`[loom][SURFACE_OPTION_INVALID] Form field "${key}" member "renderer" must accept schema input kind "${kind}".`)
-  }
-  const allowed = compatibleInputKinds[renderer]
-  if (allowed && !allowed.includes(kind)) {
-    throw new Error(`[loom][SURFACE_OPTION_INVALID] Form field "${key}" member "renderer" expects a control for schema input kind "${kind}"; received "${renderer}".`)
   }
 }
 
@@ -126,7 +104,7 @@ function callbackResult(
   const proxy = new Proxy(draft, {
     get(target, property, receiver) {
       if (dependencies && typeof property === 'string') dependencies.add(property)
-      return Reflect.get(target, property, receiver)
+      return snapshotEditable(Reflect.get(target, property, receiver))
     },
     set(_target, property) {
       throw new Error(`[loom][SURFACE_OPTION_INVALID] Form field "${field.key}" behavior.${member} cannot write draft.${String(property)}.`)
@@ -134,10 +112,18 @@ function callbackResult(
     deleteProperty(_target, property) {
       throw new Error(`[loom][SURFACE_OPTION_INVALID] Form field "${field.key}" behavior.${member} cannot delete draft.${String(property)}.`)
     },
+    defineProperty(_target, property) {
+      throw new Error(`[loom][SURFACE_OPTION_INVALID] Form field "${field.key}" behavior.${member} cannot define draft.${String(property)}.`)
+    },
+    getOwnPropertyDescriptor(target, property) {
+      const descriptor = Reflect.getOwnPropertyDescriptor(target, property)
+      if (!descriptor || !('value' in descriptor)) return descriptor
+      return { ...descriptor, value: snapshotEditable(descriptor.value) }
+    },
   })
   const behaviorContext: FormBehaviorContext<object, unknown> = {
     draft: proxy,
-    value: Reflect.get(draft, field.key),
+    value: snapshotEditable(Reflect.get(draft, field.key)) as unknown,
     context,
   }
   return callback(behaviorContext)
@@ -211,16 +197,15 @@ export function createFormBehaviorRuntime(options: FormBehaviorRuntimeOptions): 
       if (disabledResult !== undefined && typeof disabledResult !== 'boolean') invalidBehavior(field.key, 'behavior.disabled', 'a boolean')
       const presentation = assertPresentation(field, evaluate(field, 'presentation'))
       const rendererMember = presentation && Object.hasOwn(presentation, 'renderer') ? presentation.renderer : field.renderer
-      const renderer = rendererMember === null ? undefined : typeof rendererMember === 'string' ? rendererMember : field.renderer
-      assertRendererInputCompatibility(field.key, field.kind, renderer)
-      let props = renderer ? options.resolveBaseProps(field, renderer) : {}
+      const renderer = typeof rendererMember === 'string' ? rendererMember : field.renderer
+      let props = options.resolveBaseProps(field, renderer)
       const behaviorProps = evaluate(field, 'props')
       if (behaviorProps !== undefined) {
         if (!isRecord(behaviorProps)) invalidBehavior(field.key, 'behavior.props', 'an object')
         assertProps(field, behaviorProps, 'behavior.props')
         props = { ...props, ...behaviorProps }
       }
-      if (presentation?.props === null) props = {}
+      if (presentation?.props === null) props = { ...field.props }
       else if (isRecord(presentation?.props)) {
         assertProps(field, presentation.props, 'behavior.presentation.props')
         props = { ...props, ...presentation.props }
@@ -236,7 +221,7 @@ export function createFormBehaviorRuntime(options: FormBehaviorRuntimeOptions): 
         props: previousProps,
         required: presentation?.required == null ? field.required : presentation.required === true,
       }
-      if (renderer !== undefined) state.renderer = renderer
+      state.renderer = renderer
       const span = presentation && Object.hasOwn(presentation, 'span') ? presentation.span : field.span
       if (typeof span === 'number') state.span = span
       if (typeof behavior?.derived === 'function') state.derived = evaluate(field, 'derived')
@@ -263,7 +248,7 @@ export function createFormBehaviorRuntime(options: FormBehaviorRuntimeOptions): 
       if (!Object.is(Reflect.get(options.draft, field.key), value)) write(field.key, value)
     }
   }
-  const connect = (nextWrite: (key: string, value: unknown) => void): WatchStopHandle => {
+  const connect = (nextWrite: (key: string, value: unknown) => void, nextReset: (key: string) => void): WatchStopHandle => {
     write = nextWrite
     const stops: WatchStopHandle[] = []
     for (const field of options.fields) {
@@ -274,7 +259,7 @@ export function createFormBehaviorRuntime(options: FormBehaviorRuntimeOptions): 
       }
       if (typeof field.behavior?.resetWhen === 'function') {
         stops.push(watch(() => evaluate(field, 'resetWhen'), (value, previous) => {
-          if (!Object.is(value, previous)) nextWrite(field.key, undefined)
+          if (!Object.is(value, previous)) nextReset(field.key)
         }, { flush: 'sync' }))
       }
     }

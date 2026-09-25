@@ -22,7 +22,7 @@ export interface RendererRegistry {
 export interface FormRendererRegistry extends Omit<RendererRegistry, 'register'> {
   register<K extends keyof FormRendererComponents & string>(
     key: K,
-    renderer: FormRendererComponents[K] | Component,
+    renderer: Component,
   ): void
 }
 
@@ -40,7 +40,7 @@ export interface RendererRegistries {
 
 export function createRendererRegistry(
   surface: 'form',
-  initial?: FormRendererRegistriesInput,
+  initial?: Record<string, unknown>,
 ): FormRendererRegistry
 export function createRendererRegistry(
   surface: 'display',
@@ -48,9 +48,15 @@ export function createRendererRegistry(
 ): DisplayRendererRegistry
 export function createRendererRegistry(
   surface: RendererSurface,
-  initial: Record<string, Component> = {},
+  initial: Record<string, unknown> = {},
 ): RendererRegistry {
-  const renderers = new Map<string, Component>(Object.entries(initial))
+  const renderers = new Map<string, Component>()
+  for (const [key, renderer] of Object.entries(initial)) {
+    if (!isComponent(renderer)) {
+      throw new Error(`[loom][RENDERER_INVALID] Registered renderer "${key}" must be a component.`)
+    }
+    renderers.set(key, renderer)
+  }
 
   return {
     register: (key, renderer) => void renderers.set(key, renderer),
@@ -75,7 +81,7 @@ export function createRendererRegistry(
  * runtime wrapper); an undeclared key fails.
  */
 export type FormRendererRegistriesInput = {
-  [K in keyof FormRendererComponents]?: FormRendererComponents[K] | Component
+  [K in keyof FormRendererComponents]?: Component
 }
 
 export type DisplayRendererRegistriesInput = {
@@ -92,6 +98,10 @@ export function createRendererRegistries(input: RendererRegistriesInput = {}): R
     form: createRendererRegistry('form', input.form ? { ...builtInFormRenderers, ...input.form } : { ...builtInFormRenderers }),
     display: createRendererRegistry('display', input.display),
   }
+}
+
+function isComponent(value: unknown): value is Component {
+  return typeof value === 'function' || (typeof value === 'object' && value !== null)
 }
 
 export const rendererRegistriesKey: InjectionKey<RendererRegistries> = Symbol.for('loom-renderers')

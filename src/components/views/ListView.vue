@@ -9,12 +9,15 @@ import { computed, nextTick, ref, useSlots, watch } from "vue";
 import { toast } from "vue-sonner";
 import type {
   CollectionSlotProps,
-  FormDefinition,
+  FormDraft,
   QueryValues,
   RowReorderPayload,
   SchemaParseResult,
   TableProps,
 } from "../../contracts";
+import type { FormDraftSnapshot } from "../../contracts/forms";
+import type { ListViewActions, ListViewProps } from "../../contracts/views";
+import type { RouteLocationRaw } from "vue-router";
 import { resolveDisplayFields } from "../../display/resolveDisplay";
 import Table from "../core/Table.vue";
 import Form from "../core/Form.vue";
@@ -25,48 +28,12 @@ import Icon from "../base/Icon.vue";
 import Popover from "../base/Popover.vue";
 import SearchBox from "../inputs/SearchBox.vue";
 import Switch from "../inputs/Switch.vue";
-import { exportTableRows, type ListExportOptions } from "../../services";
+import { exportTableRows } from "../../services";
 import { useTablePreferences } from "../core/useTablePreferences";
 
-export type ListFilters<TQuery extends object = Record<string, unknown>, TInput extends object = Partial<TQuery>> = Omit<FormDefinition<TInput, Partial<TQuery>>, "submit"> & {
-  submit?: never;
-  defaults?: Partial<TInput>;
-  label?: string;
-  resetLabel?: string;
-};
-
-/**
- * Standard record actions forwarded to the collection presentation slot.
- *
- * The values come from the same internal surface the table row actions use;
- * a collection presentation must not rebuild route or delete permission checks.
- */
-/**
- * Standard record actions forwarded to the collection presentation slot.
- *
- * The values come from the same internal surface the table row actions use;
- * a collection presentation must not rebuild route or delete permission checks.
- * Optional: a bare `table` ListView has no resource context, so it exposes no
- * actions — consumers must handle their absence.
- */
-export interface ListViewActions<TRecord extends object = Record<string, unknown>> {
-  createRoute?: import("vue-router").RouteLocationRaw;
-  detailRoute?: (record: TRecord) => import("vue-router").RouteLocationRaw | undefined;
-  updateRoute?: (record: TRecord) => import("vue-router").RouteLocationRaw | undefined;
-  can?: (operation: import("../../contracts").ResourceOperation, record?: TRecord) => boolean | undefined;
-  deleteRecord?: (record: TRecord) => Promise<unknown>;
-}
-
-type ListViewProps = {
-  title?: string;
-  description?: string;
-  filters?: ListFilters<TQuery, TFilterInput>;
-  export?: ListExportOptions<TRecord, TQuery> | false;
-  table: TableProps<TRecord, TQuery>;
-} & ListViewActions<TRecord>;
-
-const props = defineProps<ListViewProps>();
+const props = defineProps<ListViewProps<TRecord, TQuery, TFilterInput>>();
 const emit = defineEmits<{
+  (event: "update:query", query: QueryValues): void;
   (event: "export-error", error: unknown): void;
   (event: "row-reorder", payload: RowReorderPayload<TRecord>): void;
 }>();
@@ -93,7 +60,12 @@ defineSlots<{
 
 type ListViewSurface = {
   table: TableProps<TRecord, TQuery>;
-} & ListViewActions<TRecord>;
+  createRoute?: RouteLocationRaw;
+  detailRoute?: (record: TRecord) => RouteLocationRaw | undefined;
+  updateRoute?: (record: TRecord) => RouteLocationRaw | undefined;
+  can?: ListViewActions<TRecord>["can"];
+  deleteRecord?: ListViewActions<TRecord>["deleteRecord"];
+};
 
 const surface = computed<ListViewSurface>(() => {
   return {
@@ -101,34 +73,26 @@ const surface = computed<ListViewSurface>(() => {
       ...props.table,
       pagination: props.table.pagination ?? "always",
     },
-    createRoute: props.createRoute,
-    detailRoute: props.detailRoute,
-    updateRoute: props.updateRoute,
+    createRoute: props.createRoute === false ? undefined : props.createRoute,
+    detailRoute: props.detailRoute === false ? undefined : props.detailRoute,
+    updateRoute: props.updateRoute === false ? undefined : props.updateRoute,
     can: props.can,
     deleteRecord: props.deleteRecord,
   };
 });
 
-/**
- * The table (and its Collection) owns query state; ListView only forwards
- * controlled bindings and toolbar mutations. `hasQueryBinding` keeps the
- * prop off the Table when the route did not bind one, so Collection's
- * uncontrolled URL-namespace mode stays intact.
- */
-const hasControlledQuery = Object.hasOwn(props.table, "query");
-const tableRef = ref<{ refresh: () => Promise<void>; query: { value: QueryValues }; updateQuery: (patch: QueryValues) => void; replaceQuery: (values: QueryValues) => void }>();
-const currentQuery = ref<QueryValues>({ page: 1, ...(props.filters?.defaults ?? {}), ...(props.table.query as QueryValues | undefined) });
-const filterDraftState = ref<Partial<TFilterInput>>({ ...(props.filters?.defaults ?? {}), ...filterValues(currentQuery.value) });
+const tableRef = ref<{ refresh: () => Promise<void>; query: QueryValues; updateQuery: (patch: QueryValues) => void; replaceQuery: (values: QueryValues) => void }>();
+const currentQuery = computed<QueryValues>(() => tableRef.value?.query
+  ?? (props.table.query as QueryValues | undefined)
+  ?? { page: 1, limit: props.table.defaultPageSize ?? 10 });
+const filterDraftState = ref<FormDraft<TFilterInput>>({ ...(props.filters?.defaults ?? {}), ...filterValues(currentQuery.value) });
 const filterDraft = computed(() => filterDraftState.value);
 const filterFormRef = ref<{ validate: () => Promise<SchemaParseResult<Partial<TQuery>>>; reset: () => void }>();
 let filterValidation = 0;
 let lastFilterOutputKeys = new Set<string>();
+let pendingFilterQuery: QueryValues | undefined;
 
-const tableBindings = computed(() => {
-  const base = { ...surface.value.table };
-  if (hasControlledQuery) base.query = currentQuery.value as TQuery;
-  return base;
-});
+const tableBindings = computed(() => surface.value.table);
 
 function applyQuery(patch: QueryValues) {
   tableRef.value?.updateQuery(patch);
@@ -136,8 +100,24 @@ function applyQuery(patch: QueryValues) {
 
 function onTableQuery(values: QueryValues) {
   filterValidation += 1;
-  currentQuery.value = values;
+  emit("update:query", values);
 }
+
+function sameQuery(left: QueryValues, right: QueryValues): boolean {
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length
+    && keys.every((key) => Object.hasOwn(right, key) && Object.is(left[key], right[key]));
+}
+
+watch(currentQuery, (values) => {
+  filterValidation += 1;
+  if (pendingFilterQuery && sameQuery(values, pendingFilterQuery)) {
+    pendingFilterQuery = undefined;
+    return;
+  }
+  pendingFilterQuery = undefined;
+  filterDraftState.value = { ...(props.filters?.defaults ?? {}), ...filterValues(values) };
+}, { deep: true });
 
 function filterValues(values: QueryValues): Partial<TFilterInput> {
   const keys = new Set([
@@ -151,7 +131,7 @@ function rowReorder(payload: RowReorderPayload<TRecord>) {
   emit("row-reorder", payload);
 }
 
-async function updateFilters(next: Partial<TFilterInput>, baseQuery: QueryValues = currentQuery.value) {
+async function updateFilters(next: FormDraftSnapshot<TFilterInput>, baseQuery: QueryValues = currentQuery.value) {
   filterDraftState.value = { ...next };
   const validation = ++filterValidation;
   await nextTick();
@@ -172,6 +152,7 @@ async function updateFilters(next: Partial<TFilterInput>, baseQuery: QueryValues
   }
   query.page = 1;
   lastFilterOutputKeys = new Set(Object.keys(result.data));
+  pendingFilterQuery = query;
   tableRef.value?.replaceQuery(query);
 }
 

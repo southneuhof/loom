@@ -1,26 +1,28 @@
 import type { FormDefinition } from '../contracts/forms'
 import type { Label } from '../contracts/labels'
-import type { RawSchema, SchemaFieldKind } from '../contracts/schema'
+import type { RawSchema } from '../contracts/schema'
 import { compileSchema } from '../schemas/compileSchema'
-import { assertFormBehavior, assertRendererInputCompatibility } from './behavior'
+import { assertFormBehavior } from './behavior'
 import { assertFormInput, assertSafeFieldKey, isFormInputRecord } from './props'
 
 export interface CompiledFormField {
   key: string
   renderer: string
   required: boolean
-  kind: SchemaFieldKind
   label?: Label
   props: Readonly<Record<string, unknown>>
-  source?: object
   span?: number
   initialValue?: () => unknown
   behavior?: Readonly<Record<string, unknown>>
-  options?: readonly string[]
 }
 
-export interface CompiledForm<TInput extends object, TOutput extends object, TResult> {
-  definition: FormDefinition<TInput, TOutput, TResult>
+export interface CompiledForm<
+  TInput extends object,
+  TOutput extends object,
+  TResult,
+  TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>,
+> {
+  definition: FormDefinition<TInput, TOutput, TResult, TKeys>
   schema: RawSchema<TInput, TOutput>
   inputKeys: readonly string[]
   fields: readonly CompiledFormField[]
@@ -28,13 +30,6 @@ export interface CompiledForm<TInput extends object, TOutput extends object, TRe
 }
 
 const definitionMembers = new Set(['schema', 'fields', 'labels', 'validators', 'submit'])
-const inferredRenderers: Readonly<Record<string, string>> = {
-  string: 'text',
-  number: 'number',
-  boolean: 'switch',
-  date: 'date',
-  enum: 'select',
-}
 const validatorMembers = new Set(['validate', 'triggers', 'path'])
 const validationTriggers = new Set(['blur', 'submit'])
 
@@ -87,7 +82,8 @@ export function compileForm<
   TInput extends object,
   TOutput extends object,
   TResult,
->(definition: FormDefinition<TInput, TOutput, TResult>): CompiledForm<TInput, TOutput, TResult> {
+  TKeys extends Extract<keyof TInput, string>,
+>(definition: FormDefinition<TInput, TOutput, TResult, TKeys>): CompiledForm<TInput, TOutput, TResult, TKeys> {
   if (!isRecord(definition)) invalidOption('definition', 'an object')
   if (!Object.hasOwn(definition, 'schema') || definition.schema == null) {
     throw new Error('[loom][FORM_SCHEMA_REQUIRED] Form requires a raw schema.')
@@ -117,25 +113,16 @@ export function compileForm<
     if (!isFormInputRecord(input)) invalidOption(`fields.${key}`, 'a FormInput object')
     const metadata = schema.fields[key]
     if (!metadata) throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" has no schema metadata.`)
-    assertFormInput(key, input, metadata)
-    const renderer = typeof input.renderer === 'string' ? input.renderer : inferredRenderers[metadata.kind]
-    if (!renderer) {
-      throw new Error(`[loom][INPUT_RENDERER_REQUIRED] Form field "${key}" has schema kind "${metadata.kind}" and needs an explicit renderer.`)
-    }
-    assertRendererInputCompatibility(key, metadata.kind, renderer)
+    assertFormInput(key, input)
+    const renderer = input.renderer
     if (isRecord(input.behavior)) assertFormBehavior(input.behavior, key)
 
     const props = isRecord(input.props) ? { ...input.props } : {}
-    if (renderer === 'select' && metadata.kind === 'enum' && !Object.hasOwn(props, 'options')) {
-      props.options = metadata.options ?? []
-    }
-    const field: CompiledFormField = { key, renderer, required: metadata.required, kind: metadata.kind, props }
+    const field: CompiledFormField = { key, renderer, required: metadata.required, props }
     if (isLabel(input.label)) field.label = input.label
-    if (isRecord(input.source)) field.source = input.source
     if (typeof input.span === 'number') field.span = input.span
     if (isFactory(input.initialValue)) field.initialValue = input.initialValue
     if (isRecord(input.behavior)) field.behavior = { ...input.behavior }
-    if (metadata.options) field.options = metadata.options
     fields.push(field)
   }
 

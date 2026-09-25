@@ -24,11 +24,17 @@ async function frame(times = 4) {
   }
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise })
+  return { promise, resolve }
+}
+
 function mountLookup(mountOptions: {
   model?: unknown
   disabled?: boolean
   multi?: boolean
-  loadDetail?: (context: { id: unknown; searchParameters: Record<string, unknown> }) => Promise<unknown>
+  loadDetail?: (context: { id: unknown; searchParameters: Record<string, unknown>; signal: AbortSignal }) => Promise<unknown>
   load?: Load<CollectionLoadContext, CollectionResult<Option>>
 }) {
   const model = ref(mountOptions.model ?? null)
@@ -134,5 +140,82 @@ describe('LookupInput real dialog', () => {
     await frame()
 
     expect(trigger(view.host).textContent).toContain('Option one')
+  })
+
+  it('keeps a new staged row when committed detail hydration finishes later', async () => {
+    const detail = deferred<Option>()
+    const view = mountLookup({
+      model: 'one',
+      loadDetail: () => detail.promise,
+    })
+    await frame()
+
+    trigger(view.host).click()
+    await frame()
+    rowNamed('Option two').click()
+    await frame()
+    detail.resolve(options[0]!)
+    await frame()
+    saveButton().click()
+    await frame()
+
+    expect(view.model.value).toBe('two')
+    expect(trigger(view.host).textContent).toContain('Option two')
+  })
+
+  it('aborts canceled staging and hydrates the committed value after reopening', async () => {
+    const firstDetail = deferred<Option>()
+    const secondDetail = deferred<Option>()
+    const signals: AbortSignal[] = []
+    const loadDetail = ({ signal }: { signal: AbortSignal }) => {
+      signals.push(signal)
+      return signals.length === 1 ? firstDetail.promise : secondDetail.promise
+    }
+    const view = mountLookup({ model: 'one', loadDetail })
+    await frame()
+
+    trigger(view.host).click()
+    await frame()
+    rowNamed('Option two').click()
+    await frame()
+    const close = [...dialog().querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.includes('Close'))
+    if (!close) throw new Error('Lookup dialog did not render its close action.')
+    close.click()
+    await frame()
+    expect(signals[0]?.aborted).toBe(true)
+
+    trigger(view.host).click()
+    await frame()
+    expect(signals).toHaveLength(2)
+    secondDetail.resolve(options[0]!)
+    await frame()
+    expect(trigger(view.host).textContent).toContain('Option one')
+    saveButton().click()
+    await frame()
+
+    expect(view.model.value).toBe('one')
+  })
+
+  it('keeps a parent replacement when older detail and staged work resolve', async () => {
+    const firstDetail = deferred<Option>()
+    const secondDetail = deferred<Option>()
+    const loadDetail = ({ id }: { id: unknown }) => id === 'one' ? firstDetail.promise : secondDetail.promise
+    const view = mountLookup({ model: 'one', loadDetail })
+    await frame()
+
+    trigger(view.host).click()
+    await frame()
+    rowNamed('Option two').click()
+    view.model.value = 'two'
+    await frame()
+    firstDetail.resolve(options[0]!)
+    secondDetail.resolve(options[1]!)
+    await frame()
+    saveButton().click()
+    await frame()
+
+    expect(view.model.value).toBe('two')
+    expect(trigger(view.host).textContent).toContain('Option two')
   })
 })

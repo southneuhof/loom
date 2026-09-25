@@ -46,7 +46,7 @@ const selectedRecordSchema = z.object({
 })
 const selectedRecordForm = defineForm({
   schema: selectedRecordSchema,
-  fields: { owner: { renderer: 'select', props: { asWhole: true } } },
+  fields: { owner: { renderer: 'select', props: { data: [{ id: 'owner-1', name: 'Owner' }], asWhole: true } } },
 })
 
 type Assignable<T, U> = [T] extends [U] ? true : false
@@ -59,8 +59,8 @@ type InvalidFormBinding = AssertFalse<Assignable<{
 const incompatibleBaseRenderer = defineForm({
   schema,
   fields: {
-    // @ts-expect-error A date renderer requires a Date editable value.
-    name: { renderer: 'date' },
+    // @ts-expect-error NumberInput emits numbers and cannot edit this string.
+    name: { renderer: 'number' },
   },
 })
 

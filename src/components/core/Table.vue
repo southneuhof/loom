@@ -1,5 +1,5 @@
 <script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>">
-import { computed, ref, useSlots } from 'vue'
+import { computed, getCurrentInstance, onBeforeUpdate, ref, useSlots } from 'vue'
 import type { CollectionLoadContext, CollectionProps, CollectionResult, QueryValues, RowReorderPayload, TableProps } from '../../contracts'
 import { compileSchema } from '../../schemas/compileSchema'
 import Collection from './Collection.vue'
@@ -15,6 +15,8 @@ const props = withDefaults(defineProps<TableProps<TRecord, TQuery>>(), {
 })
 
 assertSingleDataSource('Table', props.data, props.load)
+const instance = getCurrentInstance()
+const hasControlledQuery = ref(hasQueryProp())
 
 const emit = defineEmits<{
   (event: 'update:query', query: QueryValues): void
@@ -33,7 +35,11 @@ const compiledQuerySchema = computed(() => props.querySchema ? compileSchema(pro
 const forwardedSlots = computed(() => Object.fromEntries(
   Object.entries(slots).filter(([name]) => name !== 'collection'),
 ))
-const collectionRef = ref<{ refresh: () => Promise<void>; query: { value: QueryValues }; updateQuery: (patch: QueryValues) => void; replaceQuery: (values: QueryValues) => void }>()
+const collectionRef = ref<{ refresh: () => Promise<void>; query: QueryValues; updateQuery: (patch: QueryValues) => void; replaceQuery: (values: QueryValues) => void }>()
+
+onBeforeUpdate(() => {
+  hasControlledQuery.value = hasQueryProp()
+})
 
 const collectionProps = computed<CollectionProps<TRecord, TQuery>>(() => {
   const value: CollectionProps<TRecord, TQuery> = {
@@ -66,20 +72,16 @@ const collectionProps = computed<CollectionProps<TRecord, TQuery>>(() => {
       return load({ ...context, query })
     }
   }
-  if (props.query !== undefined) value.query = props.query
+  if (hasControlledQuery.value) value.query = props.query as TQuery
   return value
 })
 
 function updateQuery(patch: QueryValues) {
   collectionRef.value?.updateQuery(patch)
-  const values = collectionRef.value?.query.value
-  if (values) emit('update:query', values)
 }
 
 function replaceQuery(values: QueryValues) {
   collectionRef.value?.replaceQuery(values)
-  const next = collectionRef.value?.query.value
-  if (next) emit('update:query', next)
 }
 
 function refresh() {
@@ -97,6 +99,11 @@ function rowReorder(payload: RowReorderPayload<TRecord>) {
 const exposedQuery = computed<QueryValues>(() => collectionRef.value?.query ?? {})
 
 defineExpose({ refresh, query: exposedQuery, updateQuery, replaceQuery })
+
+function hasQueryProp(): boolean {
+  const vnodeProps = instance?.vnode.props ?? {}
+  return Object.hasOwn(vnodeProps, 'query') || Object.hasOwn(vnodeProps, 'query-value')
+}
 </script>
 
 <template>

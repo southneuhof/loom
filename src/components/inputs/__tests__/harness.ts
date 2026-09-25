@@ -1,6 +1,22 @@
 import { createApp, defineComponent, h, nextTick, ref, type App, type Component } from 'vue'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import type { FrameworkAdaptersInput } from '../../../adapters/projectAdapters'
+import type { AssetAdapter, AssetValue } from '../../../assets/contracts'
+
+export const testAssetAdapter: AssetAdapter = {
+  read(value) {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+    const asset = value as Record<string, unknown>
+    if (asset.kind !== 'file' || typeof asset.id !== 'string' || typeof asset.url !== 'string' || typeof asset.name !== 'string') return null
+    return value as AssetValue
+  },
+  preview(asset) {
+    return { imageURL: asset.url, thumbnailURL: asset.url }
+  },
+  async upload() {
+    throw new Error('Test asset upload is not configured.')
+  },
+}
 
 export function mountInput<T>(component: Component, options: {
   model: T
@@ -17,7 +33,7 @@ export function mountInput<T>(component: Component, options: {
       'onUpdate:modelValue': (value: T) => { model.value = value },
     }),
   }))
-  app.use(FrameworkPlugin, { adapters: options.adapters })
+  app.use(FrameworkPlugin, { adapters: { assets: testAssetAdapter, ...options.adapters } })
   app.mount(host)
   return {
     app,

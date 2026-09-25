@@ -88,4 +88,52 @@ describe('display export', () => {
     expect(displayValue).toBe('JOINED ROLE')
     expect(values).toEqual([['Role Name'], ['JOINED ROLE']])
   })
+
+  it('exports a joined relation through the display accessor and formatter', async () => {
+    configureParser({ formatters: { uppercase: (value) => String(value).toUpperCase() } })
+    const record = {
+      userId: 'user-1',
+      roles: [{ id: 'role-1', name: 'Admin' }, { id: 'role-2', name: 'Editor' }],
+    }
+    const readRoleNames = vi.fn((value: typeof record) => value.roles.map((role) => role.name).join(', '))
+    const columns = resolveDisplayFields({
+      surface: 'table',
+      entries: { roles: { label: 'Roles', read: readRoleNames, format: 'uppercase' } },
+    })
+
+    await exportTableRows({
+      activeQuery: {},
+      searchParameters: {},
+      data: [record],
+      columns,
+      options: { filename: 'user-roles' },
+    })
+
+    const workbook = download.workbook as XLSX.WorkBook
+    expect(readRoleNames).toHaveBeenCalledWith(record)
+    expect(XLSX.utils.sheet_to_json(workbook.Sheets.Data!, { header: 1 })).toEqual([
+      ['Roles'],
+      ['ADMIN, EDITOR'],
+    ])
+    expect(record.roles).toEqual([{ id: 'role-1', name: 'Admin' }, { id: 'role-2', name: 'Editor' }])
+  })
+
+  it('reports an incomplete export when paging reaches the safety limit', async () => {
+    const load = vi.fn(async ({ query }: { query: Record<string, unknown> }) => ({
+      data: [{ id: Number(query.page) }],
+      meta: { totalPage: 10_001 },
+    }))
+    const columns = resolveDisplayFields({ surface: 'table', entries: { id: { label: 'ID' } } })
+
+    await expect(exportTableRows({
+      activeQuery: {},
+      searchParameters: {},
+      load,
+      columns,
+      options: { pageSize: 1 },
+    })).rejects.toThrow('[loom] Export stopped at the page safety limit.')
+
+    expect(load).toHaveBeenCalledTimes(10_000)
+    expect(download.workbook).toBeUndefined()
+  })
 })

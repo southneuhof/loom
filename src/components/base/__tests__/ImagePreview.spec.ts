@@ -1,5 +1,5 @@
 import { createApp, h, nextTick } from 'vue'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import ImagePreview from '../ImagePreview.vue'
 import ImagePreviewMulti from '../ImagePreviewMulti.vue'
 
@@ -70,5 +70,20 @@ describe('ImagePreviewMulti', () => {
     await nextTick()
 
     expect((document.body.querySelector('img[src="/one.png"]') as HTMLImageElement | null)).toBeTruthy()
+  })
+
+  it('keeps an empty list stable through its timer and clears the timer on unmount', () => {
+    vi.useFakeTimers()
+    const { host } = mount(ImagePreviewMulti, { images: [] })
+
+    expect(vi.getTimerCount()).toBe(1)
+    vi.advanceTimersByTime(8000)
+
+    expect(host.querySelector('img')).toBeNull()
+    expect(host.textContent).not.toContain('NaN')
+
+    mounted.pop()?.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+    vi.useRealTimers()
   })
 })

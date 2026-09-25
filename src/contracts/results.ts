@@ -23,4 +23,8 @@ export type RecordResult<TRecord extends object = Record<string, unknown>> = TRe
 export interface SubmitError {
   message: string
   issues?: SchemaIssue[]
+  code?: string
+  operation?: string
+  retryable?: boolean
+  postWrite?: boolean
 }

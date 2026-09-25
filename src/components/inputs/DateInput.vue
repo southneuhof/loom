@@ -4,7 +4,7 @@ import BaseInput from './BaseInput.vue'
 import { useFrameworkUi } from '../../adapters/projectAdapters'
 import { commonProps } from './commonprops'
 import { ref, watch, type PropType } from 'vue'
-import { lightFormat } from 'date-fns'
+import { isValid, lightFormat, parse } from 'date-fns'
 import { datepickerPopupClass, datepickerPopupConfig, datepickerTeleportProp } from './datepickerPopup'
 
 const props = defineProps({
@@ -33,7 +33,10 @@ const props = defineProps({
   ...commonProps,
 })
 
-const emit = defineEmits<{ (event: 'validation:touch'): void }>()
+const emit = defineEmits<{
+  (event: 'validation:touch'): void
+  (event: 'validation:error', message: string | undefined): void
+}>()
 const modelValue = defineModel<string | null | undefined>()
 const internalValue = ref<Date | null>(null)
 const modelUpdated = ref(false)
@@ -74,6 +77,7 @@ watch(
 )
 
 function displayFormatter(date: Date) {
+  if (!(date instanceof Date) || !isValid(date)) return ''
   return date.toLocaleDateString(props.locale, {
     weekday: 'long',
     year: 'numeric',
@@ -85,8 +89,24 @@ function displayFormatter(date: Date) {
   })
 }
 
+function parseTextInput(value: string): Date | null {
+  const parsedDate = parse(value, dateFormat, new Date())
+  return isValid(parsedDate) && lightFormat(parsedDate, dateFormat) === value ? parsedDate : null
+}
+
+function handleTextInput(input: string | Event) {
+  const value = typeof input === 'string' ? input : (input.target as HTMLInputElement | null)?.value
+  if (value === undefined) return
+  emit('validation:error', value === '' || parseTextInput(value) ? undefined : 'Enter a valid date.')
+}
+
+function markInvalidDate() {
+  emit('validation:error', 'Enter a valid date.')
+}
+
 function markModelUpdated() {
   modelUpdated.value = true
+  emit('validation:error', undefined)
 }
 
 function handleBlur() {
@@ -110,8 +130,11 @@ function handleBlur() {
       :prevent-min-max-navigation="true"
       :enable-time-picker="withTimePicker"
       :config="datepickerPopupConfig"
+      :text-input="{ format: parseTextInput }"
       @focusout.stop
       @update:model-value="markModelUpdated"
+      @invalid-date="markInvalidDate"
+      @text-input="handleTextInput"
       @blur="handleBlur"
     />
   </BaseInput>

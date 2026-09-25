@@ -184,6 +184,7 @@ describe('DialogForm', () => {
     expect(button(view.view, 'Submit')).toBeDefined()
 
     enterName(view.view, '  Ada  ')
+    await flush()
     button(view.view, 'Submit')?.click()
     await flush()
 
@@ -332,6 +333,7 @@ describe('DialogForm', () => {
     })
     await flush()
     enterName(view.view, 'Changed')
+    await flush()
     button(view.view, 'Reset')?.click()
     await flush()
     expect(input(view.view).value).toBe('Initial')
@@ -339,6 +341,7 @@ describe('DialogForm', () => {
     expect(actionScopes[0]?.reset).toBeTypeOf('function')
 
     enterName(view.view, 'Changed again')
+    await flush()
     button(view.view, 'Save')?.click()
     await flush()
 
@@ -402,6 +405,7 @@ describe('DialogForm', () => {
     expect(view.exposed()).toHaveProperty('checkingClose')
     expect(view.exposed()).not.toHaveProperty('form')
     enterName(view, 'Grace')
+    await flush()
     const exposedReset = view.exposed().reset
     if (typeof exposedReset !== 'function') throw new Error('DialogForm does not expose reset().')
     exposedReset()

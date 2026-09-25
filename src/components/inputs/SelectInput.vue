@@ -3,6 +3,7 @@ import { ref, type PropType, watch, computed, type ComputedRef, onMounted } from
 import type { OptionLoad, QueryNamespace } from '../../contracts'
 import { useOptionSource } from './useOptionSource'
 import { commonProps } from './commonprops'
+import type { SelectModelValue } from './selectInput.types'
 import BaseInput from './BaseInput.vue'
 import Popover from '@southneuhof/loom/components/base/Popover.vue'
 import SearchBox from '@southneuhof/loom/components/inputs/SearchBox.vue'
@@ -70,8 +71,6 @@ const props = defineProps({
   },
   ...commonProps,
 })
-type SelectRecord = Record<string, unknown>
-type SelectModelValue = SelectRecord[] | SelectRecord | string | number | null
 const modelValue = defineModel<SelectModelValue>()
 const emit = defineEmits<{
   (event: 'validation:touch'): void

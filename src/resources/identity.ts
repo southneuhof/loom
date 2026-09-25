@@ -12,25 +12,6 @@ export function isRecordIdentity(value: unknown): value is RecordIdentity {
   return entries.length > 0 && entries.every(isScalarValue)
 }
 
-function keyListOf(declaration: string | readonly string[]): readonly string[] {
-  return typeof declaration === 'string' ? [declaration] : declaration
-}
-
-/**
- * Rejects empty and duplicate key-array declarations at construction.
- * Names the resource without record data.
- */
-export function checkIdentityDeclaration(resourceKey: string, declaration: string | readonly string[] | ((record: never) => RecordIdentity) | undefined): void {
-  if (typeof declaration === 'string' || declaration === undefined || typeof declaration === 'function') return
-  const keys = keyListOf(declaration)
-  if (keys.length === 0) throw new Error(`[loom] Resource "${resourceKey}" identity needs a nonempty key or key array.`)
-  if (new Set(keys).size !== keys.length) throw new Error(`[loom] Resource "${resourceKey}" identity has a duplicate key.`)
-}
-
-/**
- * Checks one resolved identity before navigation, mutation, or keyed
- * invalidation. Names the resource and key or operation without record data.
- */
 export function checkIdentityValue(resourceKey: string, keyOrOperation: string, value: unknown): asserts value is RecordIdentity {
   if (!isRecordIdentity(value)) throw new Error(`[loom] Resource "${resourceKey}" identity "${keyOrOperation}" is malformed.`)
 }

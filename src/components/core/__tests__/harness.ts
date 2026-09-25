@@ -3,14 +3,13 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import { createFrameworkQueryClient } from '../../../query'
 import type { FrameworkAdaptersInput } from '../../../adapters/projectAdapters'
+import { testAssetAdapter } from '../../inputs/__tests__/harness'
 import type { RendererRegistriesInput } from '../../../renderers/registry'
-import type { InputPropsRegistry } from '../../../renderers/inputProps'
 import type { FrameworkUiDefaultsInput } from '../../views/uiDefaults'
 
 export interface MountOptions {
   adapters?: FrameworkAdaptersInput
   renderers?: RendererRegistriesInput
-  inputProps?: InputPropsRegistry
   uiDefaults?: FrameworkUiDefaultsInput
   slots?: Record<string, (scope: Record<string, unknown>) => unknown>
 }
@@ -34,9 +33,8 @@ export function mountCore(component: Component, props: Record<string, unknown>, 
   })
   app.use(router)
   app.use(FrameworkPlugin, {
-    adapters: options.adapters,
+    adapters: { assets: testAssetAdapter, ...options.adapters },
     renderers: options.renderers,
-    inputProps: options.inputProps,
     uiDefaults: options.uiDefaults,
     queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }),
   })

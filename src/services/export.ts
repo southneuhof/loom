@@ -28,6 +28,7 @@ async function collectRows<TRecord extends object, TQuery extends object>(
   const pageSize = Number.isInteger(options.pageSize) && options.pageSize! > 0 ? options.pageSize! : DEFAULT_EXPORT_PAGE_SIZE
   const rows: TRecord[] = []
   let page = 1
+  let complete = false
   const seen = new Set<string>()
   while (page <= MAX_EXPORT_PAGES) {
     const result = await request.load({
@@ -41,12 +42,22 @@ async function collectRows<TRecord extends object, TQuery extends object>(
     rows.push(...batch)
     const meta = result.meta
     if (meta?.totalPage != null) {
-      if (meta.totalPage < 0 || page >= meta.totalPage) break
+      if (meta.totalPage < 0 || page >= meta.totalPage) {
+        complete = true
+        break
+      }
     } else if (meta?.total != null) {
-      if (meta.total < 0 || rows.length >= meta.total) break
-    } else if (batch.length < pageSize) break
+      if (meta.total < 0 || rows.length >= meta.total) {
+        complete = true
+        break
+      }
+    } else if (batch.length < pageSize) {
+      complete = true
+      break
+    }
     page += 1
   }
+  if (!complete) throw new Error('[loom] Export stopped at the page safety limit.')
   return rows
 }
 

@@ -82,7 +82,7 @@ function mountLocation(operations: LocationOperations, initialValue?: Coordinate
   app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
   app.mount(host)
   apps.push(app)
-  return { host, model }
+  return { app, host, model }
 }
 
 async function flush() {
@@ -105,12 +105,44 @@ function elementNamed(host: HTMLElement, value: string) {
   return [...host.querySelectorAll<HTMLElement>('*')].find((element) => element.textContent?.trim() === value)
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((complete) => { resolve = complete })
+  return { promise, resolve }
+}
+
+let restoreGeolocation: () => void = () => undefined
+
+function installGeolocation(getCurrentPosition: (success: PositionCallback, error?: PositionErrorCallback, options?: PositionOptions) => void) {
+  const original = Object.getOwnPropertyDescriptor(navigator, 'geolocation')
+  Object.defineProperty(navigator, 'geolocation', { configurable: true, value: { getCurrentPosition } })
+  restoreGeolocation = () => {
+    if (original) Object.defineProperty(navigator, 'geolocation', original)
+    else Reflect.deleteProperty(navigator, 'geolocation')
+  }
+}
+
 afterEach(() => {
+  restoreGeolocation()
+  restoreGeolocation = () => undefined
   apps.splice(0).forEach((app) => app.unmount())
   document.body.innerHTML = ''
 })
 
 describe('LocationInput model form', () => {
+  it('shows a map configuration failure', async () => {
+    const operations: LocationOperations = {
+      mapConfig: vi.fn(async () => { throw new Error('Map configuration failed.') }),
+      autocomplete: async () => [],
+      detail: async () => ({ lat: 0, lng: 0 }),
+    }
+    const view = mountLocation(operations)
+
+    await flush()
+
+    expect(view.host.textContent).toContain('Map configuration failed.')
+  })
+
   it('loads map config, selects a prediction, and edits location data through Form', async () => {
     const predictions: LocationPrediction[] = [{ id: 'harbor', primaryText: 'Harbor' }]
     const selected = { lat: -6, lng: 111, name: 'Harbor', formatted_address: 'Harbor road' }
@@ -177,5 +209,100 @@ describe('LocationInput model form', () => {
     expect(firstSignal?.aborted).toBe(true)
     expect(view.host.textContent).toContain('Latest')
     expect(view.host.textContent).not.toContain('First')
+  })
+
+  it('ignores an autocomplete error after a newer search replaces it', async () => {
+    let rejectFirst!: (reason: Error) => void
+    const first = new Promise<readonly LocationPrediction[]>((_resolve, reject) => { rejectFirst = reject })
+    const operations: LocationOperations = {
+      mapConfig: async () => ({ apiKey: 'map-key' }),
+      autocomplete: ({ input: query }) => query === 'first'
+        ? first
+        : [{ id: 'latest', primaryText: 'Latest' }],
+      detail: async () => ({ lat: 0, lng: 0 }),
+    }
+    const view = mountLocation(operations)
+    await flush()
+
+    enter(input(view.host, 'location-search-box'), 'first')
+    await flush()
+    enter(input(view.host, 'location-search-box'), 'latest')
+    await flush()
+    rejectFirst(new Error('Stale location failure.'))
+    await flush()
+
+    expect(view.host.textContent).toContain('Latest')
+    expect(view.host.textContent).not.toContain('Stale location failure.')
+  })
+
+  it('ignores a geolocation result after the user selects a prediction', async () => {
+    let completeLocation: PositionCallback | undefined
+    installGeolocation((success) => { completeLocation = success })
+    const selected = { lat: -6, lng: 111, name: 'Harbor' }
+    const detail = deferred<Coordinate>()
+    const operations: LocationOperations = {
+      mapConfig: async () => ({ apiKey: 'map-key' }),
+      autocomplete: async () => [{ id: 'harbor', primaryText: 'Harbor' }],
+      detail: vi.fn(() => detail.promise),
+    }
+    const view = mountLocation(operations)
+    await flush()
+
+    view.host.querySelector<HTMLButtonElement>('button[aria-label="Gunakan lokasi saat ini"]')!.click()
+    enter(input(view.host, 'location-search-box'), 'harbor')
+    await flush()
+    const suggestion = [...view.host.querySelectorAll<HTMLButtonElement>('[role="button"]')]
+      .find((button) => button.textContent?.trim() === 'Harbor')
+    if (!suggestion) throw new Error('Location prediction did not render.')
+    suggestion.click()
+    await flush()
+    expect(operations.detail).toHaveBeenCalledWith({ id: 'harbor', signal: expect.any(AbortSignal) })
+
+    if (!completeLocation) throw new Error('Geolocation did not start.')
+    completeLocation({
+      coords: { latitude: -5, longitude: 110, accuracy: 1, altitude: null, altitudeAccuracy: null, heading: null, speed: null },
+      timestamp: 1,
+    })
+    await flush()
+    expect(view.model.value).toBeUndefined()
+
+    detail.resolve(selected)
+    await flush()
+    expect(view.model.value).toEqual(selected)
+  })
+
+  it('ignores a geolocation result after unmount', async () => {
+    let completeLocation: PositionCallback | undefined
+    const latitude = vi.fn(() => -5)
+    const longitude = vi.fn(() => 110)
+    installGeolocation((success) => { completeLocation = success })
+    const operations: LocationOperations = {
+      mapConfig: async () => ({ apiKey: 'map-key' }),
+      autocomplete: async () => [],
+      detail: async () => ({ lat: 0, lng: 0 }),
+    }
+    const view = mountLocation(operations)
+    await flush()
+    view.host.querySelector<HTMLButtonElement>('button[aria-label="Gunakan lokasi saat ini"]')!.click()
+    view.app.unmount()
+
+    if (!completeLocation) throw new Error('Geolocation did not start.')
+    completeLocation({
+      coords: {
+        get latitude() { return latitude() },
+        get longitude() { return longitude() },
+        accuracy: 1,
+        altitude: null,
+        altitudeAccuracy: null,
+        heading: null,
+        speed: null,
+      },
+      timestamp: 1,
+    })
+    await flush()
+
+    expect(latitude).not.toHaveBeenCalled()
+    expect(longitude).not.toHaveBeenCalled()
+    expect(view.model.value).toBeUndefined()
   })
 })

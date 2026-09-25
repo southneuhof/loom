@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import { createApp, defineComponent, h } from 'vue'
+import { createApp, defineComponent, h, nextTick } from 'vue'
 import { createRendererRegistries, createRendererRegistry, useRendererRegistries } from '../registry'
 import { FrameworkPlugin } from '../../adapters/plugin'
-import { adaptVModelInput, builtInFormRenderers } from '../form'
+import TextInput from '../../components/inputs/TextInput.vue'
 
 const Chip = defineComponent({ name: 'Chip', setup: () => () => h('span') })
 const ProjectChip = defineComponent({ name: 'ProjectChip', setup: () => () => h('em') })
@@ -35,60 +35,19 @@ describe('renderer registry', () => {
     expect(registry.has('currency')).toBe(false)
   })
 
-  it('adapts core controlled state to Vue v-model without leaking core-only props', () => {
-    const received: Record<string, unknown> = {}
-    const updated: unknown[] = []
-    const Input = defineComponent({
-      inheritAttrs: false,
-      props: { modelValue: null, id: String, disabled: Boolean, error: String },
-      emits: ['update:modelValue', 'validation:touch'],
-      setup(props, { attrs, emit }) {
-        Object.assign(received, props, attrs)
-        return () => h('button', {
-          onClick: () => {
-            emit('update:modelValue', 'next')
-            emit('validation:touch')
-          },
-        })
-      },
-    })
-    const host = document.createElement('div')
-    const app = createApp(defineComponent({
-      setup: () => () => h(adaptVModelInput(Input), {
-        value: 'current',
-        setValue: (value: unknown) => updated.push(value),
-        id: 'asset',
-        disabled: true,
-        error: 'bad',
-        ordinary: 'yes',
-        draft: { hidden: true },
-        field: { hidden: true },
-        touched: true,
-        'onValidation:touch': () => updated.push('touch'),
-      }),
-    }))
-    app.mount(host)
-    host.querySelector('button')!.click()
-    expect(received).toMatchObject({ modelValue: 'current', id: 'asset', disabled: true, error: 'bad', ordinary: 'yes' })
-    expect(received).not.toHaveProperty('draft')
-    expect(received).not.toHaveProperty('field')
-    expect(received).not.toHaveProperty('touched')
-    expect(updated).toEqual(['next', 'touch'])
-    app.unmount()
-  })
-  it('renders the core text control with native value, ARIA, and state behavior', () => {
+  it('uses TextInput with its Vue model and component-owned validity event', async () => {
     const updated: unknown[] = []
     const host = document.createElement('div')
     const app = createApp(defineComponent({
-      setup: () => () => h(builtInFormRenderers.text, {
+      setup: () => () => h(TextInput, {
         id: 'field-name',
-        value: 'Admin',
+        modelValue: 'Admin',
         error: 'Sudah dipakai',
         disabled: true,
         class: 'custom-control',
         'aria-invalid': 'true',
         'aria-describedby': 'error-name',
-        setValue: (value: unknown) => updated.push(value),
+        'onUpdate:modelValue': (value: string | number | undefined) => updated.push(value),
         'onValidation:touch': () => updated.push('touched'),
       }),
     }))
@@ -96,24 +55,26 @@ describe('renderer registry', () => {
 
     const wrapper = host.firstElementChild!
     const input = host.querySelector<HTMLInputElement>('input')!
+    const control = input.parentElement!
     expect(input.value).toBe('Admin')
     expect(input.id).toBe('field-name')
     expect(input.getAttribute('aria-invalid')).toBe('true')
     expect(input.getAttribute('aria-describedby')).toBe('error-name')
     expect(input.classList.contains('custom-control')).toBe(false)
     expect(wrapper.classList.contains('custom-control')).toBe(true)
-    expect(wrapper.classList.contains('outline-error')).toBe(true)
-    expect(wrapper.classList.contains('bg-transparent')).toBe(true)
-    expect(wrapper.classList.contains('outline-1')).toBe(true)
-    expect(wrapper.classList.contains('focus-within:outline-error')).toBe(true)
-    expect(wrapper.classList.contains('focus-within:ring-error/30')).toBe(true)
-    expect(wrapper.classList.contains('transition-[outline-color,box-shadow]')).toBe(true)
+    expect(control.classList.contains('outline-error')).toBe(true)
+    expect(control.classList.contains('bg-transparent')).toBe(true)
+    expect(control.classList.contains('outline-1')).toBe(true)
+    expect(control.classList.contains('focus-within:outline-error')).toBe(true)
+    expect(control.classList.contains('focus-within:ring-error/30')).toBe(true)
+    expect(control.classList.contains('transition-[outline-color,box-shadow]')).toBe(true)
     expect(wrapper.classList.contains('bg-surface-variant/50')).toBe(false)
-    expect(wrapper.classList.contains('cursor-not-allowed')).toBe(true)
+    expect(control.classList.contains('cursor-not-allowed')).toBe(true)
 
     input.value = 'Editor'
     input.dispatchEvent(new Event('input'))
-    input.dispatchEvent(new Event('blur'))
+    input.dispatchEvent(new FocusEvent('focusout', { bubbles: true }))
+    await nextTick()
     expect(updated).toEqual(['Editor', 'touched'])
     app.unmount()
   })

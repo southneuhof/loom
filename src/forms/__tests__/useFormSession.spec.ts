@@ -68,6 +68,74 @@ describe('useFormSession loading and identity', () => {
     expect(fieldInput(view, 'detail').value).toBe('loaded detail')
   })
 
+  it('recomputes derived fields from the current draft before submission', async () => {
+    const submitResult = vi.fn(async (value: { name: string; slug: string }) => value)
+    const view = mount(Form, {
+      schema: z.object({ name: z.string(), slug: z.string() }),
+      fields: {
+        name: { renderer: 'text' },
+        slug: { renderer: 'text', behavior: { derived: ({ draft }: { draft: { name?: string | null } }) => draft.name?.trim().toLowerCase() ?? '' } },
+      },
+      initialData: { name: 'Ada', slug: 'manual' },
+      submit: submitResult,
+    })
+    await flush(12)
+
+    expect(fieldInput(view, 'slug').value).toBe('ada')
+    expect(fieldInput(view, 'slug').disabled).toBe(true)
+    setText(view, 'name', ' Grace ')
+    await flush()
+    await callExposed(view, 'submit')
+
+    expect(fieldInput(view, 'slug').value).toBe('grace')
+    expect(submitResult).toHaveBeenCalledWith({ name: ' Grace ', slug: 'grace' })
+  })
+
+  it('keeps a reset dependent value clear when a late refresh resolves', async () => {
+    const refreshResult = deferred<{ divisionId: string; approverId: string }>()
+    let loadCalls = 0
+    const load = vi.fn(() => {
+      loadCalls += 1
+      return loadCalls === 1
+        ? Promise.resolve({ divisionId: 'north', approverId: 'north-approver' })
+        : refreshResult.promise
+    })
+    const view = mount(Form, {
+      schema: z.object({ divisionId: z.string(), approverId: z.string().optional() }),
+      fields: {
+        divisionId: { renderer: 'text' },
+        approverId: {
+          renderer: 'text',
+          behavior: {
+            resetWhen: ({ draft }: { draft: { divisionId?: string | null } }) => draft.divisionId,
+            visible: () => false,
+          },
+        },
+      },
+      initialData: { divisionId: 'north' },
+      load,
+      submit: async () => 'saved',
+    })
+    await flush(12)
+    expect(load).toHaveBeenCalledOnce()
+    expect(view.exposed().draft.approverId).toBe('north-approver')
+
+    const refreshing = callExposed(view, 'refresh')
+    await flush()
+    expect(load).toHaveBeenCalledTimes(2)
+    setText(view, 'divisionId', 'south')
+    await flush()
+    expect(view.exposed().draft.divisionId).toBe('south')
+    expect(view.exposed().draft.approverId).toBeUndefined()
+
+    refreshResult.resolve({ divisionId: 'north', approverId: 'north-approver-late' })
+    await refreshing
+    await flush()
+
+    expect(view.exposed().draft.divisionId).toBe('south')
+    expect(view.exposed().draft.approverId).toBeUndefined()
+  })
+
   it('ignores an earlier identity response after the record changes', async () => {
     const first = deferred<{ name: string }>()
     const second = deferred<{ name: string }>()

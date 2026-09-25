@@ -18,7 +18,6 @@ import { FrameworkPlugin } from '@southneuhof/loom'
 app.use(FrameworkPlugin, {
   adapters,
   renderers: { display: appDisplayRenderers },
-  inputProps: appInputProps,
   uiDefaults,
 })
 ```
@@ -33,6 +32,7 @@ import { defineDetail, defineForm, defineTable } from '@southneuhof/loom'
 
 const labels = { name: 'Name', status: 'Status' }
 const statusDisplay = { renderer: 'chip', props: { options: statusLabels } }
+const statusChoices = Object.entries(statusLabels).map(([id, name]) => ({ id, name }))
 
 export const usersTable = defineTable({
   schema: userRecordSchema,
@@ -57,7 +57,7 @@ export const createUserForm = defineForm({
   labels,
   fields: {
     name: { renderer: 'text' },
-    status: { renderer: 'select', props: { options: statusLabels } },
+    status: { renderer: 'select', props: { data: statusChoices, pick: 'id', view: 'name' } },
   },
   submit: userActions.create,
 })
@@ -66,7 +66,10 @@ export const createUserForm = defineForm({
 Each map is ordered and checked against its own schema. Form fields are input
 definitions. Table columns and detail fields are display definitions. Share a
 plain fragment with object spread when the same display behavior is needed in
-both maps.
+both maps. Every form field declares its renderer. Its flat `props` object uses
+the selected component's public props; put loaders such as `load` and
+`namespace` in that object. The schema supplies requiredness but does not infer
+renderers or choices.
 
 With no display renderer, Loom renders scalar values as text and nullish values
 as `-`. Dates need an explicit format. Structured values need a renderer or an
@@ -132,6 +135,18 @@ Detail and update bind identity: `users.detail({ id })` and
 `users.update({ id })`. Update owns its draft loader and submit function. The
 loader maps record values to input values explicitly. Delete is a command;
 custom commands live in `actions` and expose guarded `can` and `run` functions.
+Both functions take the business arguments declared by `run`. Bind row policy
+context separately with `withContext({ record })`:
+
+```ts
+const command = users.actions.verify.withContext({ record })
+if (command.can(payload)) await command.run(payload)
+```
+
+Binding copies the record used for policy checks. It does not append the record
+to the command arguments. Successful create/update results must identify the
+resource. An invalid result is a non-retryable post-write error, and the
+resource cache is invalidated because the write may have completed.
 
 The binder owns resource identity, route access registration, permission
 checks, cache namespaces, and invalidation after successful standard writes.
@@ -168,6 +183,22 @@ for the executable boundary example.
 `DialogForm` owns ordinary visibility and completion. Use one keyed dialog for
 each record action. Bind `open` only when another page control must coordinate
 visibility.
+
+## Executable examples
+
+Use these fixtures when you need to copy a current contract. They exercise real
+components or generated output, and the normal Loom/Web checks compile the type
+fixtures.
+
+| Contract | Fixture |
+|---|---|
+| One numeric SelectInput prop bag in standalone, Form, and DialogForm | [SelectForm.browser.spec.ts](src/components/composites/__tests__/SelectForm.browser.spec.ts) |
+| DateInput string model, submit override, and managed input slots | [SurfaceParity.browser.spec.ts](src/components/composites/__tests__/SurfaceParity.browser.spec.ts), [date-input-model.type-test.ts](src/components/composites/__type-tests__/date-input-model.type-test.ts), [plan067-form-contracts.type-test.vue](src/components/composites/__type-tests__/plan067-form-contracts.type-test.vue) |
+| App-scoped assets for direct and managed inputs and previews | [AssetParity.browser.spec.ts](src/assets/__tests__/AssetParity.browser.spec.ts) |
+| Shared relation display in Table, TreeTable, Detail, and extraction | [DisplayParity.browser.spec.ts](src/components/core/__tests__/DisplayParity.browser.spec.ts) |
+| Shared relation accessor and format in exports | [export.spec.ts](src/services/__tests__/export.spec.ts) |
+| Editable row mapping and submit-free row form | [TableInput.browser.spec.ts](src/components/composites/__tests__/TableInput.browser.spec.ts), [table-input.type-test.ts](src/components/composites/__type-tests__/table-input.type-test.ts) |
+| Generated resource bags and extracted page props | [generated user fixtures](../../apps/web/src/framework/__type-tests__/plan057_generated_users), [generator equivalence test](../../scripts/scaffold-bounded-module.test.mjs) |
 
 ## Checks and exports
 

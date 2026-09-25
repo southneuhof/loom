@@ -14,7 +14,7 @@ import type {
   LocationOperations,
   LocationPrediction,
 } from "../../../contracts";
-import type { FormFields } from "../../../contracts/forms";
+import type { FormDraftSnapshot, FormFields } from "../../../contracts/forms";
 import { commonProps } from "../../inputs/commonprops";
 import Popover from "../../base/Popover.vue";
 import SearchBox from "../../inputs/SearchBox.vue";
@@ -48,6 +48,7 @@ let autocompleteController: AbortController | undefined;
 let detailController: AbortController | undefined;
 let autocompleteGeneration = 0;
 let detailGeneration = 0;
+let geolocationGeneration = 0;
 
 const locationSchema = z.object({
   name: z.string().optional(),
@@ -68,7 +69,8 @@ const formModel = computed<Coordinate>(
   () => modelValue.value ?? { lat: center.value.lat, lng: center.value.lng },
 );
 
-function updateFormModel(value: Partial<LocationInput>) {
+function updateFormModel(value: FormDraftSnapshot<LocationInput>) {
+  geolocationGeneration += 1;
   modelValue.value = {
     lat: Number(value.lat ?? modelValue.value?.lat ?? center.value.lat),
     lng: Number(value.lng ?? modelValue.value?.lng ?? center.value.lng),
@@ -79,23 +81,24 @@ function updateFormModel(value: Partial<LocationInput>) {
 }
 
 watch(modelValue, (value) => {
+  geolocationGeneration += 1;
   center.value = value ?? { lat: -1.2100164677737193, lng: 117.56306695042623 };
 });
 
 async function loadConfig() {
   configController?.abort();
-  configController = new AbortController();
+  const controller = new AbortController();
+  configController = controller;
   loading.value = true;
   error.value = undefined;
   try {
-    apiKey.value = (
-      await props.operations.mapConfig({ signal: configController.signal })
-    ).apiKey;
+    const result = await props.operations.mapConfig({ signal: controller.signal });
+    if (!controller.signal.aborted) apiKey.value = result.apiKey;
   } catch (reason) {
-    if (!configController.signal.aborted)
+    if (!controller.signal.aborted)
       error.value = reason instanceof Error ? reason.message : String(reason);
   } finally {
-    if (!configController.signal.aborted) loading.value = false;
+    if (!controller.signal.aborted) loading.value = false;
   }
 }
 
@@ -104,41 +107,44 @@ async function autocomplete(input: string) {
   predictions.value = [];
   if (!input) return;
   const generation = ++autocompleteGeneration;
-  autocompleteController = new AbortController();
+  const controller = new AbortController();
+  autocompleteController = controller;
   try {
     const result = await props.operations.autocomplete({
       input,
-      signal: autocompleteController.signal,
+      signal: controller.signal,
     });
     if (
       generation === autocompleteGeneration &&
-      !autocompleteController.signal.aborted
+      !controller.signal.aborted
     )
       predictions.value = result;
   } catch (reason) {
-    if (!autocompleteController.signal.aborted)
+    if (generation === autocompleteGeneration && !controller.signal.aborted)
       error.value = reason instanceof Error ? reason.message : String(reason);
   }
 }
 
 async function selectPrediction(prediction: LocationPrediction) {
+  geolocationGeneration += 1;
   detailController?.abort();
   const generation = ++detailGeneration;
-  detailController = new AbortController();
+  const controller = new AbortController();
+  detailController = controller;
   loading.value = true;
   error.value = undefined;
   selectedId.value = prediction.id;
   try {
     const result = await props.operations.detail({
       id: prediction.id,
-      signal: detailController.signal,
+      signal: controller.signal,
     });
-    if (generation !== detailGeneration || detailController.signal.aborted)
+    if (generation !== detailGeneration || controller.signal.aborted)
       return;
     modelValue.value = result;
     emit("validation:touch");
   } catch (reason) {
-    if (!detailController.signal.aborted)
+    if (generation === detailGeneration && !controller.signal.aborted)
       error.value = reason instanceof Error ? reason.message : String(reason);
   } finally {
     if (generation === detailGeneration) loading.value = false;
@@ -146,6 +152,7 @@ async function selectPrediction(prediction: LocationPrediction) {
 }
 
 function getCurrentLocation() {
+  const generation = ++geolocationGeneration;
   if (!globalThis.navigator?.geolocation) {
     error.value = "Geolocation tidak tersedia.";
     return;
@@ -153,6 +160,7 @@ function getCurrentLocation() {
   loading.value = true;
   navigator.geolocation.getCurrentPosition(
     (position) => {
+      if (generation !== geolocationGeneration) return;
       loading.value = false;
       modelValue.value = {
         lat: position.coords.latitude,
@@ -161,6 +169,7 @@ function getCurrentLocation() {
       emit("validation:touch");
     },
     (reason) => {
+      if (generation !== geolocationGeneration) return;
       loading.value = false;
       error.value = reason.message || "Lokasi tidak dapat diakses.";
     },
@@ -168,6 +177,7 @@ function getCurrentLocation() {
 }
 
 function updateCoordinate(lat: number, lng: number) {
+  geolocationGeneration += 1;
   modelValue.value = { lat, lng };
   emit("validation:touch");
 }
@@ -177,9 +187,13 @@ function updateCoordinateFromMap(event: { latLng?: { lat: () => number; lng: () 
   updateCoordinate(event.latLng.lat(), event.latLng.lng());
 }
 
-watch(query, autocomplete);
+watch(query, (value) => {
+  geolocationGeneration += 1;
+  void autocomplete(value);
+});
 onMounted(loadConfig);
 onBeforeUnmount(() => {
+  geolocationGeneration += 1;
   configController?.abort();
   autocompleteController?.abort();
   detailController?.abort();

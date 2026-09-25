@@ -22,10 +22,10 @@ export type ResourceCustomOperation = string & {}
 /** Any resource operation the adapter can check: standard or custom action. */
 export type ResourceAccessOperation = ResourceOperation | ResourceCustomOperation
 
-export interface AccessRequest<TRecord = Record<string, unknown>> {
+export interface AccessRequest<TRecord = object> {
   operation: ResourceAccessOperation
   /** Permission identity owned by the resource, e.g. `roles.update`. */
-  permission?: string
+  permission?: string | null
   record?: TRecord
 }
 
@@ -34,4 +34,4 @@ export interface AccessAdapter {
 }
 
 /** Stable resource-level visibility policy, evaluated after the adapter. */
-export type AccessPolicy<TRecord = Record<string, unknown>> = (request: AccessRequest<TRecord>) => boolean
+export type AccessPolicy<TRecord = object> = (request: AccessRequest<TRecord>) => boolean
