@@ -1,4 +1,4 @@
-import type { FormRendererComponents, FormRendererProps } from '../formContracts'
+import type { FormRendererComponents, FormRendererModelValue, FormRendererProps } from '../formContracts'
 import { defineForm } from '../../forms/defineForm'
 import { createRendererRegistries } from '../registry'
 import './test-renderers'
@@ -6,6 +6,7 @@ import { ratingInputForTests } from './test-renderers'
 import { z } from 'zod'
 
 const ratingOk: FormRendererProps<'rating'> = { max: 5, mode: 'stars' }
+const ratingModel: FormRendererModelValue<'rating'> = 5
 const ratingBad: FormRendererProps<'rating'> = {
   // @ts-expect-error RatingInput.max is numeric.
   max: 'high',
@@ -55,4 +56,4 @@ createRendererRegistries({ form: { ratingMisspelled: ratingInputForTests } })
 type Undeclared = 'unregistered-widget' extends keyof FormRendererComponents ? 'registered' : 'missing'
 const undeclared: Undeclared = 'missing'
 
-void [ratingOk, ratingBad, ratingExtra, missingRequiredProp, numericRatingForm, unionMissingRequiredProp, invalidStringRatingForm, undeclared]
+void [ratingOk, ratingModel, ratingBad, ratingExtra, missingRequiredProp, numericRatingForm, unionMissingRequiredProp, invalidStringRatingForm, undeclared]

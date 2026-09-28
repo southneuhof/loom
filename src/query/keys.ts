@@ -43,8 +43,22 @@ export interface RecordKeyInput {
   searchParameters?: QueryValues
 }
 
+export interface ResourceOptionsKeyInput {
+  resource: string
+  namespace: QueryNamespace
+  searchParameters?: QueryValues
+}
+
 export function resourceKey(resource: string): QueryKey {
   return [resourceKeyPrefix, resource]
+}
+
+export function resourceOptionsKeyPrefix(resource: string): QueryKey {
+  return [...resourceKey(resource), 'options']
+}
+
+export function resourceOptionsKey({ resource, namespace, searchParameters }: ResourceOptionsKeyInput): QueryKey {
+  return [...resourceOptionsKeyPrefix(resource), namespace, stableValue(searchParameters ?? {})]
 }
 
 export function collectionKey({ resource, query, searchParameters, namespace }: CollectionKeyInput): QueryKey {

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { userEvent } from 'vitest/browser'
 import { createApp, defineComponent, h, nextTick, ref, type App } from 'vue'
 import { z } from 'zod/v4'
 import { FrameworkPlugin } from '../../../adapters/plugin'
@@ -383,5 +384,40 @@ describe('Form control contracts in the browser', () => {
     host.querySelector<HTMLButtonElement>('button[type="submit"]')?.click()
     await vi.waitFor(() => expect(submitted).toHaveBeenCalledOnce())
     expect(submitted.mock.calls[0]?.[0].amount).toBe(6)
+  })
+
+  it('blocks Enter after a post-write failure and keeps the warning visible', async () => {
+    const submit = vi.fn(async () => {
+      throw Object.assign(new Error('The write may have completed.'), { postWrite: true })
+    })
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(defineComponent({
+      setup: () => () => h(Form, {
+        schema: z.object({ name: z.string() }),
+        fields: { name: { renderer: 'text' } },
+        initialData: { name: 'Ada' },
+        submit,
+      }),
+    }))
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await settle()
+
+    const name = host.querySelector<HTMLInputElement>('input[id$="-field-name"]')
+    const save = host.querySelector<HTMLButtonElement>('button[type="submit"]')
+    if (!name || !save) throw new Error('The Form controls did not render.')
+    await userEvent.click(save)
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce())
+    expect(save.disabled).toBe(true)
+    expect(host.textContent).toContain('Check the record before starting another save.')
+
+    await userEvent.click(name)
+    await userEvent.keyboard('{Enter}')
+    await settle()
+
+    expect(submit).toHaveBeenCalledOnce()
+    expect(host.textContent).toContain('Check the record before starting another save.')
   })
 })

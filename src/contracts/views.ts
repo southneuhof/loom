@@ -3,8 +3,10 @@ import type { FormProps } from '../forms/props'
 import type { ListExportOptions } from '../services/excel'
 import type { DetailProps, TableProps } from './components'
 import type { FormDefinition, FormDraft, FormSlots } from './forms'
-import type { MaybePromise } from './load'
+import type { QueryValues } from './query'
+import type { MaybePromise, RecordIdentity } from './load'
 import type { ResourceOperation } from './access'
+import type { SubmitError } from './results'
 
 export interface AfterSubmitContext<TResult> {
   result: TResult
@@ -37,6 +39,8 @@ export type FormViewSlots<TInput extends object, TOutput extends object, TResult
 
 export type ListFilters<TQuery extends object = Record<string, unknown>, TInput extends object = Partial<TQuery>> = Omit<FormDefinition<TInput, Partial<TQuery>>, 'submit'> & {
   submit?: never
+  queryKeys: readonly Extract<keyof TQuery, string>[]
+  toDraft: (query: Readonly<QueryValues>) => FormDraft<TInput>
   defaults?: FormDraft<TInput>
   label?: string
   resetLabel?: string
@@ -48,6 +52,18 @@ export interface ListViewActions<TRecord extends object = Record<string, unknown
   updateRoute?: ((record: TRecord) => RouteLocationRaw | undefined) | false
   can?: (operation: ResourceOperation, record?: TRecord) => boolean
   deleteRecord?: (record: TRecord) => Promise<unknown>
+  recordIdentity?: (record: TRecord) => RecordIdentity
+}
+
+export type ListViewDeleteState = Readonly<{
+  disabled: boolean
+  pending: boolean
+  error?: Readonly<SubmitError>
+}>
+
+export type ListViewSlotActions<TRecord extends object = Record<string, unknown>> = Omit<ListViewActions<TRecord>, 'deleteRecord' | 'recordIdentity'> & {
+  deleteRecord?: (record: TRecord) => Promise<unknown>
+  deleteState: (record: TRecord) => ListViewDeleteState
 }
 
 export type ListViewProps<TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>, TFilterInput extends object = Partial<TQuery>> = {
@@ -56,7 +72,16 @@ export type ListViewProps<TRecord extends object = Record<string, unknown>, TQue
   filters?: ListFilters<TQuery, TFilterInput>
   export?: ListExportOptions<TRecord, TQuery> | false
   table: TableProps<TRecord, TQuery>
-} & ListViewActions<TRecord>
+} & ListViewActions<TRecord> & (
+  | {
+      deleteRecord: (record: TRecord) => Promise<unknown>
+      recordIdentity: (record: TRecord) => RecordIdentity
+  }
+  | {
+      deleteRecord?: undefined
+      recordIdentity?: never
+    }
+)
 
 export type DetailViewProps<TRecord extends object = Record<string, unknown>> = {
   detail: DetailProps<TRecord>

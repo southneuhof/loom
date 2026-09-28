@@ -1,9 +1,8 @@
 import { defineAsyncComponent } from 'vue'
 import FileInput from '../components/inputs/FileInput.vue'
 import TextInput from '../components/inputs/TextInput.vue'
-import type { BuiltInFormRendererComponents } from './formContracts'
 
-export const builtInFormRenderers: Record<keyof BuiltInFormRendererComponents, unknown> = {
+export const builtInFormRenderers = {
   text: TextInput,
   textarea: defineAsyncComponent(() => import('../components/inputs/TextareaInput.vue')),
   password: defineAsyncComponent(() => import('../components/inputs/PasswordInput.vue')),

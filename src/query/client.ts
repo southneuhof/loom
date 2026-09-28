@@ -8,7 +8,7 @@
 import { inject, type InjectionKey } from 'vue'
 import { QueryClient, useQueryClient } from '@tanstack/vue-query'
 import { defaultQueryRuntimeDefaults, type QueryRuntimeDefaults } from '../adapters/projectAdapters'
-import { recordKey, resourceKey } from './keys'
+import { recordKey, resourceKey, resourceOptionsKeyPrefix } from './keys'
 import type { RecordIdentity } from '../contracts'
 
 export const frameworkQueryClientKey: InjectionKey<QueryClient> = Symbol.for('loom-query-client')
@@ -37,10 +37,6 @@ export interface ResourceInvalidation {
   id?: RecordIdentity
 }
 
-/**
- * Semantic invalidation. Without an `id` every list and record of the resource
- * is invalidated; with one, only that record plus the resource's collections.
- */
 export async function invalidateResourceData(client: QueryClient, { resource, id }: ResourceInvalidation): Promise<void> {
   if (id === undefined) {
     await client.invalidateQueries({ queryKey: resourceKey(resource) })
@@ -48,6 +44,7 @@ export async function invalidateResourceData(client: QueryClient, { resource, id
   }
   await Promise.all([
     client.invalidateQueries({ queryKey: [...resourceKey(resource), 'list'] }),
+    client.invalidateQueries({ queryKey: resourceOptionsKeyPrefix(resource) }),
     client.invalidateQueries({ queryKey: recordKey({ resource, id, variant: 'display' }).slice(0, 4) }),
   ])
 }

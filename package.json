@@ -60,6 +60,7 @@
   "scripts": {
     "build": "pnpm run type-check",
     "type-check": "vue-tsc --noEmit --incremental -p tsconfig.json",
+    "test:diagnostics": "node scripts/check-contract-diagnostics.mjs",
     "test": "NODE_ENV=test vitest run --environment jsdom",
     "test:browser": "vitest run --config vitest.browser.config.ts"
   }

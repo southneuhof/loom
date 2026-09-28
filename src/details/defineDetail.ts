@@ -2,6 +2,7 @@ import type { DetailField, DetailDefinition } from '../contracts/details'
 import type { CompactDisplayField, DisplayFieldGuard, DisplayFieldValue } from '../display/compatibility'
 import type { LabelDictionary } from '../contracts/labels'
 import type { RawSchema, RawSchemaOutput } from '../contracts/schema'
+import { assertDisplayEntry, assertSafeDisplayKey } from '../display/assertDisplayDefinition'
 
 type UnsafeKey = '__proto__' | 'prototype' | 'constructor' | `${number}`
 type FiniteRecordGuard<TRecord extends object> = string extends Extract<keyof TRecord, string> ? never : unknown
@@ -50,27 +51,6 @@ function assertLabels(value: unknown): void {
   }
 }
 
-function assertField(key: string, field: unknown): void {
-  if (!isRecord(field)) invalidOption(`fields.${key}`, 'a DetailField object')
-  const allowed = new Set(['label', 'read', 'renderer', 'props', 'format', 'emphasis', 'span'])
-
-  for (const member of Object.keys(field)) {
-    if (!allowed.has(member)) invalidOption(`fields.${key}.${member}`, 'a DetailField member')
-  }
-  if ('label' in field && typeof field.label !== 'string' && typeof field.label !== 'function') invalidOption(`fields.${key}.label`, 'a string or a function that returns a string')
-  if ('read' in field && typeof field.read !== 'function') invalidOption(`fields.${key}.read`, 'a function')
-  if ('renderer' in field && typeof field.renderer !== 'string') invalidOption(`fields.${key}.renderer`, 'a registered display key')
-  if ('props' in field && !isRecord(field.props)) invalidOption(`fields.${key}.props`, 'an object')
-  if (isRecord(field.props)) {
-    for (const member of ['value', 'modelValue', 'record', 'draft', 'field', 'key', 'index', 'setValue']) {
-      if (Object.hasOwn(field.props, member)) invalidOption(`fields.${key}.props.${member}`, 'supplied by the display surface')
-    }
-  }
-  if ('format' in field && typeof field.format !== 'string') invalidOption(`fields.${key}.format`, 'a format key')
-  if ('emphasis' in field && !['strong', 'muted'].includes(String(field.emphasis))) invalidOption(`fields.${key}.emphasis`, 'strong or muted')
-  if ('span' in field && (typeof field.span !== 'number' || !Number.isInteger(field.span) || field.span < 1)) invalidOption(`fields.${key}.span`, 'a positive integer')
-}
-
 function snapshotMap<T extends object>(value: T): T {
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, isRecord(entry) ? { ...entry, ...(isRecord(entry.props) ? { props: { ...entry.props } } : {}) } : entry])) as T
 }
@@ -92,10 +72,10 @@ export function defineDetail<
   if (!isRecord(definition.fields)) invalidOption('fields', 'an ordered detail field map')
   assertLabels(definition.labels)
   for (const key of Reflect.ownKeys(definition.fields)) {
-    if (typeof key !== 'string' || key === '__proto__' || key === 'prototype' || key === 'constructor' || /^\d+$/.test(key)) {
-      invalidOption(`fields.${String(key)}`, 'a safe named key')
-    }
-    assertField(key, definition.fields[key])
+    assertSafeDisplayKey(key, (invalidKey, expected) => invalidOption(`fields.${String(invalidKey)}`, expected))
+    assertDisplayEntry('detail', `fields.${key}`, definition.fields[key], (_surface, location, member, expected) => {
+      invalidOption(member === 'definition' ? location : `${location}.${member}`, expected)
+    })
   }
 
   const result: DefinedDetail<TSchema, TFields> = {

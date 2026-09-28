@@ -2,8 +2,8 @@ import { defineComponent, h, ref } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
 import ImageInput from '../ImageInput.vue'
 import { deferred, flush, mountCore } from '../../core/__tests__/harness'
-import type { AssetAdapter } from '../../../assets/contracts'
-import { testAssetAdapter } from './harness'
+import type { AssetAdapter, AssetValue } from '../../../assets/contracts'
+import { mountInput, testAssetAdapter } from './harness'
 
 function selectFile(input: HTMLInputElement, file: File) {
   Object.defineProperty(input, 'files', { configurable: true, value: [file] })
@@ -11,6 +11,56 @@ function selectFile(input: HTMLInputElement, file: File) {
 }
 
 describe('ImageInput upload surface', () => {
+  it('emits a single image asset and clears it to null', async () => {
+    const uploaded: AssetValue = {
+      kind: 'file',
+      id: '/uploads/single.png',
+      url: 'https://files.test/single.png',
+      name: 'single.png',
+      mimeType: 'image/png',
+    }
+    const view = mountInput<AssetValue | null>(ImageInput, {
+      model: null,
+      adapters: { assets: { ...testAssetAdapter, upload: async () => uploaded } },
+    })
+    await view.flush()
+
+    selectFile(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, new File(['single'], 'single.png', { type: 'image/png' }))
+    await view.flush()
+
+    expect(view.model.value).toEqual(uploaded)
+    const remove = view.host.querySelector<HTMLButtonElement>('[aria-label="Remove image"]')
+    expect(remove).not.toBeNull()
+    remove?.click()
+    await view.flush()
+
+    expect(view.model.value).toBeNull()
+    view.cleanup()
+  })
+
+  it('clears a selected multi-image value to an empty array', async () => {
+    const image: AssetValue = {
+      kind: 'file',
+      id: '/uploads/first.png',
+      url: 'https://files.test/first.png',
+      name: 'first.png',
+      mimeType: 'image/png',
+    }
+    const view = mountInput<AssetValue | AssetValue[] | null>(ImageInput, {
+      model: [image],
+      props: { multi: true },
+    })
+    await view.flush()
+
+    const remove = view.host.querySelector<HTMLButtonElement>('[aria-label="Remove image"]')
+    expect(remove).not.toBeNull()
+    remove?.click()
+    await view.flush()
+
+    expect(view.model.value).toEqual([])
+    view.cleanup()
+  })
+
   it('keeps the uploaded asset object and preview through the control value', async () => {
     const uploaded = {
       kind: 'file' as const,

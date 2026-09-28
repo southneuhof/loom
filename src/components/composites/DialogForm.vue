@@ -100,6 +100,7 @@ const formSlotNames = () => Object.keys(slots).filter((name) => name === 'loadin
 const dirty = computed(() => form.value?.dirty === true)
 const submitting = computed(() => form.value?.submitting === true)
 const submitPending = computed(() => form.value?.submitPending === true)
+const postWriteError = computed(() => form.value?.postWriteError)
 const validating = computed(() => form.value?.validating === true)
 const inputPending = computed(() => form.value?.inputPending === true)
 const draft = computed(() => form.value?.draft)
@@ -107,7 +108,7 @@ const submitLabel = computed(() => props.submitLabel ?? defaultSubmitLabel)
 const submittingLabel = computed(() => props.submittingLabel ?? submitLabel.value)
 const hasSubmit = computed(() => typeof props.submit === 'function')
 const cancelDisabled = computed(() => props.disabled === true || submitting.value || submitPending.value || validating.value || checkingClose.value)
-const submitDisabled = computed(() => props.disabled === true || submitting.value || submitPending.value || validating.value || inputPending.value || checkingClose.value)
+const submitDisabled = computed(() => props.disabled === true || submitting.value || submitPending.value || postWriteError.value !== undefined || validating.value || inputPending.value || checkingClose.value)
 
 watch(open, (value, previous) => {
   if (value === previous) return
@@ -213,6 +214,7 @@ defineExpose({
   dirty,
   submitting,
   submitPending,
+  postWriteError,
   validating,
   inputPending,
   checkingClose,

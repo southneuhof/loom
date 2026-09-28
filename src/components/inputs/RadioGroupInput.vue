@@ -10,6 +10,7 @@ type Option = Record<string, unknown>
 type SelectionContext = {
   mode: 'data' | 'load' | 'none'
   load: OptionLoad<Option> | undefined
+  resource: string | undefined
   namespace: QueryNamespace | undefined
   searchParameters: unknown
   pick: string
@@ -19,6 +20,7 @@ type SelectionContext = {
 const props = defineProps({
   data: Array as PropType<readonly Option[]>,
   load: Function as PropType<OptionLoad<Option>>,
+  resource: String as PropType<string>,
   namespace: String as PropType<QueryNamespace>,
   view: { type: String, default: 'name' },
   pick: { type: String, default: 'id' },
@@ -43,6 +45,7 @@ function readContext(): SelectionContext {
   return {
     mode,
     load: source.externalContext.value.load,
+    resource: source.externalContext.value.resource,
     namespace: source.externalContext.value.namespace,
     searchParameters: source.externalContext.value.searchParameters,
     pick: props.pick,
@@ -58,6 +61,7 @@ function sameContext(left: SelectionContext, right: SelectionContext): boolean {
   }
   if (left.mode !== 'load' || right.mode !== 'load') return true
   return left.load === right.load
+    && left.resource === right.resource
     && left.namespace === right.namespace
     && JSON.stringify(left.searchParameters) === JSON.stringify(right.searchParameters)
 }

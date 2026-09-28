@@ -45,6 +45,7 @@ const loadError = session.loadError
 const dirty = session.dirty
 const submitting = session.submitting
 const submitPending = session.submitPending
+const postWriteError = session.postWriteError
 const validating = session.validating
 const issues = session.issues
 const hasSubmit = session.hasSubmit
@@ -166,6 +167,7 @@ defineExpose({
   dirty,
   submitting,
   submitPending,
+  postWriteError,
   validating,
   inputPending,
   validate: session.validate,
@@ -177,6 +179,10 @@ defineExpose({
 
 <template>
   <form v-bind="nativeFormBindings" :id="session.formId" :novalidate="props.novalidate === '' ? true : (props.novalidate ?? true)" class="flex flex-col gap-5" @submit.prevent="submit">
+    <p v-if="postWriteError" role="alert" class="rounded-lg bg-error-container px-4 py-3 text-sm leading-5 text-on-error-container">
+      The save may have completed. Check the record before starting another save.
+    </p>
+
     <slot v-if="loading" name="loading">
       <div class="rounded-lg bg-surface-container px-4 py-3 text-sm text-on-surface">
         <p role="status" aria-live="polite">Loading…</p>
@@ -246,8 +252,8 @@ defineExpose({
         </div>
       </div>
 
-      <slot name="actions" :submit="submit" :reset="reset" :submitting="submitting" :submit-pending="submitPending" :validating="validating" :dirty="dirty" :input-pending="inputPending">
-        <Button v-if="hasSubmit" type="submit" :disabled="props.disabled === true || loading || submitPending || submitting || inputPending">
+      <slot name="actions" :submit="submit" :reset="reset" :submitting="submitting" :submit-pending="submitPending" :post-write-error="postWriteError" :validating="validating" :dirty="dirty" :input-pending="inputPending">
+        <Button v-if="hasSubmit" type="submit" :disabled="props.disabled === true || loading || submitPending || submitting || inputPending || postWriteError !== undefined">
           {{ submitting ? (props.submittingLabel ?? submitLabel) : submitLabel }}
         </Button>
       </slot>

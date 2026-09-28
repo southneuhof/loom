@@ -18,6 +18,15 @@ describe('display resolution', () => {
     ])
   })
 
+  it('rejects reserved renderer props on plain display definitions', () => {
+    expect(() => resolveDisplayFields({
+      surface: 'detail',
+      entries: { name: { props: { 'onUpdate:modelValue': null } } },
+    })).toThrow(
+      '[loom][SURFACE_OPTION_INVALID] Detail field "name" member "props.onUpdate:modelValue" must be supplied by the display surface.',
+    )
+  })
+
   it('reads a joined relation with one pure accessor and leaves the read model unchanged', () => {
     type UserReadModel = {
       id: string

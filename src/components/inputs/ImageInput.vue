@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, defineAsyncComponent, onBeforeUnmount, ref, useAttrs, watch } from 'vue'
+import type { PropType } from 'vue'
 import type { AssetValue } from '../../assets/contracts'
+import type { AssetInputModelValue } from './assetInput.types'
 import { useAssetAdapter } from '../../assets/provider'
 import { useFormInputPending } from '../core/useFormInputState'
 import { toast } from 'vue-sonner'
@@ -20,7 +22,7 @@ import { useUploadMutation } from './useUploadMutation'
 
 const props = defineProps({
   modelValue: {
-    type: Object,
+    type: Object as PropType<AssetInputModelValue<boolean>>,
     required: false,
   },
   maxSize: {
@@ -80,7 +82,7 @@ onBeforeUnmount(() => {
   disposed = true
   for (const id of pendingOperations.keys()) releaseOperation(id)
 })
-const modelValue = defineModel<AssetValue | AssetValue[] | null>()
+const modelValue = defineModel<AssetInputModelValue<boolean>>()
 const emit = defineEmits<{
   (event: 'validation:touch'): void
   (event: 'validation:error', message: string | undefined): void

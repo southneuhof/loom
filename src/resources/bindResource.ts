@@ -3,7 +3,7 @@ import { invalidateResourceData } from '../query/client'
 import { stableValue } from '../query/keys'
 import { checkIdentityValue, isRecordIdentity } from './identity'
 import { useResourceRuntime } from './runtime'
-import { registerResourceAction } from './routeAccess'
+import { registerResourceRouteRequirement } from './routeAccess'
 import { isStandardRowOperation } from './operations'
 import type {
   BoundCustomActions,
@@ -18,6 +18,7 @@ import type {
   ResourceBoundOperations,
   ResourcePermissions,
   ResourceRoute,
+  ResourceRoutePermission,
   ResourceStaticRoute,
 } from './operations'
 import type { RouteLocationRaw } from 'vue-router'
@@ -445,20 +446,30 @@ function registerRoute<TIdentity extends RecordIdentity>(
   resourceKey: string,
   operation: string,
   route: ResourceRoute<TIdentity> | ResourceStaticRoute | undefined,
-  permission: string | null | readonly string[] | ((...args: never[]) => unknown),
+  permission: string | null | readonly string[],
 ): void {
   if (!route) return
   const permissions = Array.isArray(permission)
     ? [...permission]
     : typeof permission === 'string'
       ? [permission]
-      : undefined
-  registerResourceAction(route.name, {
+      : []
+  registerResourceRouteRequirement(route.name, {
     resourceKey,
-    action: operation,
-    permission: typeof permission === 'string' ? permission : null,
-    ...(Array.isArray(permission) ? { permissions } : {}),
+    operation,
+    permissions,
   })
+}
+
+function assertRoutePermission(resourceKey: string, actionName: string, permission: unknown): asserts permission is ResourceRoutePermission {
+  if (permission === null) return
+  if (typeof permission === 'string' && permission.length > 0) return
+  if (Array.isArray(permission) && permission.length > 0 && permission.every((value) => typeof value === 'string' && value.length > 0)) return
+  throw new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" action "${actionName}" routePermission must be a nonempty permission string, a nonempty string array, or null.`)
+}
+
+function routePermissionPolicyError(resourceKey: string, actionName: string): Error {
+  return new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" action "${actionName}" routePermission only applies to routed commands with argument-dependent permission.`)
 }
 
 export function bindResource<
@@ -506,7 +517,7 @@ export function bindResource<
       namespace: table.namespace ?? resourceKey,
       load: wrapCollectionLoad(resourceKey, declaration.permission, declaration.visible, load),
     }
-    const list = withoutMembers(declaration, ['permission', 'route', 'visible', 'table', 'can', 'deleteRecord'])
+    const list = withoutMembers(declaration, ['permission', 'route', 'visible', 'table', 'can', 'deleteRecord', 'recordIdentity'])
     list.table = tableBag
     if (declaration.createRoute === undefined && definition.create?.route) list.createRoute = staticRouteTarget(definition.create.route)
     const detailDeclaration = definition.detail
@@ -568,6 +579,7 @@ export function bindResource<
         await invalidateAfterWrite(runtime, resourceKey, 'delete', binding.id)
         return result
       }
+      list.recordIdentity = identity
     }
     page.list = list
   }
@@ -674,8 +686,10 @@ export function bindResource<
       }
       const permission = Reflect.get(action, 'permission')
       const route = Reflect.get(action, 'route') as ResourceRoute | undefined
+      const hasRoutePermission = Object.hasOwn(action, 'routePermission')
+      const routePermission = Reflect.get(action, 'routePermission')
       for (const member of Object.keys(action)) {
-        if (!['run', 'permission', 'visible', 'route'].includes(member)) {
+        if (!['run', 'permission', 'visible', 'route', 'routePermission'].includes(member)) {
           throw new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" action "${actionName}" member "${member}" is not supported.`)
         }
       }
@@ -689,7 +703,23 @@ export function bindResource<
       if (typeof action.visible !== 'undefined' && typeof action.visible !== 'function') {
         throw new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" action "${actionName}" visible must be a function.`)
       }
-      registerRoute(resourceKey, actionName, route, permission as string | null | readonly string[] | ((...args: never[]) => unknown))
+      let routeAccessPermission: string | null | readonly string[]
+      if (typeof permission === 'function') {
+        if (route) {
+          if (!hasRoutePermission) {
+            throw new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" action "${actionName}" has argument-dependent permission and needs routePermission for route entry.`)
+          }
+          assertRoutePermission(resourceKey, actionName, routePermission)
+          routeAccessPermission = routePermission
+        } else {
+          if (hasRoutePermission) throw routePermissionPolicyError(resourceKey, actionName)
+          routeAccessPermission = null
+        }
+      } else {
+        if (hasRoutePermission) throw routePermissionPolicyError(resourceKey, actionName)
+        routeAccessPermission = permission as string | null | readonly string[]
+      }
+      registerRoute(resourceKey, actionName, route, routeAccessPermission)
       const command = customHandle(
         resourceKey,
         actionName,

@@ -7,6 +7,7 @@ import type { SubmitError } from '../contracts/results'
 import { useFrameworkAdapters } from '../adapters/projectAdapters'
 import { useRendererRegistry } from '../renderers/registry'
 import { useLoader } from '../query'
+import { stableValue } from '../query/keys'
 import { instanceIdentity, recordCacheKey } from '../components/core/useCoreData'
 import { formInputPendingKeyOf, provideFormInputPending } from '../components/core/useFormInputState'
 import { createFormBehaviorRuntime, type FormBehaviorRuntime, type RuntimeFormField } from './behavior'
@@ -33,6 +34,7 @@ export interface FormSession<
   dirty: ComputedRef<boolean>
   submitting: ComputedRef<boolean>
   submitPending: ComputedRef<boolean>
+  postWriteError: ComputedRef<SubmitError | undefined>
   validating: ComputedRef<boolean>
   inputPending: ComputedRef<boolean>
   loading: ComputedRef<boolean>
@@ -257,6 +259,7 @@ export function useFormSession<
   const loadedValues = shallowRef<Record<string, unknown>>({})
   const submitting = ref(false)
   const submitPending = ref(false)
+  const postWriteErrorState = shallowRef<SubmitError>()
   const validating = ref(false)
   const validatingPaths = ref(new Set<string>())
   const submitAttempted = ref(false)
@@ -293,6 +296,7 @@ export function useFormSession<
   const hasSubmit = computed(() => typeof props.submit === 'function')
   const dirty = computed(() => !equalRecord(cloneRecord(draft), baseline.value))
   const readonlyDraft = computed(() => snapshotDraft<TInput>(draft))
+  const postWriteError = computed(() => postWriteErrorState.value)
 
   function cancelSubmitAttempt(): void {
     if (submitting.value) return
@@ -515,7 +519,8 @@ export function useFormSession<
     submitTarget: FormProps<TInput, TOutput, TResult>['submit'],
   ): Promise<void> {
     if (
-      !mounted
+      postWriteErrorState.value
+      || !mounted
       || generation !== sessionGeneration.value
       || revision !== draftRevision
       || props.submit !== submitTarget
@@ -530,6 +535,7 @@ export function useFormSession<
       || generation !== sessionGeneration.value
       || revision !== draftRevision
       || props.submit !== submitTarget
+      || postWriteErrorState.value
       || props.disabled
       || loading.value
       || inputPending.value
@@ -546,6 +552,7 @@ export function useFormSession<
     } catch (error) {
       if (!mounted || generation !== sessionGeneration.value || activeMutationOwner !== mutationOwner) return
       const normalized = (props.normalizeError ?? adapters.data.normalizeError)(error)
+      if (normalized.postWrite === true) postWriteErrorState.value = normalized
       if (normalized.issues) issues.value = normalized.issues
       toast.error(normalized.message)
       events.error(normalized)
@@ -558,6 +565,7 @@ export function useFormSession<
   }
 
   function submit(): Promise<void> {
+    if (postWriteErrorState.value) return Promise.resolve()
     if (activeSubmit) return activeSubmit
     if (props.disabled || submitting.value || loading.value || inputPending.value) return Promise.resolve()
     behaviorRuntime.value.settle()
@@ -680,6 +688,10 @@ export function useFormSession<
   }, { deep: true })
 
   const keySignature = computed(() => JSON.stringify(fields.value.map((field) => field.key)))
+  const writeTargetSignature = computed(() => JSON.stringify(stableValue([props.resource, props.id])))
+  watch(writeTargetSignature, () => {
+    postWriteErrorState.value = undefined
+  })
   const identitySignature = computed(() => JSON.stringify(recordCacheKey(owner.value, props.id, 'form', props.namespace, props.searchParameters ?? {})))
   watch([() => props.schema, keySignature, identitySignature], ([schema, keys, identity], previous) => {
     if (!previous) return
@@ -727,6 +739,7 @@ export function useFormSession<
     dirty,
     submitting: computed(() => submitting.value),
     submitPending: computed(() => submitPending.value),
+    postWriteError,
     validating: computed(() => validating.value),
     inputPending,
     loading,

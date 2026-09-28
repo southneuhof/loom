@@ -66,7 +66,7 @@ function readFixture(value: unknown): AssetValue | null {
   return [stored, secondStored, thirdStored].find((item) => item.id === id) ?? null
 }
 
-function fileManagerOptions(toModel: FileManagerPluginOptions<AssetValue>['values']['toModel']): FileManagerPluginOptions<AssetValue> {
+function fileManagerOptions(toModel: FileManagerPluginOptions['values']['toModel']): FileManagerPluginOptions {
   return {
     root: 'uploads/',
     operations: { list: async () => ({ data: [managed, secondManaged, thirdManaged] }) },

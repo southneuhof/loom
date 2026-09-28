@@ -1,12 +1,14 @@
 import { defineResource } from '../defineResource'
-import type { CollectionLoadContext, CollectionResult, RawSchema, RecordLoadContext } from '../../contracts'
-import type { ListFilters } from '../../contracts/views'
+import type { CollectionLoadContext, CollectionResult, FormDraft, QueryValues, RawSchema, RecordIdentity, RecordLoadContext } from '../../contracts'
+import type { ListFilters, ListViewProps } from '../../contracts/views'
 import type { ListExportOptions } from '../../services/excel'
-import type { ResourceCreateDeclaration } from '../operations'
+import type { ResourceCreateDeclaration, ResourceListDeclaration } from '../operations'
 import type { FormRendererProps } from '../../renderers/formContracts'
 
 type Row = { id: string; name: string; status: string }
 type Draft = { name: string }
+type TypedCreateInput = { name: string }
+type TypedCreateOutput = { normalizedName: string }
 type DetailRecord = Row & { summary: string }
 type Assert<TValue extends true> = TValue
 type Equal<TLeft, TRight> =
@@ -113,6 +115,7 @@ const updateAfterSubmit: NonNullable<typeof updatePage.afterSubmit> = async ({ r
 }
 void updateAfterSubmit
 const deletedResult: Promise<string> = rows.delete({ id: '1' }).run()
+const boundListIdentity: (record: Row) => RecordIdentity = rows.list.recordIdentity
 const customActionResult: Promise<string> = rows.actions.verify.run('1')
 const listPermission: 'rows.list' = rows.permissions.list
 const createPermission: 'rows.create' = rows.permissions.create
@@ -167,12 +170,21 @@ type CompactResourcePageTitle = Assert<Equal<typeof compactResource.list.title, 
 type CompactResourceCreateTitle = Assert<Equal<typeof compactResource.create.title, 'Create row'>>
 type CompactResourceDetailTitle = Assert<Equal<typeof compactDetailPage.title, 'Detail row'>>
 type CompactResourcePermission = Assert<Equal<typeof compactResource.permissions.create, null>>
+type CompactListIdentityNotConfigured = Assert<Equal<typeof compactResource.list.recordIdentity, undefined>>
+type ResourceListIdentityIsResourceOwned = Assert<Equal<'recordIdentity' extends keyof ResourceListDeclaration ? true : false, false>>
 const compactFormResult: Promise<{ id: string; name: string; status: string }> = compactResource.create.form.submit({ name: 'Ada' })
 const compactDetailLoad: Promise<DetailRecord | undefined> = compactResource.detail({ id: '1' }).detail.load({ id: '1', searchParameters: {} })
 const compactAfterSubmit: NonNullable<typeof compactResource.create.afterSubmit> = async ({ result }) => {
   const id: string = result.id
   void id
 }
+const standaloneDelete: ListViewProps<Row> = {
+  table: rows.list.table,
+  deleteRecord: async (record) => record.id,
+  recordIdentity: (record) => record.id,
+}
+const standaloneDeleteWithoutIdentity = { table: rows.list.table, deleteRecord: async (record: Row) => record.id }
+type StandaloneDeleteNeedsIdentity = Assert<Equal<typeof standaloneDeleteWithoutIdentity extends ListViewProps<Row> ? true : false, false>>
 
 // @ts-expect-error Resource output hides the schema implementation detail.
 void compactResource.create.form.schema.compiler
@@ -215,6 +227,8 @@ const completeFilters = {
   schema: privateFilterSchema,
   fields: { status: { renderer: 'text' } },
   defaults: { status: 'active' },
+  queryKeys: ['status'],
+  toDraft: (query) => typeof query.status === 'string' ? { status: query.status } : {},
 } satisfies ListFilters<CompleteFilterInput>
 const completeExport: ListExportOptions<Row> = {
   filename: 'rows',
@@ -268,6 +282,8 @@ void completeViewProps.detail({ id: '1' }).backTo
 type CompactListFilterSchema = Assert<Equal<typeof completeViewProps.list.filters.schema, RawSchema<Partial<CompleteFilterInput>, Partial<CompleteFilterInput>>>>
 type CompactListFilterKeys = Assert<Equal<keyof typeof completeViewProps.list.filters.fields, 'status'>>
 type CompactListFilterRenderer = Assert<Equal<typeof completeViewProps.list.filters.fields.status.renderer, 'text'>>
+type CompactListFilterQueryKeys = Assert<Equal<typeof completeViewProps.list.filters.queryKeys, typeof completeFilters.queryKeys>>
+type CompactListFilterDraftMapper = Assert<Equal<typeof completeViewProps.list.filters.toDraft, typeof completeFilters.toDraft>>
 
 // @ts-expect-error Resource output hides the list filter schema implementation detail.
 void completeViewProps.list.filters.schema.compiler
@@ -278,6 +294,8 @@ const mappedFilters = {
   schema: rawSchema<FilterInput, { search: string }>(),
   fields: { term: { renderer: 'text' } },
   defaults: { term: 'rows' },
+  queryKeys: ['search'],
+  toDraft: (query) => typeof query.search === 'string' ? { term: query.search } : {},
 } satisfies ListFilters<FilterQuery, FilterInput>
 const mappedFiltersResource = defineResource({
   key: 'mapped-filters',
@@ -293,12 +311,19 @@ const mappedFiltersResource = defineResource({
   },
 })
 void mappedFiltersResource.list.filters?.fields.term
+type MappedResourceFilterQueryKeys = Assert<Equal<typeof mappedFiltersResource.list.filters.queryKeys, typeof mappedFilters.queryKeys>>
+type MappedResourceFilterDraftMapper = Assert<Equal<typeof mappedFiltersResource.list.filters.toDraft, typeof mappedFilters.toDraft>>
+type MappedResourceFilterSchema = Assert<Equal<typeof mappedFiltersResource.list.filters.schema, RawSchema<FilterInput, { search: string }>>>
+type MappedResourceFilterFields = Assert<Equal<keyof typeof mappedFiltersResource.list.filters.fields, 'term'>>
+type MappedResourceFilterRenderer = Assert<Equal<typeof mappedFiltersResource.list.filters.fields.term.renderer, 'text'>>
+type MappedResourceFilterCannotSubmit = Assert<Equal<typeof mappedFiltersResource.list.filters.submit, undefined>>
 
-const typedCreateForm = {
-  schema: draftSchema,
-  fields: { name: { renderer: 'text' } },
-  submit: async (output: Draft) => ({ id: 'typed-result', ...output }),
+const typedCreateFormBase = {
+  schema: rawSchema<TypedCreateInput, TypedCreateOutput>(),
+  fields: { name: { renderer: 'text' as const, props: { placeholder: 'Name' } } },
+  submit: async (output: TypedCreateOutput) => ({ id: 'typed-result', name: output.normalizedName, status: 'new' as const }),
 }
+const typedCreateForm = { ...typedCreateFormBase, fields: { ...typedCreateFormBase.fields } }
 const typedCreateDeclaration = {
   permission: null,
   form: typedCreateForm,
@@ -310,6 +335,13 @@ const typedCreateResource = defineResource({
   create: typedCreateDeclaration,
 })
 void typedCreateResource.create.afterSubmit
+type TypedCreateSchema = Assert<Equal<typeof typedCreateResource.create.form.schema, RawSchema<TypedCreateInput, TypedCreateOutput>>>
+type TypedCreateFieldKeys = Assert<Equal<keyof typeof typedCreateResource.create.form.fields, 'name'>>
+type TypedCreateFieldRenderer = Assert<Equal<typeof typedCreateResource.create.form.fields.name.renderer, 'text'>>
+const typedCreateFieldProps: FormRendererProps<'text'> | undefined = typedCreateResource.create.form.fields.name.props
+const typedCreateOutput: Promise<{ id: string; name: string; status: 'new' }> = typedCreateResource.create.form.submit({ normalizedName: 'Ada' })
+type TypedCreateSubmitUsesParsedOutput = Assert<Equal<Parameters<typeof typedCreateResource.create.form.submit>[0], TypedCreateOutput>>
+type TypedCreateSubmitResultStaysDistinct = Assert<Equal<Awaited<ReturnType<typeof typedCreateResource.create.form.submit>>, { id: string; name: string; status: 'new' }>>
 
 const badCreateOutput = {
   schema: rawSchema<Draft, Draft>(),

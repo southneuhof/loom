@@ -4,9 +4,7 @@ import type {
   CollectionResult,
   DetailProps,
   FormDraft,
-  FormInput,
   FormProps,
-  FormValidatorEntry,
   LabelDictionary,
   MaybePromise,
   RecordIdentity,
@@ -15,9 +13,9 @@ import type {
   TableProps,
 } from '../contracts'
 import type { DetailViewProps, FormViewProps, ListFilters, ListViewActions, ListViewProps } from '../contracts/views'
-import type { FormRendererKey } from '../renderers/formContracts'
 import type { RawSchema, RawSchemaOutput } from '../contracts/schema'
 import type { RouteLocationRaw, RouteMap } from 'vue-router'
+import type { CompactFormDefinition } from '../forms/definitionTypes'
 
 type RouteRawParams<TName extends keyof RouteMap> = RouteMap[TName]['paramsRaw']
 type RouteParamKeys<TName extends keyof RouteMap> = keyof RouteRawParams<TName>
@@ -65,7 +63,7 @@ export interface ResourceVisibility<TRecord extends object = Record<string, unkn
   visible?: (context: { record?: TRecord; access: AccessAdapter }) => boolean
 }
 
-export interface ResourceListTable<TRecord extends object = object, TQuery extends object = object> extends Omit<TableProps<TRecord, TQuery>, 'data' | 'resource'> {
+export interface ResourceListTable<TRecord extends object = object, TQuery extends object = object> extends Omit<TableProps<TRecord, TQuery>, 'data' | 'load' | 'resource'> {
   data?: never
   resource?: never
   load: (context: CollectionLoadContext<TQuery>) => MaybePromise<CollectionResult<TRecord>>
@@ -82,12 +80,14 @@ export interface ResourceFormBag<TInput extends object = object, TOutput extends
   submit: (output: TOutput) => MaybePromise<TResult>
 }
 
-export interface ResourceDetailBag<TRecord extends object = object> extends Omit<DetailProps<TRecord>, 'data' | 'id' | 'resource'> {
+export interface ResourceDetailBag<TRecord extends object = object> extends Omit<DetailProps<TRecord>, 'data' | 'load' | 'id' | 'resource'> {
   data?: never
   id?: never
   resource?: never
   load: (context: RecordLoadContext) => MaybePromise<TRecord | undefined>
 }
+
+export type ResourceRoutePermission = string | readonly [string, ...string[]] | null
 
 export type ResourceCustomPermission<TRun extends (...args: never[]) => unknown> = string | readonly string[] | ((...args: Parameters<TRun>) => string | readonly string[] | null) | null
 
@@ -98,6 +98,7 @@ export interface ResourceCustomCommand<
 > {
   run: TRun
   permission: ResourceCustomPermission<TRun>
+  routePermission?: ResourceRoutePermission
   visible?: (context: { record?: TRecord; access: AccessAdapter }) => boolean
   route?: ResourceRoute<TIdentity>
 }
@@ -168,7 +169,7 @@ type ResourceFormViewProps<TResult> = Omit<FormViewProps<object, object, TResult
 
 export type ResourceListDeclaration<TTable extends ListTableShape = ListTableShape, TRecord extends object = Record<string, unknown>, TFilterInput extends object = Partial<TableQuery<TTable>>> = Omit<
   ListViewProps<TRecord, TableQuery<TTable>, TFilterInput>,
-  'table' | 'can' | 'deleteRecord'
+  'table' | 'can' | 'deleteRecord' | 'recordIdentity'
 > & {
   permission: string | null
   route?: ResourceStaticRoute
@@ -258,16 +259,6 @@ type BoundTable<TRecord extends object, TQuery extends object, TColumns extends 
   namespace: string
 }
 
-type FormFieldRenderers<TFields extends object> = {
-  readonly [TKey in keyof TFields]: Exclude<TFields[TKey], undefined> extends { renderer: infer TRenderer extends FormRendererKey } ? TRenderer : never
-}
-
-type ResourceFormFields<TInput extends object, TRenderers extends object> = {
-  readonly [TKey in keyof TRenderers]: TKey extends Extract<keyof TInput, string>
-    ? FormInput<TInput, TInput[TKey], Extract<TRenderers[TKey], FormRendererKey>>
-    : never
-}
-
 type ResourceFormOptionKeys<TForm> = Exclude<keyof TForm, 'schema' | 'fields' | 'labels' | 'validators' | 'submit' | 'load' | 'modelValue' | 'id' | 'resource' | 'namespace'>
 type ResourceFormOptions<TForm> = Pick<TForm, ResourceFormOptionKeys<TForm>>
 type ResourceFormLoad<TForm> = TForm extends { load: infer TLoad } ? { load: BoundRecordLoad<TLoad> } : {}
@@ -276,13 +267,9 @@ type ResourceFormContract<
   TInput extends object,
   TOutput extends object,
   TResult,
-  TRenderers extends object,
+  TFields extends object,
   TOptions extends object,
-> = {
-  schema: RawSchema<TInput, TOutput>
-  fields: ResourceFormFields<TInput, TRenderers>
-  labels?: LabelDictionary
-  validators?: readonly FormValidatorEntry<TInput, TOutput>[]
+> = CompactFormDefinition<TInput, TOutput, TFields> & {
   submit: (output: TOutput) => Promise<Awaited<TResult>>
   resource: string
   namespace: string
@@ -293,7 +280,7 @@ type BoundForm<TForm extends FormBagShape> = TForm extends {
   fields: infer TFields extends object
   submit: (...args: never[]) => unknown
 }
-  ? ResourceFormContract<TInput, TOutput, ResourceFormResult<TForm>, FormFieldRenderers<TFields>, ResourceFormOptions<TForm>> & ResourceFormLoad<TForm>
+  ? ResourceFormContract<TInput, TOutput, ResourceFormResult<TForm>, TFields, ResourceFormOptions<TForm>> & ResourceFormLoad<TForm>
   : never
 
 type BoundUpdateForm<TForm extends FormBagShape, TIdentity extends RecordIdentity> = BoundForm<TForm> & {
@@ -369,16 +356,18 @@ type SubmitFunctionResult<TForm> = TForm extends { submit: infer TSubmit } ? (TS
 
 type IdentityResultGuard<TResult, TIdentityRecord extends object> = [TResult] extends [never] ? never : [TResult] extends [object] ? ([TResult] extends [TIdentityRecord] ? unknown : never) : never
 
-type OperationRecordGuard<TDefinition, TIdentityRecord extends object> = (TDefinition extends { list: { table: infer TTable } }
+type OperationRecordGuard<TDefinition, TIdentityRecord extends object> = TDefinition extends { list: { table: infer TTable } }
   ? IdentityRecordGuard<TableRecord<TTable>, TIdentityRecord> &
       IdentityRecordGuard<CollectionRecord<TTable extends { load: infer TLoad } ? TLoad : never>, TIdentityRecord> &
       ([CollectionRecord<TTable extends { load: infer TLoad } ? TLoad : never>] extends [TableRecord<TTable>] ? unknown : never)
-  : unknown) &
-  (TDefinition extends { create: { form: infer TForm } } ? FormOutputGuard<TForm> & IdentityResultGuard<SubmitFunctionResult<TForm>, TIdentityRecord> : unknown)
+  : unknown
 
 type KeysOfUnion<TValue> = TValue extends unknown ? keyof TValue : never
 
 type NoExtraKeys<TActual, TAllowed extends object> = [TActual] extends [object] ? (Exclude<KeysOfUnion<TActual>, keyof TAllowed> extends never ? unknown : never) : never
+type ExtraMemberDiagnostic<TActual, TAllowed extends object> = {
+  [TKey in Exclude<KeysOfUnion<TActual>, keyof TAllowed>]: never
+}
 
 type SameType<TLeft, TRight> =
   (<T>() => T extends TLeft ? 1 : 2) extends <T>() => T extends TRight ? 1 : 2 ? ((<T>() => T extends TRight ? 1 : 2) extends <T>() => T extends TLeft ? 1 : 2 ? true : false) : false
@@ -420,6 +409,20 @@ type PermissionResultMemberValid<TResult> = TResult extends null
 type PermissionResultValid<TResult> = EveryTrue<PermissionResultMemberValid<TResult>>
 type EveryTrue<TValue> = [TValue] extends [true] ? true : false
 
+type RoutePermissionValueMemberValid<TPermission> = TPermission extends null
+  ? true
+  : TPermission extends string
+    ? TPermission extends ''
+      ? false
+      : true
+    : TPermission extends readonly [string, ...string[]]
+      ? '' extends TPermission[number]
+        ? false
+        : true
+      : false
+
+type RoutePermissionValueValid<TPermission> = EveryTrue<RoutePermissionValueMemberValid<TPermission>>
+
 type CustomPermissionMemberValid<TRun, TPermission> = [TPermission] extends [(...args: never[]) => unknown]
   ? TPermission extends (...args: infer TArgs) => infer TResult
     ? TRun extends (...args: never[]) => unknown
@@ -434,13 +437,33 @@ type CustomPermissionMemberValid<TRun, TPermission> = [TPermission] extends [(..
     ? true
     : false
 
+type CustomRoutePermissionMemberValid<TAction> = TAction extends unknown
+  ? TAction extends { permission: infer TPermission }
+    ? [TPermission] extends [(...args: never[]) => unknown]
+      ? TAction extends { route: unknown }
+        ? TAction extends { routePermission: infer TRoutePermission }
+          ? [RoutePermissionValueValid<TRoutePermission>] extends [true]
+            ? true
+            : false
+          : false
+        : TAction extends { routePermission: unknown }
+          ? false
+          : true
+      : TAction extends { routePermission: unknown }
+        ? false
+        : true
+    : false
+  : false
+
 type CustomActionMemberValid<TAction> = TAction extends unknown
   ? [NoExtraKeys<TAction, ResourceCustomCommand>] extends [never]
     ? false
     : TAction extends { run: infer TRun; permission: infer TPermission }
       ? [TRun] extends [(...args: never[]) => unknown]
         ? [EveryTrue<CustomPermissionMemberValid<TRun, TPermission>>] extends [true]
-          ? true
+          ? [EveryTrue<CustomRoutePermissionMemberValid<TAction>>] extends [true]
+            ? true
+            : false
           : false
         : false
       : false
@@ -454,49 +477,169 @@ type InvalidCustomActionKeys<TActions> = {
   [TKey in ActionKeys<TActions>]-?: TKey extends string ? (TKey extends ReservedAction ? TKey : [EveryTrue<CustomActionMemberValid<ActionValue<TActions, TKey>>>] extends [true] ? never : TKey) : TKey
 }[ActionKeys<TActions>]
 
-type CustomActionGuard<TActions> = [TActions] extends [object]
-  ? [TActions] extends [readonly unknown[]]
-    ? never
-    : string extends ActionKeys<TActions>
+type ResourceCustomActionPermissionDiagnostic = {
+  readonly __actionPermissionMustMatchRunContract: never
+}
+
+type ResourceCustomActionRoutePermissionDiagnostic = {
+  readonly __routePermissionMustMatchRoutedDynamicPolicy: never
+}
+
+type ResourceCustomActionRunDiagnostic = {
+  readonly __actionRunMustBeCallable: never
+}
+
+type ResourceCustomActionMapDiagnostic = {
+  readonly __actionsMustUseNamedEntries: never
+}
+
+type CustomActionDiagnostic<TAction, TKey extends string> = [NoExtraKeys<TAction, ResourceCustomCommand>] extends [never]
+  ? ExtraMemberDiagnostic<TAction, ResourceCustomCommand>
+  : [TAction] extends [{ run: infer TRun }]
+    ? [TRun] extends [(...args: never[]) => unknown]
+      ? TAction extends { permission: infer TPermission }
+        ? [EveryTrue<CustomActionMemberValid<TAction>>] extends [true]
+          ? unknown
+          : [EveryTrue<CustomPermissionMemberValid<TRun, TPermission>>] extends [true]
+            ? { routePermission: ResourceCustomActionRoutePermissionDiagnostic & { readonly __actionName: TKey } }
+            : { permission: ResourceCustomActionPermissionDiagnostic & { readonly __actionName: TKey } }
+        : { permission: ResourceCustomActionPermissionDiagnostic & { readonly __actionName: TKey } }
+      : { run: ResourceCustomActionRunDiagnostic & { readonly __actionName: TKey } }
+    : { run: ResourceCustomActionRunDiagnostic & { readonly __actionName: TKey } }
+
+type ResourceActionEntriesDiagnostic<TActions> = {
+  [TKey in InvalidCustomActionKeys<TActions>]-?: TKey extends string
+    ? TKey extends ReservedAction
       ? never
-      : [InvalidCustomActionKeys<TActions>] extends [never]
-        ? unknown
-        : never
+      : CustomActionDiagnostic<ActionValue<TActions, TKey>, TKey>
+    : never
+}
+
+type ResourceActionsDiagnostic<TActions> = [TActions] extends [object]
+  ? [TActions] extends [readonly unknown[]]
+    ? ResourceCustomActionMapDiagnostic
+    : string extends ActionKeys<TActions>
+      ? ResourceCustomActionMapDiagnostic
+      : ResourceActionEntriesDiagnostic<TActions>
+  : ResourceCustomActionMapDiagnostic
+
+type CreateSubmitInputDiagnostic = {
+  readonly __createSubmitInputMustAcceptSchemaOutput: never
+}
+
+type CreateSubmitIdentityDiagnostic = {
+  readonly __createSubmitResultMustIncludeResourceIdentity: never
+}
+
+type UpdateSubmitInputDiagnostic = {
+  readonly __updateSubmitInputMustAcceptSchemaOutput: never
+}
+
+type UpdateSubmitIdentityDiagnostic = {
+  readonly __updateSubmitResultMustIncludeResourceIdentity: never
+}
+
+type CreateSubmitContractDiagnostic<TForm, TIdentityRecord extends object> =
+  ([FormOutputGuard<TForm>] extends [never] ? { submit: CreateSubmitInputDiagnostic } : {}) &
+  ([IdentityResultGuard<SubmitFunctionResult<TForm>, TIdentityRecord>] extends [never] ? { submit: CreateSubmitIdentityDiagnostic } : {})
+
+type UpdateSubmitContractDiagnostic<TForm, TIdentityRecord extends object> =
+  ([FormOutputGuard<TForm>] extends [never] ? { submit: UpdateSubmitInputDiagnostic } : {}) &
+  ([IdentityResultGuard<SubmitFunctionResult<TForm>, TIdentityRecord>] extends [never] ? { submit: UpdateSubmitIdentityDiagnostic } : {})
+
+type FactoryResultDiagnostic<TFactory, TDiagnostic> = TFactory extends (...args: infer TArgs) => unknown
+  ? (...args: TArgs) => TDiagnostic
   : never
 
-type ResourceShapeGuard<TDefinition, TIdentityRecord extends object> = NoExtraKeys<TDefinition, ResourceDefinitionInput<ResourceIdentityFunction>> &
-  (TDefinition extends { list: infer TList } ? NoExtraKeys<TList, ResourceListDeclaration> & (TList extends { table: infer TTable } ? NoExtraKeys<TTable, ResourceListTable> : never) : unknown) &
-  (TDefinition extends { create: infer TCreate } ? NoExtraKeys<TCreate, ResourceCreateDeclaration> & (TCreate extends { form: infer TForm } ? NoExtraKeys<TForm, ResourceFormBag> : never) : unknown) &
+type FactoryResult<TFactory> = TFactory extends (...args: never[]) => infer TResult ? TResult : never
+
+type ResourceListBagDiagnostic<TList> = TList extends { table: infer TTable }
+  ? keyof ExtraMemberDiagnostic<TTable, ResourceListTable> extends never
+    ? {}
+    : { table: ExtraMemberDiagnostic<TTable, ResourceListTable> }
+  : {}
+
+type ResourceListDiagnostic<TList> = ExtraMemberDiagnostic<TList, ResourceListDeclaration> & ResourceListBagDiagnostic<TList>
+
+type ResourceCreateFormDiagnostic<TForm, TIdentityRecord extends object> = ExtraMemberDiagnostic<TForm, ResourceFormBag> &
+  CreateSubmitContractDiagnostic<TForm, TIdentityRecord>
+
+type ResourceCreateDiagnostic<TCreate, TIdentityRecord extends object> = ExtraMemberDiagnostic<TCreate, ResourceCreateDeclaration> &
+  (TCreate extends { form: infer TForm }
+    ? keyof ResourceCreateFormDiagnostic<TForm, TIdentityRecord> extends never
+      ? {}
+      : { form: ResourceCreateFormDiagnostic<TForm, TIdentityRecord> }
+    : {})
+
+type ResourceDetailFactoryResultDiagnostic<TFactory> = ExtraMemberDiagnostic<FactoryResult<TFactory>, ResourceDetailBag>
+type ResourceDetailFactoryDiagnostic<TFactory> = keyof ResourceDetailFactoryResultDiagnostic<TFactory> extends never
+  ? {}
+  : { detail: FactoryResultDiagnostic<TFactory, ResourceDetailFactoryResultDiagnostic<TFactory>> }
+
+type ResourceDetailDiagnostic<TDetail> = ExtraMemberDiagnostic<TDetail, ResourceDetailDeclaration<RecordIdentity, object>> &
+  (TDetail extends { detail: infer TFactory } ? ResourceDetailFactoryDiagnostic<TFactory> : {})
+
+type UpdateSubmitOutputContractDiagnostic<TFactory, TIdentityRecord extends object> = ExtraMemberDiagnostic<FactoryResult<TFactory>, ResourceFormBag> &
+  UpdateSubmitContractDiagnostic<FactoryResult<TFactory>, TIdentityRecord>
+
+type ResourceUpdateFactoryDiagnostic<TFactory, TIdentityRecord extends object> = keyof UpdateSubmitOutputContractDiagnostic<TFactory, TIdentityRecord> extends never
+  ? {}
+  : { form: FactoryResultDiagnostic<TFactory, UpdateSubmitOutputContractDiagnostic<TFactory, TIdentityRecord>> }
+
+type ResourceUpdateDiagnostic<TUpdate, TIdentityRecord extends object> = ExtraMemberDiagnostic<TUpdate, ResourceUpdateDeclaration<RecordIdentity, TIdentityRecord>> &
+  (TUpdate extends { form: infer TFactory } ? ResourceUpdateFactoryDiagnostic<TFactory, TIdentityRecord> : {})
+
+type ResourceDefinitionDiagnostic<TDefinition, TIdentityRecord extends object> = ExtraMemberDiagnostic<TDefinition, ResourceDefinitionInput<ResourceIdentityFunction>> &
+  (TDefinition extends { list: infer TList }
+    ? keyof ResourceListDiagnostic<TList> extends never
+      ? {}
+      : { list: ResourceListDiagnostic<TList> }
+    : {}) &
+  (TDefinition extends { create: infer TCreate }
+    ? keyof ResourceCreateDiagnostic<TCreate, TIdentityRecord> extends never
+      ? {}
+      : { create: ResourceCreateDiagnostic<TCreate, TIdentityRecord> }
+    : {}) &
   (TDefinition extends { detail: infer TDetail }
-    ? NoExtraKeys<TDetail, ResourceDetailDeclaration<RecordIdentity, TIdentityRecord>> & (TDetail extends { detail: (...args: never[]) => infer TBag } ? NoExtraKeys<TBag, ResourceDetailBag> : never)
-    : unknown) &
+    ? keyof ResourceDetailDiagnostic<TDetail> extends never
+      ? {}
+      : { detail: ResourceDetailDiagnostic<TDetail> }
+    : {}) &
   (TDefinition extends { update: infer TUpdate }
-    ? NoExtraKeys<TUpdate, ResourceUpdateDeclaration<RecordIdentity, TIdentityRecord>> & (TUpdate extends { form: (...args: never[]) => infer TForm } ? NoExtraKeys<TForm, ResourceFormBag> : never)
-    : unknown) &
-  (TDefinition extends { delete: infer TDelete } ? NoExtraKeys<TDelete, ResourceDeleteDeclaration<RecordIdentity, TIdentityRecord>> : unknown) &
-  (TDefinition extends { actions: infer TActions } ? CustomActionGuard<TActions> : unknown) &
+    ? keyof ResourceUpdateDiagnostic<TUpdate, TIdentityRecord> extends never
+      ? {}
+      : { update: ResourceUpdateDiagnostic<TUpdate, TIdentityRecord> }
+    : {}) &
+  (TDefinition extends { delete: infer TDelete }
+    ? keyof ExtraMemberDiagnostic<TDelete, ResourceDeleteDeclaration<RecordIdentity, TIdentityRecord>> extends never
+      ? {}
+      : { delete: ExtraMemberDiagnostic<TDelete, ResourceDeleteDeclaration<RecordIdentity, TIdentityRecord>> }
+    : {}) &
+  (TDefinition extends { actions: infer TActions }
+    ? keyof ResourceActionsDiagnostic<TActions> extends never
+      ? {}
+      : { actions: ResourceActionsDiagnostic<TActions> }
+    : {})
+
+type ResourceShapeGuard<TDefinition, TIdentityRecord extends object> =
   (TDefinition extends { detail: { detail: (...args: never[]) => infer TDetail } }
     ? IdentityRecordGuard<DetailRecord<TDetail>, TIdentityRecord> & IdentityRecordGuard<DetailRecord<TDetail>, DetailSchemaRecord<TDetail>>
-    : unknown) &
-  (TDefinition extends { update: { form: (...args: never[]) => infer TForm } } ? FormOutputGuard<TForm> & IdentityResultGuard<SubmitFunctionResult<TForm>, TIdentityRecord> : unknown)
+    : unknown)
 
 export type ResourceDefinitionGuard<TDefinition, TIdentityFunction extends ResourceIdentityFunction> = IdentityFunctionGuard<TIdentityFunction> &
   ([ReturnType<TIdentityFunction>] extends [never] ? never : [ReturnType<TIdentityFunction>] extends [RecordIdentity] ? unknown : never) &
   OperationRecordGuard<TDefinition, IdentityRecord<TIdentityFunction>> &
-  ResourceShapeGuard<TDefinition, IdentityRecord<TIdentityFunction>>
+  ResourceShapeGuard<TDefinition, IdentityRecord<TIdentityFunction>> &
+  ResourceDefinitionDiagnostic<TDefinition, IdentityRecord<TIdentityFunction>>
 
 type ResourceListPagePropKeys = 'title' | 'description' | 'filters' | 'export' | 'createRoute' | 'detailRoute' | 'updateRoute'
 type ResourceListPageProps<TList> = Pick<TList, Extract<keyof TList, Exclude<ResourceListPagePropKeys, 'filters'>>>
-type ResourceListFilterOptions<TFilters> = Pick<TFilters, Extract<keyof TFilters, 'defaults' | 'label' | 'resetLabel'>>
+type ResourceListFilterOptions<TFilters> = Pick<TFilters, Extract<keyof TFilters, 'defaults' | 'label' | 'resetLabel' | 'queryKeys' | 'toDraft'>>
 type ResourceListFilterContract<TFilters, TQuery extends object> = TFilters extends {
   schema: RawSchema<infer TInput extends object, infer TOutput extends object>
   fields: infer TFields extends object
 }
-  ? Omit<ListFilters<TQuery, TInput>, 'schema' | 'fields' | 'labels' | 'validators' | 'submit' | 'defaults' | 'label' | 'resetLabel'> & {
-      schema: RawSchema<TInput, TOutput>
-      fields: ResourceFormFields<TInput, FormFieldRenderers<TFields>>
-      labels?: LabelDictionary
-      validators?: readonly FormValidatorEntry<TInput, TOutput>[]
+  ? CompactFormDefinition<TInput, TOutput, TFields> & {
       submit?: never
     } & ResourceListFilterOptions<TFilters>
   : never
@@ -525,11 +668,19 @@ export type ResourceListPage<
   TTable extends object,
   TPageProps extends object,
   TFilterProps extends object,
-> = TPageProps & Partial<Omit<ListViewProps<TRecord, TQuery, TFilterInput>, 'table' | 'can' | 'deleteRecord' | 'filters'>> & TFilterProps & {
+  THasDelete extends boolean = false,
+> = TPageProps & Partial<Omit<ListViewProps<TRecord, TQuery, TFilterInput>, 'table' | 'can' | 'deleteRecord' | 'recordIdentity' | 'filters'>> & TFilterProps & {
   table: TTable
   can?: ListViewActions<TRecord>['can']
-  deleteRecord?: ListViewActions<TRecord>['deleteRecord']
-}
+} & (THasDelete extends true
+  ? {
+      deleteRecord: NonNullable<ListViewActions<TRecord>['deleteRecord']>
+      recordIdentity: NonNullable<ListViewActions<TRecord>['recordIdentity']>
+    }
+  : {
+      deleteRecord?: never
+      recordIdentity?: never
+    })
 
 export type ResourceCreatePage<TForm extends object, TResult, TPageProps extends object> = TPageProps & Partial<ResourceFormViewProps<TResult>> & {
   form: TForm
@@ -572,7 +723,8 @@ export type ResourceBoundOperations<TDefinition, TIdentityFunction extends Resou
             ListFilterInput<TList, TableQuery<TTable>>,
             BoundTableContract<TTable>,
             ResourceListPageProps<TList>,
-            ResourceListFilterProp<TList, TableQuery<TTable>, ListFilterInput<TList, TableQuery<TTable>>>
+            ResourceListFilterProp<TList, TableQuery<TTable>, ListFilterInput<TList, TableQuery<TTable>>>,
+            TDefinition extends { delete: unknown } ? true : false
           >
         }
       : never

@@ -1,4 +1,5 @@
 import type { CollectionResult, MaybePromise, UploadProgress } from '../contracts'
+import type { AssetValue } from '../assets/contracts'
 
 export interface ManagedAsset {
   id: string
@@ -25,13 +26,13 @@ export interface FileManagerOperations {
   remove?(context: { id: string; signal?: AbortSignal }): MaybePromise<void>
 }
 
-export interface FileManagerValueAdapter<TModel = unknown> {
-  fromModel(value: TModel): MaybePromise<ManagedAsset | undefined>
-  toModel(asset: ManagedAsset): MaybePromise<TModel>
+export interface FileManagerValueAdapter {
+  fromModel(value: AssetValue): MaybePromise<ManagedAsset | undefined>
+  toModel(asset: ManagedAsset): MaybePromise<AssetValue>
 }
 
-export interface FileManagerPluginOptions<TModel = unknown> {
+export interface FileManagerPluginOptions {
   root: string
   operations: FileManagerOperations
-  values: FileManagerValueAdapter<TModel>
+  values: FileManagerValueAdapter
 }

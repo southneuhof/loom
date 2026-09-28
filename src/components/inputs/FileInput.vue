@@ -2,6 +2,7 @@
 import { defineAsyncComponent, ref, watch, computed, onBeforeUnmount, useAttrs } from 'vue'
 import type { UploadProgress } from '../../contracts'
 import type { AssetValue } from '../../assets/contracts'
+import type { AssetInputModelValue } from './assetInput.types'
 import { useAssetAdapter } from '../../assets/provider'
 import { useFormInputPending } from '../core/useFormInputState'
 import FileComponent from '@southneuhof/loom/components/utils/FileComponent.vue'
@@ -106,7 +107,7 @@ const fileManagerOpen = ref(false)
 const fileInput = ref<HTMLInputElement>()
 const dropZoneRef = ref<HTMLDivElement>()
 
-const modelValue = defineModel<AssetValue | AssetValue[] | null>()
+const modelValue = defineModel<AssetInputModelValue<boolean>>()
 
 function nextRowID() {
   rowSequence += 1

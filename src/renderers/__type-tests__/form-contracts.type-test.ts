@@ -1,4 +1,7 @@
 import type { FormRendererModelValue, FormRendererNeedsProps, FormRendererProps } from '../formContracts'
+import type { FormInput } from '../../contracts/forms'
+import type { MaybePromise } from '../../contracts/load'
+import type { RawSchema } from '../../contracts/schema'
 import type TextInput from '../../components/inputs/TextInput.vue'
 import type PasswordInput from '../../components/inputs/PasswordInput.vue'
 import type {
@@ -32,6 +35,31 @@ type DirectAndManagedPasswordNativePropsAgree = Assert<Equal<
   Pick<FormRendererProps<'password'>, keyof TextInputNativeAttributes>
 >>
 type NumericTextCanBeUnset = Assert<Equal<TextInputModelValue<readonly ['number']>, number | undefined>>
+
+const compactFormSchema = z.object({ name: z.string(), ignored: z.string() }).transform(({ name }) => ({ displayName: name.trim() }))
+const compactFormFields = { name: { renderer: 'text', props: { placeholder: 'Name' } } } as const
+const compactFormDeclaration = {
+  schema: compactFormSchema,
+  fields: compactFormFields,
+}
+const compactForm = defineForm({ ...compactFormDeclaration, fields: { ...compactFormDeclaration.fields } })
+type CompactFormFieldShape = {
+  readonly name: FormInput<{ name: string; ignored: string }, string, 'text'>
+}
+type CompactFormFieldsFitExpectedShape = Assert<typeof compactForm.fields extends CompactFormFieldShape ? true : false>
+type ExpectedFormFieldsFitCompactShape = Assert<CompactFormFieldShape extends typeof compactForm.fields ? true : false>
+type CompactFormFieldKeys = Assert<Equal<keyof typeof compactForm.fields, 'name'>>
+type CompactFormRendererIsSelected = Assert<Equal<typeof compactForm.fields.name.renderer, 'text'>>
+type CompactFormSchemaIsCompact = Assert<Equal<typeof compactForm.schema, RawSchema<{ name: string; ignored: string }, { displayName: string }>>>
+const compactTextProps: FormRendererProps<'text'> | undefined = compactForm.fields.name.props
+const standaloneSubmitIsUnavailable: undefined = compactForm.submit
+
+const submittedCompactForm = defineForm({
+  schema: compactFormSchema,
+  fields: compactFormFields,
+  submit: async (output) => ({ saved: output.displayName, revision: 1 as const }),
+})
+const submittedCompactFormSubmit: (output: { displayName: string }) => MaybePromise<{ saved: string; revision: 1 }> = submittedCompactForm.submit
 
 const fileOk: FormRendererProps<'file'> = { accept: ['application/pdf'] }
 const wrongAccept = 'application/pdf'
@@ -68,6 +96,7 @@ const dataPropsForm = defineForm({ schema, fields: { name: { renderer: 'text', p
 const directReadonlyProps = { readonly: false } satisfies Pick<TextInputPublicProps, 'readonly'>
 const managedReadonlyProps: Pick<FormRendererProps<'text'>, 'readonly'> = directReadonlyProps
 const readonlyForm = defineForm({ schema, fields: { name: { renderer: 'text', props: managedReadonlyProps } } })
+const directTextModel: FormRendererModelValue<'text'> = 'Ada'
 const directPasswordReadonlyProps = { readonly: false } satisfies Pick<PasswordInputPublicProps, 'readonly'>
 const managedPasswordReadonlyProps: Pick<FormRendererProps<'password'>, 'readonly'> = directPasswordReadonlyProps
 const passwordReadonlyForm = defineForm({ schema, fields: { name: { renderer: 'password', props: managedPasswordReadonlyProps } } })
@@ -161,6 +190,8 @@ const invalidRadioSelection = defineForm({
 })
 type RoleOption = { id: string; name: string }
 const loadRoleOptions: OptionLoad<RoleOption> = async () => ({ data: [{ id: 'owner', name: 'Owner' }] })
+const lazyTextareaProps: FormRendererProps<'textarea'> = { constraint: ['number'], rows: 4 }
+const lazyTextareaModel: FormRendererModelValue<'textarea'> = 42
 const loadedCheckboxSelection = defineForm({
   schema: z.object({ roles: z.array(z.object({ id: z.string() })) }),
   fields: { roles: { renderer: 'checkbox-group', props: { load: loadRoleOptions } } },
@@ -189,6 +220,16 @@ const invalidBroadTextarea = defineForm({
   // @ts-expect-error A broad textarea constraint may emit a number.
   fields: { description: { renderer: 'textarea', props: { constraint: broadTextareaConstraint } } },
 })
+const textareaUnionSchema = z.object({ value: z.string().or(z.number()) })
+const broadTextareaForm = defineForm({
+  schema: textareaUnionSchema,
+  fields: { value: { renderer: 'textarea', props: { constraint: broadTextareaConstraint } } },
+})
+const unionTextareaConstraint: readonly ['number'] | readonly ['text'] = Math.random() > 0.5 ? ['number'] : ['text']
+const unionTextareaForm = defineForm({
+  schema: textareaUnionSchema,
+  fields: { value: { renderer: 'textarea', props: { constraint: unionTextareaConstraint } } },
+})
 const asset: AssetValue = { kind: 'file', id: 'uploads/file.pdf', url: 'https://assets.test/file.pdf', name: 'file.pdf' }
 const singleAssetForm = defineForm({
   schema: z.object({ file: z.custom<AssetValue | null>() }),
@@ -215,6 +256,16 @@ const singleImageForm = defineForm({
 const multiImageForm = defineForm({
   schema: z.object({ photos: z.array(z.custom<AssetValue>()) }),
   fields: { photos: { renderer: 'image', props: { multi: true } } },
+})
+const dynamicMulti = Math.random() > 0.5
+const dynamicAssetSchema = z.object({ assets: z.custom<AssetValue | AssetValue[] | null>() })
+const dynamicFileForm = defineForm({
+  schema: dynamicAssetSchema,
+  fields: { assets: { renderer: 'file', props: { multi: dynamicMulti } } },
+})
+const dynamicImageForm = defineForm({
+  schema: dynamicAssetSchema,
+  fields: { assets: { renderer: 'image', props: { multi: dynamicMulti } } },
 })
 const misspelledProp = { placehoder: 'Name' }
 const spreadMisspelling = { ...correctProps, ...misspelledProp }
@@ -254,4 +305,6 @@ const unknownRendererProps: FormRendererProps<
   'not-a-renderer'
 > = {}
 
-void [fileOk, fileBadInline, fileBadVariable, tableProps, missingRenderer, dataProps, managedDataProps, dataPropsForm, directReadonlyProps, managedReadonlyProps, readonlyForm, directPasswordReadonlyProps, managedPasswordReadonlyProps, passwordReadonlyForm, directStringReadonly, managedStringReadonly, directPasswordStringReadonly, managedPasswordStringReadonly, textForm, nativeTextForm, spreadTextForm, optionalTextForm, numericTextForm, textModeRejectsNumber, numericModeRejectsString, broadModeRejectsString, numericSelection, invalidNumericSelection, multiSelection, invalidMultiSelection, radioSelection, invalidRadioSelection, loadRoleOptions, loadedCheckboxSelection, invalidLoadedRadioSelection, textareaForm, numericTextareaForm, invalidNumericTextarea, broadTextareaConstraint, invalidBroadTextarea, asset, singleAssetForm, multiAssetForm, invalidMultiAssetForm, invalidSingleAssetForm, singleImageForm, multiImageForm, inlineMisspelling, variableMisspelling, spreadMisspellingForm, unionMisspellingForm, selectRejectsTextOnlyAttribute, unknownRendererProps]
+void [textareaUnionSchema, broadTextareaForm, unionTextareaConstraint, unionTextareaForm, dynamicMulti, dynamicAssetSchema, dynamicFileForm, dynamicImageForm]
+
+void [fileOk, fileBadInline, fileBadVariable, tableProps, missingRenderer, dataProps, managedDataProps, dataPropsForm, directReadonlyProps, managedReadonlyProps, readonlyForm, directTextModel, directPasswordReadonlyProps, managedPasswordReadonlyProps, passwordReadonlyForm, directStringReadonly, managedStringReadonly, directPasswordStringReadonly, managedPasswordStringReadonly, textForm, nativeTextForm, spreadTextForm, optionalTextForm, numericTextForm, textModeRejectsNumber, numericModeRejectsString, broadModeRejectsString, numericSelection, invalidNumericSelection, multiSelection, invalidMultiSelection, radioSelection, invalidRadioSelection, loadRoleOptions, lazyTextareaProps, lazyTextareaModel, loadedCheckboxSelection, invalidLoadedRadioSelection, textareaForm, numericTextareaForm, invalidNumericTextarea, broadTextareaConstraint, asset, singleAssetForm, multiAssetForm, invalidMultiAssetForm, invalidSingleAssetForm, singleImageForm, multiImageForm, inlineMisspelling, variableMisspelling, spreadMisspellingForm, unionMisspellingForm, selectRejectsTextOnlyAttribute, unknownRendererProps, compactTextProps, standaloneSubmitIsUnavailable, submittedCompactFormSubmit]

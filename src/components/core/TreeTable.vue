@@ -1,10 +1,11 @@
 <script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>">
-import { computed, ref, shallowRef, toRaw, useSlots } from 'vue'
+import { computed, onBeforeUpdate, ref, shallowRef, toRaw, useSlots } from 'vue'
 import type {
   CollectionLoadContext,
   CollectionResult,
   QueryValues,
   RowReorderPayload,
+  TableProps,
   TreeTableProps,
 } from '../../contracts'
 import type { ResolvedDisplayField } from '../../display/resolveDisplay'
@@ -44,6 +45,7 @@ const props = withDefaults(defineProps<TreeTableProps<TRecord, TQuery>>(), {
 })
 
 assertSingleDataSource('TreeTable', props.data, props.load)
+onBeforeUpdate(() => assertSingleDataSource('TreeTable', props.data, props.load))
 
 const emit = defineEmits<{
   (event: 'update:query', query: QueryValues): void
@@ -97,13 +99,10 @@ async function loadTree(context: CollectionLoadContext<TQuery>): Promise<Collect
   return { ...result, data: tree.records }
 }
 
-const tableProps = computed(() => {
+const tableProps = computed<TableProps<TRecord, TQuery>>(() => {
   const { children: _children, treeColumn: _treeColumn, data: _data, load: _load, ...ordinaryProps } = props
-  return {
-    ...ordinaryProps,
-    ...(props.data !== undefined ? { data: dataTree.value?.records } : {}),
-    ...(props.load !== undefined ? { load: loadTree } : {}),
-  }
+  if (props.data !== undefined) return { ...ordinaryProps, data: dataTree.value?.records ?? [] }
+  return { ...ordinaryProps, load: loadTree }
 })
 
 const activeMetadata = computed(() => dataTree.value?.metadata ?? loaderMetadata.value)

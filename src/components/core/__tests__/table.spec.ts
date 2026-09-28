@@ -169,7 +169,10 @@ describe('Table core', () => {
     view.unmount()
   })
 
-  it('rejects supplying both data and load', () => {
+  it('rejects missing and competing data sources', () => {
+    expect(() => mountCore(Table, { columns })).toThrow(
+      '[loom][SURFACE_DATA_SOURCE_INVALID] Table requires exactly one of "data" or "load".',
+    )
     expect(() => mountCore(Table, { columns, data: rows, load: () => ({ data: rows }) })).toThrow(
       '[loom][SURFACE_DATA_SOURCE_INVALID] Table requires exactly one of "data" or "load".',
     )

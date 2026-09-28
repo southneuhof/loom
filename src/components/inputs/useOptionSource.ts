@@ -1,11 +1,12 @@
 import { computed, getCurrentInstance, toRef, toValue, watch, type MaybeRefOrGetter } from 'vue'
 import type { CollectionResult, OptionLoad, OptionLoadContext, QueryNamespace } from '../../contracts'
 import { useLoader } from '../../query/loader'
-import { stableValue } from '../../query/keys'
+import { resourceOptionsKey, stableValue } from '../../query/keys'
 
 export interface OptionSourceProps<TOption extends object> {
   data?: readonly TOption[]
   load?: OptionLoad<TOption>
+  resource?: string
   searchParameters?: Record<string, unknown>
   namespace?: QueryNamespace
 }
@@ -15,9 +16,15 @@ export function useOptionSource<TOption extends object>(
   searchParameters: MaybeRefOrGetter<Record<string, unknown>> = () => props.searchParameters ?? {},
 ) {
   const instance = getCurrentInstance()
-  const owner = props.namespace ?? `option-${instance?.uid ?? Math.random().toString(36).slice(2)}`
+  const owner = `option-${instance?.uid ?? Math.random().toString(36).slice(2)}`
   const source = useLoader<OptionLoadContext, readonly TOption[] | CollectionResult<TOption>>({
-    key: computed(() => ['option-source', props.namespace ?? owner, stableValue(toValue(searchParameters))]),
+    key: computed(() => props.resource === undefined
+      ? ['option-source', props.namespace ?? owner, stableValue(toValue(searchParameters))]
+      : resourceOptionsKey({
+        resource: props.resource,
+        namespace: props.namespace ?? owner,
+        searchParameters: toValue(searchParameters),
+      })),
     context: computed(() => ({
       query: {},
       searchParameters: toValue(searchParameters),
@@ -39,6 +46,7 @@ export function useOptionSource<TOption extends object>(
     externalContext: computed(() => ({
       load: props.load,
       namespace: props.namespace,
+      resource: props.resource,
       searchParameters: stableValue(toValue(searchParameters)),
     })),
     options: computed<readonly TOption[]>(() => {

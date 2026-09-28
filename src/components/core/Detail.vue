@@ -5,7 +5,7 @@
  * Owns record loading, field rendering, and loading/empty/error states. It owns
  * no page layout, route navigation, or edit and delete controls.
  */
-import { computed, useSlots } from 'vue'
+import { computed, onBeforeUpdate, useSlots } from 'vue'
 import type { DetailProps, RecordLoadContext, RecordResult } from '../../contracts'
 import DisplayValue from '../../display/DisplayValue.vue'
 import { resolveDisplayFields, resolveDisplayValue } from '../../display/resolveDisplay'
@@ -19,6 +19,7 @@ const props = withDefaults(defineProps<DetailProps<TRecord>>(), {
 })
 
 assertSingleDataSource('Detail', props.data, props.load, 'record')
+onBeforeUpdate(() => assertSingleDataSource('Detail', props.data, props.load, 'record'))
 
 const renderers = useRendererRegistry('display')
 const slots = useSlots()

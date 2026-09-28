@@ -14,13 +14,14 @@ export type {
   ResourceIdentityValue,
   ResourceListDeclaration,
   ResourceRoute,
+  ResourceRoutePermission,
   ResourceRouteParams,
   ResourceStaticRoute,
   ResourceUpdateDeclaration,
   ResourceVisibility,
 } from './operations'
-export { resourceActionForRoute, registeredResourceActionNames, resetResourceActionRegistry } from './routeAccess'
-export type { RegisteredResourceAction } from './routeAccess'
+export { evaluateResourceRouteAccess, resetResourceActionRegistry } from './routeAccess'
+export type { RegisteredResourceRouteRequirement } from './routeAccess'
 
 export { registerResourceRuntime, resetResourceRuntimeForTests, useResourceRuntime } from './runtime'
 export type { ResourceRuntime } from './runtime'

@@ -1,15 +1,22 @@
 import { createApp, defineComponent, h } from 'vue'
 import { describe, expect, it } from 'vitest'
+import type { AssetValue } from '../../assets/contracts'
 import { FrameworkPlugin } from '../../adapters/plugin'
+import type { FileManagerPluginOptions, ManagedAsset } from '../contracts'
 import { FileManagerPlugin } from '../plugin'
 import { useFileManager, useOptionalFileManager } from '../provider'
 
-const options = {
+const options: FileManagerPluginOptions = {
   root: 'opaque-root',
   operations: { list: async () => ({ data: [] }) },
   values: {
     fromModel: async () => undefined,
-    toModel: async (asset: any) => asset.id,
+    toModel: async (asset: ManagedAsset): Promise<AssetValue> => ({
+      kind: 'file',
+      id: asset.id,
+      url: asset.previewUrl ?? 'https://assets.test/file',
+      name: asset.name,
+    }),
   },
 }
 

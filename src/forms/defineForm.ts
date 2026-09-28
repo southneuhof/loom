@@ -1,12 +1,14 @@
-import type { FormDefinition, FormFields, FormInput, FormValidatorEntry } from '../contracts/forms'
+import type { FormFields, FormInput, FormValidatorEntry } from '../contracts/forms'
 import type { LabelDictionary } from '../contracts/labels'
 import type { MaybePromise } from '../contracts/load'
 import type { RawSchema, RawSchemaInput, RawSchemaOutput } from '../contracts/schema'
-import type { AssetValue } from '../assets/contracts'
+import type { AssetInputModelValue } from '../components/inputs/assetInput.types'
 import type { TextInputConstraint, TextInputModelValue } from '../components/inputs/textInput.types'
+import type { TextareaInputConstraint, TextareaInputModelValue } from '../components/inputs/textareaInput.types'
 import type { CheckboxGroupInputModelValue, RadioInputModelValue, SelectInputModelValue } from '../components/inputs/selectInput.types'
 import type { FormRendererKey, FormRendererModelValue, FormRendererPropBag, FormRendererProps } from '../renderers/formContracts'
 import { assertFormDefinition } from './assertFormDefinition'
+import type { CompactFormDefinition } from './definitionTypes'
 
 type UnsafeKey = '__proto__' | 'prototype' | 'constructor' | `${number}`
 type FiniteObjectGuard<TValue extends object> = string extends Extract<keyof TValue, string> ? never : unknown
@@ -43,21 +45,27 @@ type TextModelValue<TEntry> =
       : TextInputModelValue<readonly ['decimal', 'text']>
     : TextInputModelValue<readonly ['decimal', 'text']>
 
-type TextareaModelValue<TEntry> =
-  SelectedProps<TEntry> extends { constraint: infer TConstraint extends readonly ('number' | 'text')[] }
-    ? TConstraint extends readonly ['number']
-      ? number | undefined
-      : number extends TConstraint['length']
-        ? string | number | undefined
-        : string
-    : string
+type SelectedTextareaConstraint<TProps> = TProps extends { constraint?: infer TConstraint }
+  ? Exclude<TConstraint, undefined> extends readonly TextareaInputConstraint[]
+    ? Exclude<TConstraint, undefined> | (undefined extends TConstraint ? undefined : never)
+    : undefined
+  : undefined
 
-type AssetModelValue<TEntry> = SelectedProps<TEntry> extends { multi: true } ? AssetValue[] | null : AssetValue | null
+type TextareaRendererControlValue<TEntry> = TextareaInputModelValue<SelectedTextareaConstraint<SelectedProps<TEntry>>>
+
+type SelectedAssetMulti<TProps> = TProps extends object
+  ? 'multi' extends keyof TProps
+    ? Extract<Exclude<TProps['multi' & keyof TProps], undefined>, boolean>
+      | (undefined extends TProps['multi' & keyof TProps] ? undefined : never)
+    : false
+  : false
+
+type AssetRendererControlValue<TEntry> = AssetInputModelValue<SelectedAssetMulti<SelectedProps<TEntry>>>
 
 type RendererControlValue<TRenderer extends FormRendererKey, TEntry> = TRenderer extends 'text'
   ? TextModelValue<TEntry>
   : TRenderer extends 'textarea'
-    ? TextareaModelValue<TEntry>
+    ? TextareaRendererControlValue<TEntry>
     : TRenderer extends 'select'
       ? SelectInputModelValue<SelectedProps<TEntry>>
       : TRenderer extends 'radio'
@@ -65,7 +73,7 @@ type RendererControlValue<TRenderer extends FormRendererKey, TEntry> = TRenderer
         : TRenderer extends 'checkbox-group'
           ? CheckboxGroupInputModelValue<SelectedProps<TEntry>>
           : TRenderer extends 'file' | 'image'
-            ? AssetModelValue<TEntry>
+            ? AssetRendererControlValue<TEntry>
             : FormRendererModelValue<TRenderer>
 
 type InvalidRendererChoices<TValue, TRenderer, TEntry> = TRenderer extends FormRendererKey
@@ -176,25 +184,11 @@ type SubmitInputGuard<TSubmit, TOutput extends object> = TSubmit extends (...arg
   : never
 type SubmitResult<TSubmit> = [TSubmit] extends [never] ? unknown : TSubmit extends (...args: never[]) => infer TResult ? Awaited<TResult> : unknown
 
-type FieldRenderers<TFields extends object> = {
-  readonly [TKey in keyof TFields]: Exclude<TFields[TKey], undefined> extends { renderer: infer TRenderer extends FormRendererKey } ? TRenderer : never
-}
-
-type CompactFormField<TInput extends object, TKey extends Extract<keyof TInput, string>, TRenderer> = TRenderer extends FormRendererKey
-  ? FormInput<TInput, TInput[TKey], TRenderer>
-  : never
-
-type CompactFormFields<TInput extends object, TRenderers extends object> = {
-  readonly [TKey in keyof TRenderers]: TKey extends Extract<keyof TInput, string> ? CompactFormField<TInput, TKey, TRenderers[TKey]> : never
-}
-
-type DefinedForm<TInput extends object, TOutput extends object, TResult, TKeys extends Extract<keyof TInput, string>, TRenderers extends object, THasSubmit extends boolean> = Omit<
-  FormDefinition<TInput, TOutput, TResult, TKeys>,
-  'fields' | 'submit'
-> & {
-  readonly schema: RawSchema<TInput, TOutput>
-  readonly fields: CompactFormFields<TInput, TRenderers>
-} & ([THasSubmit] extends [true] ? { readonly submit: (output: TOutput) => MaybePromise<TResult> } : { readonly submit?: never })
+type DefinedForm<TInput extends object, TOutput extends object, TResult, TFields extends object, THasSubmit extends boolean> = CompactFormDefinition<
+  TInput,
+  TOutput,
+  TFields
+> & ([THasSubmit] extends [true] ? { readonly submit: (output: TOutput) => MaybePromise<TResult> } : { readonly submit?: never })
 
 type FormDefinitionInput<
   TSchema extends RawSchema<object, object>,
@@ -241,7 +235,7 @@ export function defineForm<
   TSubmit extends SubmitFunction<NoInfer<RawSchemaOutput<TSchema>>>,
 >(
   definition: FormDefinitionInput<TSchema, TFields, TLabels, TValidators> & { submit: TSubmit & SubmitInputGuard<TSubmit, RawSchemaOutput<TSchema>> }
-): DefinedForm<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>, SubmitResult<TSubmit>, Extract<keyof TFields, Extract<keyof RawSchemaInput<TSchema>, string>>, FieldRenderers<TFields>, true>
+): DefinedForm<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>, SubmitResult<TSubmit>, TFields, true>
 export function defineForm<
   TSchema extends RawSchema<object, object>,
   const TFields extends object,
@@ -249,7 +243,7 @@ export function defineForm<
   const TValidators extends readonly FormValidatorEntry<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>>[] | undefined = undefined,
 >(
   definition: FormDefinitionInput<TSchema, TFields, TLabels, TValidators> & { submit?: never }
-): DefinedForm<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>, unknown, Extract<keyof TFields, Extract<keyof RawSchemaInput<TSchema>, string>>, FieldRenderers<TFields>, false>
+): DefinedForm<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>, unknown, TFields, false>
 export function defineForm<
   TSchema extends RawSchema<object, object>,
   const TFields extends object,

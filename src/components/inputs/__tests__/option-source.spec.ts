@@ -6,7 +6,7 @@ import SelectInput from '../SelectInput.vue'
 import type { SelectModelValue } from '../selectInput.types'
 import { defineResource, type CollectionLoadContext, type CollectionResult } from '../../..'
 import { mountInput } from './harness'
-import { createFrameworkQueryClient } from '../../../query'
+import { createFrameworkQueryClient, invalidateResourceData } from '../../../query'
 
 describe('explicit option sources', () => {
   it('passes standard collection context to a resource list action', async () => {
@@ -160,13 +160,11 @@ describe('explicit option sources', () => {
     mounted.cleanup()
   })
 
-  it('keeps initial remote values across page refreshes and clears them on external context changes', async () => {
-    let options = [{ id: 'other', name: 'Other' }]
+  it('keeps initial remote values outside the result page and clears them on source-context changes', async () => {
     const load = vi.fn(async () => ({
-      data: options,
-      meta: { total: options.length, page: 1, pageSize: 10 },
+      data: [{ id: 'other', name: 'Other' }],
+      meta: { total: 1, page: 1, pageSize: 10 },
     }))
-    const queryClient = createFrameworkQueryClient({ retry: 0, staleTime: 0 })
     const mounted = mountInput(SelectInput, {
       model: 'selected',
       props: {
@@ -175,21 +173,198 @@ describe('explicit option sources', () => {
         searchParameters: { divisionId: 'north' },
         searchable: false,
       },
-      queryClient,
     })
 
     await vi.waitFor(() => expect(load).toHaveBeenCalledOnce())
-    expect(mounted.model.value).toBe('selected')
-
-    options = [{ id: 'another-page', name: 'Another page' }]
-    await queryClient.invalidateQueries({ queryKey: ['option-source', 'remote-selection'] })
-    await mounted.flush()
     expect(mounted.model.value).toBe('selected')
 
     mounted.setProps({ searchParameters: { divisionId: 'south' } })
     await mounted.flush()
     expect(mounted.model.value).toBeNull()
     mounted.cleanup()
+  })
+
+  it('invalidates resource-owned options and leaves other sources unchanged', async () => {
+    type Option = { id: string; name: string }
+    let roleOptions: Option[] = [{ id: 'selected', name: 'Admin' }]
+    const rolesLoad = vi.fn(async (): Promise<CollectionResult<Option>> => ({
+      data: roleOptions,
+      meta: { total: roleOptions.length, totalPage: 1 },
+    }))
+    const teamsLoad = vi.fn(async (): Promise<CollectionResult<Option>> => ({
+      data: [{ id: 'team', name: 'Operations' }],
+      meta: { total: 1, totalPage: 1 },
+    }))
+    const standaloneLoad = vi.fn(async () => ({
+      data: [{ id: 'standalone', name: 'Standalone' }],
+      meta: { total: 1, page: 1, pageSize: 10 },
+    }))
+    const roles = defineResource({
+      key: 'roles-option-cache',
+      identity: (record: Option) => record.id,
+      list: {
+        permission: null,
+        table: {
+          schema: z.object({ id: z.string(), name: z.string() }),
+          columns: { name: {} },
+          load: rolesLoad,
+        },
+      },
+    })
+    const teams = defineResource({
+      key: 'teams-option-cache',
+      identity: (record: Option) => record.id,
+      list: {
+        permission: null,
+        table: {
+          schema: z.object({ id: z.string(), name: z.string() }),
+          columns: { name: {} },
+          load: teamsLoad,
+        },
+      },
+    })
+    const queryClient = createFrameworkQueryClient({ retry: 0, staleTime: Infinity })
+    const rolesInput = mountInput(SelectInput, {
+      model: 'selected',
+      props: {
+        load: roles.list.table.load,
+        resource: roles.list.table.resource,
+        namespace: roles.list.table.namespace,
+        searchable: false,
+      },
+      queryClient,
+    })
+    const teamsInput = mountInput(SelectInput, {
+      model: 'team',
+      props: {
+        load: teams.list.table.load,
+        resource: teams.list.table.resource,
+        namespace: teams.list.table.namespace,
+        searchable: false,
+      },
+      queryClient,
+    })
+    const standaloneInput = mountInput(SelectInput, {
+      model: 'standalone',
+      props: { load: standaloneLoad, namespace: 'standalone-options', searchable: false },
+      queryClient,
+    })
+    const controlledInput = mountInput(SelectInput, {
+      model: 'static',
+      props: { data: [{ id: 'static', name: 'Static role' }], searchable: false },
+      queryClient,
+    })
+
+    await vi.waitFor(() => {
+      expect(rolesLoad).toHaveBeenCalledOnce()
+      expect(teamsLoad).toHaveBeenCalledOnce()
+      expect(standaloneLoad).toHaveBeenCalledOnce()
+      expect(rolesInput.host.textContent).toContain('Admin')
+      expect(teamsInput.host.textContent).toContain('Operations')
+      expect(standaloneInput.host.textContent).toContain('Standalone')
+    })
+
+    roleOptions = [{ id: 'selected', name: 'Administrator' }]
+    await invalidateResourceData(queryClient, { resource: roles.list.table.resource })
+    await vi.waitFor(() => expect(rolesLoad).toHaveBeenCalledTimes(2))
+    await rolesInput.flush()
+
+    expect(rolesInput.model.value).toBe('selected')
+    expect(rolesInput.host.textContent).toContain('Administrator')
+    expect(teamsLoad).toHaveBeenCalledOnce()
+    expect(standaloneLoad).toHaveBeenCalledOnce()
+    expect(teamsInput.model.value).toBe('team')
+    expect(standaloneInput.model.value).toBe('standalone')
+    expect(controlledInput.model.value).toBe('static')
+    expect(controlledInput.host.textContent).toContain('Static role')
+
+    rolesInput.cleanup()
+    roleOptions = [{ id: 'selected', name: 'Senior administrator' }]
+    await invalidateResourceData(queryClient, { resource: roles.list.table.resource, id: 'selected' })
+
+    const remountedRolesInput = mountInput(SelectInput, {
+      model: 'selected',
+      props: {
+        load: roles.list.table.load,
+        resource: roles.list.table.resource,
+        namespace: roles.list.table.namespace,
+        searchable: false,
+      },
+      queryClient,
+    })
+    await vi.waitFor(() => expect(rolesLoad).toHaveBeenCalledTimes(3))
+    await remountedRolesInput.flush()
+
+    expect(remountedRolesInput.model.value).toBe('selected')
+    expect(remountedRolesInput.host.textContent).toContain('Senior administrator')
+    expect(teamsLoad).toHaveBeenCalledOnce()
+    expect(standaloneLoad).toHaveBeenCalledOnce()
+    teamsInput.cleanup()
+    standaloneInput.cleanup()
+    controlledInput.cleanup()
+    remountedRolesInput.cleanup()
+  })
+
+  it('clears remote selections when any option control changes resource owner', async () => {
+    const cases = [
+      { component: SelectInput, model: 'selected', expected: null },
+      { component: RadioGroupInput, model: 'selected', expected: undefined },
+      { component: CheckboxGroupInput, model: [{ id: 'selected', name: 'Selected' }], expected: [] },
+    ] as const
+
+    for (const [index, testCase] of cases.entries()) {
+      const load = vi.fn(async () => ({
+        data: [{ id: 'selected', name: 'Selected' }],
+        meta: { total: 1, page: 1, pageSize: 10 },
+      }))
+      const mounted = mountInput(testCase.component, {
+        model: testCase.model,
+        props: {
+          load,
+          resource: `owner-${index}`,
+          namespace: 'same-instance',
+          searchParameters: { active: true },
+          searchable: false,
+        },
+      })
+
+      await vi.waitFor(() => {
+        expect(load).toHaveBeenCalledOnce()
+        expect(mounted.host.textContent).toContain('Selected')
+      })
+      mounted.setProps({ resource: `new-owner-${index}` })
+      await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+      await mounted.flush()
+
+      expect(mounted.model.value).toEqual(testCase.expected)
+      mounted.cleanup()
+    }
+  })
+
+  it('uses the component instance namespace when an authored namespace is removed', async () => {
+    const load = vi.fn(async () => ({
+      data: [{ id: 'selected', name: 'Selected' }],
+      meta: { total: 1, page: 1, pageSize: 10 },
+    }))
+    const queryClient = createFrameworkQueryClient({ retry: 0, staleTime: Infinity })
+    const props = { load, resource: 'shared-resource', namespace: 'shared', searchable: false }
+    const first = mountInput(SelectInput, { model: 'selected', props, queryClient })
+    const second = mountInput(SelectInput, { model: 'selected', props, queryClient })
+
+    await vi.waitFor(() => {
+      expect(load).toHaveBeenCalledOnce()
+      expect(first.host.textContent).toContain('Selected')
+      expect(second.host.textContent).toContain('Selected')
+    })
+
+    first.setProps({ namespace: undefined })
+    await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+    await first.flush()
+
+    expect(first.model.value).toBeNull()
+    expect(second.model.value).toBe('selected')
+    first.cleanup()
+    second.cleanup()
   })
 
   it('clears CheckboxGroup values when its remote context changes', async () => {

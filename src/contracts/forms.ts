@@ -50,6 +50,7 @@ export interface FormActionSlotProps {
   readonly reset: () => void
   readonly submitting: boolean
   readonly submitPending: boolean
+  readonly postWriteError: SubmitError | undefined
   readonly validating: boolean
   readonly dirty: boolean
   readonly inputPending: boolean

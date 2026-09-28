@@ -5,6 +5,7 @@ import type { LabelDictionary } from '../contracts/labels'
 import type { TableColumn } from '../contracts/tables'
 import { resolveLabel } from '../labels/resolveLabel'
 import { displayValueRequirement } from './requirements'
+import { assertDisplayEntry, assertSafeDisplayKey } from './assertDisplayDefinition'
 
 export type DisplaySurface = 'table' | 'detail'
 
@@ -34,22 +35,6 @@ interface ResolveDisplayOptions<TRecord extends object, TEntry extends DisplayEn
   querySortKeys?: readonly string[]
 }
 
-const runtimeMembers = new Set([
-  'value',
-  'modelValue',
-  'model-value',
-  'onUpdate:modelValue',
-  'onUpdate:model-value',
-  'record',
-  'draft',
-  'field',
-  'key',
-  'index',
-  'setValue',
-  'onValidation:touch',
-  'validation:touch',
-])
-
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -67,43 +52,11 @@ function validateEntry<TRecord extends object>(
   queryKeys?: readonly string[],
   querySortKeys?: readonly string[],
 ): asserts entry is DisplayEntry<TRecord> {
-  const owner = surface === 'table' ? 'Table column' : 'Detail field'
-  if (!isRecord(entry)) invalidOption(surface, key, 'definition', 'an object')
-
-  const allowed = surface === 'table'
-    ? ['label', 'read', 'renderer', 'props', 'format', 'sortable', 'sortKey', 'align', 'class', 'headerClass']
-    : ['label', 'read', 'renderer', 'props', 'format', 'emphasis', 'span']
-
-  for (const member of Reflect.ownKeys(entry)) {
-    if (typeof member !== 'string' || !allowed.includes(member)) {
-      invalidOption(surface, key, String(member), `${owner} member`)
-    }
-  }
-  if ('label' in entry && typeof entry.label !== 'string' && typeof entry.label !== 'function') {
-    invalidOption(surface, key, 'label', 'a string or a function that returns a string')
-  }
-  if ('read' in entry && typeof entry.read !== 'function') invalidOption(surface, key, 'read', 'a function')
-  if ('renderer' in entry && typeof entry.renderer !== 'string') invalidOption(surface, key, 'renderer', 'a registered display key')
-  if ('props' in entry && !isRecord(entry.props)) invalidOption(surface, key, 'props', 'an object')
-  if (isRecord(entry.props)) {
-    for (const member of runtimeMembers) {
-      if (Object.hasOwn(entry.props, member)) invalidOption(surface, key, `props.${member}`, 'supplied by the display surface')
-    }
-  }
-  if ('format' in entry && typeof entry.format !== 'string') invalidOption(surface, key, 'format', 'a configured formatter key')
+  assertDisplayEntry(surface, key, entry, invalidOption)
 
   if (surface === 'table') {
-    if ('sortable' in entry && typeof entry.sortable !== 'boolean') invalidOption(surface, key, 'sortable', 'a boolean')
-    if ('align' in entry && !['start', 'center', 'end'].includes(String(entry.align))) invalidOption(surface, key, 'align', 'start, center, or end')
-    if ('class' in entry && typeof entry.class !== 'string') invalidOption(surface, key, 'class', 'a string')
-    if ('headerClass' in entry && typeof entry.headerClass !== 'string') invalidOption(surface, key, 'headerClass', 'a string')
-
-    if (entry.sortKey !== undefined && typeof entry.sortKey !== 'string') invalidOption(surface, key, 'sortKey', 'a record key')
     if (typeof entry.sortKey === 'string' && recordKeys && !recordKeys.includes(entry.sortKey)) {
       invalidOption(surface, key, 'sortKey', 'a key in the record schema')
-    }
-    if (entry.sortable === true && typeof entry.read === 'function' && !entry.sortKey) {
-      invalidOption(surface, key, 'sortKey', 'present for a sortable accessor')
     }
     const sortKey = typeof entry.sortKey === 'string' ? entry.sortKey : key
     if (entry.sortable === true && queryKeys && !queryKeys.includes('sort_by')) {
@@ -111,11 +64,6 @@ function validateEntry<TRecord extends object>(
     }
     if (entry.sortable === true && querySortKeys && !querySortKeys.includes(sortKey)) {
       invalidOption(surface, key, 'sortKey', 'a key in the bound query schema')
-    }
-  } else {
-    if ('emphasis' in entry && !['strong', 'muted'].includes(String(entry.emphasis))) invalidOption(surface, key, 'emphasis', 'strong or muted')
-    if ('span' in entry && (typeof entry.span !== 'number' || !Number.isInteger(entry.span) || entry.span < 1)) {
-      invalidOption(surface, key, 'span', 'a positive integer')
     }
   }
 
@@ -147,10 +95,10 @@ export function resolveDisplayFields<TRecord extends object>(
   }
 
   return Reflect.ownKeys(entries).map((key) => {
-    if (typeof key !== 'string' || key === '__proto__' || key === 'prototype' || key === 'constructor' || /^\d+$/.test(key)) {
+    assertSafeDisplayKey(key, (invalidKey, expected) => {
       const owner = surface === 'table' ? 'Table' : 'Detail'
-      throw new Error(`[loom][SURFACE_OPTION_INVALID] ${owner} entry key "${String(key)}" must be a safe named key.`)
-    }
+      throw new Error(`[loom][SURFACE_OPTION_INVALID] ${owner} entry key "${String(invalidKey)}" must be ${expected}.`)
+    })
     const entry = entries[key]
     validateEntry<TRecord>(surface, key, entry, recordKeys, queryKeys, querySortKeys)
     const props: unknown = Reflect.get(entry, 'props')

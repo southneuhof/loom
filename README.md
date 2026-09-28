@@ -4,8 +4,8 @@ Loom provides Vue forms, tables, detail displays, resource binding, and common
 page views. The application owns routes, transport, workflow behavior, and
 backend authorization.
 
-Read the [Carta resource architecture](../../docs/resource_system_overhaul/ARCHITECTURE.md)
-for the full contract and type boundaries.
+Follow the [current direct module authoring path](../../docs/resource_system_overhaul/ARCHITECTURE.md#direct-module-authoring)
+for the active Loom contract. This README links to package examples and checks.
 
 ## Install the framework
 
@@ -180,15 +180,23 @@ blocks submission while upload work remains pending. See
 [`assets.form.spec.ts`](../../apps/web/src/framework/adapters/assets.form.spec.ts)
 for the executable boundary example.
 
+If a submit error has `postWrite: true`, the mounted Form keeps the draft and
+blocks another save for the same resource and record identity. Its alert tells
+the user to check the record before starting another save. Edits, reset,
+refresh, schema or field changes, and view-scope changes do not clear the block;
+a resource or record identity change does. A create Form without an id stays
+blocked until it is left or remounted. A new Form mount starts a new local
+session, so this does not provide server idempotency or prove that the earlier
+write succeeded.
+
 `DialogForm` owns ordinary visibility and completion. Use one keyed dialog for
 each record action. Bind `open` only when another page control must coordinate
 visibility.
 
 ## Executable examples
 
-Use these fixtures when you need to copy a current contract. They exercise real
-components or generated output, and the normal Loom/Web checks compile the type
-fixtures.
+Use these fixtures as current contract examples. They exercise real components
+and application source. The Loom and web type checks compile the type fixtures.
 
 | Contract | Fixture |
 |---|---|
@@ -198,7 +206,7 @@ fixtures.
 | Shared relation display in Table, TreeTable, Detail, and extraction | [DisplayParity.browser.spec.ts](src/components/core/__tests__/DisplayParity.browser.spec.ts) |
 | Shared relation accessor and format in exports | [export.spec.ts](src/services/__tests__/export.spec.ts) |
 | Editable row mapping and submit-free row form | [TableInput.browser.spec.ts](src/components/composites/__tests__/TableInput.browser.spec.ts), [table-input.type-test.ts](src/components/composites/__type-tests__/table-input.type-test.ts) |
-| Generated resource bags and extracted page props | [generated user fixtures](../../apps/web/src/framework/__type-tests__/plan057_generated_users), [generator equivalence test](../../scripts/scaffold-bounded-module.test.mjs) |
+| Application resource bags and extracted page props | [users.resource.ts](../../apps/web/src/routes/%28authenticated%29/settings/users/users.resource.ts), [index.route.vue](../../apps/web/src/routes/%28authenticated%29/settings/users/index.route.vue), [detail.route.vue](../../apps/web/src/routes/%28authenticated%29/settings/users/%5BuserId%5D/detail.route.vue), [edit.route.vue](../../apps/web/src/routes/%28authenticated%29/settings/users/%5BuserId%5D/edit.route.vue) |
 
 ## Checks and exports
 

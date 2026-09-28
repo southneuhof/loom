@@ -5,20 +5,25 @@
  * Owns Card, page title, toolbar, filters, and the selected collection
  * presentation. Collection owns the one data lifecycle for the body.
  */
-import { computed, nextTick, ref, useSlots, watch } from "vue";
+import { computed, nextTick, reactive, ref, useSlots, watch } from "vue";
 import { toast } from "vue-sonner";
 import type {
   CollectionSlotProps,
   FormDraft,
   QueryValues,
+  RecordIdentity,
   RowReorderPayload,
   SchemaParseResult,
+  SubmitError,
   TableProps,
 } from "../../contracts";
 import type { FormDraftSnapshot } from "../../contracts/forms";
-import type { ListViewActions, ListViewProps } from "../../contracts/views";
+import type { ListViewActions, ListViewDeleteState, ListViewProps, ListViewSlotActions } from "../../contracts/views";
 import type { RouteLocationRaw } from "vue-router";
+import { useFrameworkAdapters } from "../../adapters/projectAdapters";
 import { resolveDisplayFields } from "../../display/resolveDisplay";
+import { coerceQueryValues, stableValue } from "../../query";
+import { checkIdentityValue } from "../../resources/identity";
 import Table from "../core/Table.vue";
 import Form from "../core/Form.vue";
 import Button from "../base/Button.vue";
@@ -32,6 +37,7 @@ import { exportTableRows } from "../../services";
 import { useTablePreferences } from "../core/useTablePreferences";
 
 const props = defineProps<ListViewProps<TRecord, TQuery, TFilterInput>>();
+const adapters = useFrameworkAdapters();
 const emit = defineEmits<{
   (event: "update:query", query: QueryValues): void;
   (event: "export-error", error: unknown): void;
@@ -40,7 +46,7 @@ const emit = defineEmits<{
 const slots = useSlots();
 defineSlots<{
   [name: `cell:${string}`]: (props: { value: unknown; record: TRecord; field: unknown; index: number }) => unknown;
-  collection?: (props: CollectionSlotProps<TRecord, TQuery> & { actions?: ListViewActions<TRecord> }) => unknown;
+  collection?: (props: CollectionSlotProps<TRecord, TQuery> & { actions?: ListViewSlotActions<TRecord> }) => unknown;
   /**
    * Per-standard-action overrides. The framework owns visibility: each region
    * renders only when its action is declared and permitted, so custom content
@@ -48,7 +54,7 @@ defineSlots<{
    */
   "row-actions-view"?: (props: { record: TRecord; can?: ListViewActions<TRecord>["can"]; target: import("vue-router").RouteLocationRaw }) => unknown;
   "row-actions-edit"?: (props: { record: TRecord; can?: ListViewActions<TRecord>["can"]; target: import("vue-router").RouteLocationRaw }) => unknown;
-  "row-actions-delete"?: (props: { record: TRecord; can?: ListViewActions<TRecord>["can"]; deleteRecord?: ListViewActions<TRecord>["deleteRecord"] }) => unknown;
+  "row-actions-delete"?: (props: { record: TRecord; can?: ListViewActions<TRecord>["can"]; deleteRecord?: ListViewSlotActions<TRecord>["deleteRecord"]; deleteState: ListViewDeleteState }) => unknown;
   "create-action"?: (props: { can?: ListViewActions<TRecord>["can"]; target: import("vue-router").RouteLocationRaw }) => unknown;
   "resource-action"?: () => unknown;
   header?: () => unknown;
@@ -58,6 +64,19 @@ defineSlots<{
   "row-actions"?: (props: { record: TRecord }) => unknown;
 }>();
 
+type DeleteOwner = string | NonNullable<ListViewActions<TRecord>["recordIdentity"]>;
+type DeleteBinding = {
+  owner: DeleteOwner;
+  key: string;
+  identity: NonNullable<ListViewActions<TRecord>["recordIdentity"]>;
+  deleteRecord: NonNullable<ListViewActions<TRecord>["deleteRecord"]>;
+};
+type DeleteOutcome = { pending: boolean; error?: Readonly<SubmitError> };
+
+const staleDeleteCompletionKey = Symbol();
+const identityOwnerTokens = new WeakMap<NonNullable<ListViewActions<TRecord>["recordIdentity"]>, number>();
+let nextIdentityOwnerToken = 0;
+
 type ListViewSurface = {
   table: TableProps<TRecord, TQuery>;
   createRoute?: RouteLocationRaw;
@@ -65,9 +84,16 @@ type ListViewSurface = {
   updateRoute?: (record: TRecord) => RouteLocationRaw | undefined;
   can?: ListViewActions<TRecord>["can"];
   deleteRecord?: ListViewActions<TRecord>["deleteRecord"];
+  recordIdentity?: ListViewActions<TRecord>["recordIdentity"];
 };
 
 const surface = computed<ListViewSurface>(() => {
+  if (props.deleteRecord !== undefined && typeof props.deleteRecord !== "function") {
+    throw new Error("[loom][SURFACE_OPTION_INVALID] ListView deleteRecord must be a function.");
+  }
+  if (props.deleteRecord && typeof props.recordIdentity !== "function") {
+    throw new Error("[loom][SURFACE_OPTION_INVALID] ListView deleteRecord requires recordIdentity.");
+  }
   return {
     table: {
       ...props.table,
@@ -78,18 +104,19 @@ const surface = computed<ListViewSurface>(() => {
     updateRoute: props.updateRoute === false ? undefined : props.updateRoute,
     can: props.can,
     deleteRecord: props.deleteRecord,
+    recordIdentity: props.recordIdentity,
   };
 });
 
 const tableRef = ref<{ refresh: () => Promise<void>; query: QueryValues; updateQuery: (patch: QueryValues) => void; replaceQuery: (values: QueryValues) => void }>();
-const currentQuery = computed<QueryValues>(() => tableRef.value?.query
-  ?? (props.table.query as QueryValues | undefined)
+const currentQuery = computed<QueryValues>(() => (props.table.query as QueryValues | undefined)
+  ?? tableRef.value?.query
   ?? { page: 1, limit: props.table.defaultPageSize ?? 10 });
-const filterDraftState = ref<FormDraft<TFilterInput>>({ ...(props.filters?.defaults ?? {}), ...filterValues(currentQuery.value) });
+declaredFilterQueryKeys();
+const filterDraftState = ref<FormDraft<TFilterInput>>(filterDraftFromQuery(currentQuery.value));
 const filterDraft = computed(() => filterDraftState.value);
-const filterFormRef = ref<{ validate: () => Promise<SchemaParseResult<Partial<TQuery>>>; reset: () => void }>();
+const filterFormRef = ref<{ draft: FormDraftSnapshot<TFilterInput>; validate: () => Promise<SchemaParseResult<Partial<TQuery>>>; reset: () => void }>();
 let filterValidation = 0;
-let lastFilterOutputKeys = new Set<string>();
 let pendingFilterQuery: QueryValues | undefined;
 
 const tableBindings = computed(() => surface.value.table);
@@ -109,6 +136,21 @@ function sameQuery(left: QueryValues, right: QueryValues): boolean {
     && keys.every((key) => Object.hasOwn(right, key) && Object.is(left[key], right[key]));
 }
 
+function sameDraftValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (left instanceof Date && right instanceof Date) return left.getTime() === right.getTime();
+  if (Array.isArray(left) && Array.isArray(right)) {
+    return left.length === right.length && left.every((value, index) => sameDraftValue(value, right[index]));
+  }
+  if (typeof left !== "object" || left === null || typeof right !== "object" || right === null) return false;
+  const leftPrototype = Object.getPrototypeOf(left);
+  const rightPrototype = Object.getPrototypeOf(right);
+  if (leftPrototype !== rightPrototype || (leftPrototype !== Object.prototype && leftPrototype !== null)) return false;
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length
+    && keys.every((key) => Object.hasOwn(right, key) && sameDraftValue(Reflect.get(left, key), Reflect.get(right, key)));
+}
+
 watch(currentQuery, (values) => {
   filterValidation += 1;
   if (pendingFilterQuery && sameQuery(values, pendingFilterQuery)) {
@@ -116,48 +158,60 @@ watch(currentQuery, (values) => {
     return;
   }
   pendingFilterQuery = undefined;
-  filterDraftState.value = { ...(props.filters?.defaults ?? {}), ...filterValues(values) };
+  filterDraftState.value = filterDraftFromQuery(values);
 }, { deep: true });
 
-function filterValues(values: QueryValues): Partial<TFilterInput> {
-  const keys = new Set([
-    ...Object.keys(props.filters?.fields ?? {}),
-    ...Object.keys(props.filters?.defaults ?? {}),
-  ]);
-  return Object.fromEntries([...keys].filter((key) => Object.hasOwn(values, key)).map((key) => [key, values[key]])) as Partial<TFilterInput>;
+function filterDraftFromQuery(query: Readonly<QueryValues>): FormDraft<TFilterInput> {
+  return { ...(props.filters?.defaults ?? {}), ...(props.filters?.toDraft(query) ?? {}) };
+}
+
+function declaredFilterQueryKeys(): Set<string> {
+  const keys = new Set<string>(props.filters?.queryKeys ?? []);
+  if (keys.has("page")) {
+    throw new Error("[loom][SURFACE_OPTION_INVALID] filters.queryKeys cannot include the reserved ListView query key \"page\".");
+  }
+  return keys;
 }
 
 function rowReorder(payload: RowReorderPayload<TRecord>) {
   emit("row-reorder", payload);
 }
 
-async function updateFilters(next: FormDraftSnapshot<TFilterInput>, baseQuery: QueryValues = currentQuery.value) {
+async function updateFilters(next: FormDraftSnapshot<TFilterInput>) {
+  if (sameDraftValue(filterDraftState.value, next)) return;
   filterDraftState.value = { ...next };
+  await validateAndCommitFilters();
+}
+
+async function validateAndCommitFilters() {
   const validation = ++filterValidation;
   await nextTick();
   if (validation !== filterValidation) return;
   const result = await filterFormRef.value?.validate();
   if (!result?.success || validation !== filterValidation) return;
 
-  const filterKeys = new Set([
-    ...lastFilterOutputKeys,
-    ...Object.keys(props.filters?.fields ?? {}),
-    ...Object.keys(props.filters?.defaults ?? {}),
-    ...Object.keys(result.data),
-  ]);
-  const query = { ...baseQuery };
-  for (const key of filterKeys) delete query[key];
+  const queryKeys = declaredFilterQueryKeys();
+  const undeclaredKey = Object.keys(result.data).find((key) => !queryKeys.has(key));
+  if (undeclaredKey) {
+    throw new Error(`[loom][SURFACE_OPTION_INVALID] ListView filter output key "${undeclaredKey}" is not declared in filters.queryKeys.`);
+  }
+
+  const query = { ...currentQuery.value };
+  for (const key of queryKeys) delete query[key];
   for (const [key, value] of Object.entries(result.data)) {
     if (value !== undefined) query[key] = value;
   }
   query.page = 1;
-  lastFilterOutputKeys = new Set(Object.keys(result.data));
-  pendingFilterQuery = query;
+  pendingFilterQuery = coerceQueryValues(query, { page: 1, limit: props.table.defaultPageSize ?? 10 });
   tableRef.value?.replaceQuery(query);
 }
 
-function resetFilters() {
-  filterFormRef.value?.reset();
+async function resetFilters() {
+  const form = filterFormRef.value;
+  if (!form) return;
+  form.reset();
+  filterDraftState.value = { ...form.draft };
+  await validateAndCommitFilters();
 }
 
 const passthroughSlots = computed(() =>
@@ -179,7 +233,7 @@ const passthroughSlots = computed(() =>
   ),
 );
 
-const deleting = ref(false);
+const deleteOutcomes = reactive(new Map<DeleteOwner, Map<string, DeleteOutcome>>());
 const exporting = ref(false);
 const columnFields = computed(() =>
   resolveDisplayFields({ entries: surface.value.table.columns, labels: surface.value.table.labels, surface: "table" }),
@@ -220,20 +274,112 @@ function resetColumns() {
   columnSizing.value = {};
 }
 
-async function remove(
-  record: TRecord,
-  close: (value: boolean) => void,
-) {
-  if (deleting.value) return;
-  deleting.value = true;
+function deleteBinding(record: TRecord): DeleteBinding | undefined {
+  const identity = surface.value.recordIdentity;
+  const deleteRecord = surface.value.deleteRecord;
+  if (!identity || !deleteRecord) return undefined;
+  const owner = surface.value.table.resource ?? identity;
+  const value = identity(record);
+  checkIdentityValue(typeof owner === "string" ? owner : "ListView", "delete", value);
+  const key = JSON.stringify(stableValue(value));
+  if (key === undefined) throw new Error("[loom][RESOURCE_IDENTITY_INVALID] ListView delete identity cannot be encoded.");
+  return { owner, key, identity, deleteRecord };
+}
+
+function deleteOutcome(binding: DeleteBinding): DeleteOutcome | undefined {
+  return deleteOutcomes.get(binding.owner)?.get(binding.key);
+}
+
+function deleteDialogKey(record: TRecord): string {
+  const binding = deleteBinding(record);
+  if (!binding) return "delete-unavailable";
+  if (typeof binding.owner === "string") return JSON.stringify(["resource", binding.owner, binding.key]);
+  let token = identityOwnerTokens.get(binding.owner);
+  if (token === undefined) {
+    token = ++nextIdentityOwnerToken;
+    identityOwnerTokens.set(binding.owner, token);
+  }
+  return JSON.stringify(["identity", token, binding.key]);
+}
+
+function setDeleteOutcome(binding: DeleteBinding, outcome: DeleteOutcome | undefined) {
+  const ownerOutcomes = deleteOutcomes.get(binding.owner);
+  if (!outcome) {
+    ownerOutcomes?.delete(binding.key);
+    if (ownerOutcomes?.size === 0) deleteOutcomes.delete(binding.owner);
+    return;
+  }
+  const nextOwnerOutcomes = ownerOutcomes ?? new Map<string, DeleteOutcome>();
+  if (!ownerOutcomes) deleteOutcomes.set(binding.owner, nextOwnerOutcomes);
+  nextOwnerOutcomes.set(binding.key, outcome);
+}
+
+function getDeleteState(record: TRecord): ListViewDeleteState {
+  const binding = deleteBinding(record);
+  const outcome = binding ? deleteOutcome(binding) : undefined;
+  return {
+    disabled: Boolean(outcome?.pending || outcome?.error),
+    pending: Boolean(outcome?.pending),
+    ...(outcome?.error ? { error: outcome.error } : {}),
+  };
+}
+
+function deleteBindingIsCurrent(binding: DeleteBinding): boolean {
+  const current = surface.value;
+  return current.recordIdentity === binding.identity
+    && current.deleteRecord === binding.deleteRecord
+    && (current.table.resource ?? current.recordIdentity) === binding.owner;
+}
+
+function staleDeleteCompletion(): Error {
+  const error = new Error("Delete completed after the list changed.");
+  Object.defineProperty(error, staleDeleteCompletionKey, { value: true });
+  return error;
+}
+
+function isStaleDeleteCompletion(error: unknown): boolean {
+  return typeof error === "object" && error !== null && Reflect.get(error, staleDeleteCompletionKey) === true;
+}
+
+async function performDelete(record: TRecord, binding: DeleteBinding): Promise<unknown> {
+  const existing = deleteOutcome(binding);
+  if (existing?.error) throw existing.error;
+  if (existing?.pending) throw new Error("A delete request is already in progress.");
+  setDeleteOutcome(binding, { pending: true });
   try {
-    await surface.value.deleteRecord?.(record);
+    const result = await binding.deleteRecord(record);
+    setDeleteOutcome(binding, undefined);
+    if (!deleteBindingIsCurrent(binding)) throw staleDeleteCompletion();
+    return result;
+  } catch (error) {
+    if (isStaleDeleteCompletion(error)) throw error;
+    const normalized = adapters.data.normalizeError(error);
+    if (normalized.postWrite) {
+      setDeleteOutcome(binding, { pending: false, error: Object.freeze(normalized) });
+    } else {
+      setDeleteOutcome(binding, undefined);
+    }
+    throw normalized;
+  }
+}
+
+async function guardedDelete(record: TRecord): Promise<unknown> {
+  const binding = deleteBinding(record);
+  if (!binding) throw new Error("ListView has no delete action.");
+  return performDelete(record, binding);
+}
+
+async function remove(record: TRecord, close: (value: boolean) => void) {
+  const binding = deleteBinding(record);
+  if (!binding) return;
+  try {
+    await performDelete(record, binding);
     close(false);
     toast.success("Record deleted.");
-  } catch {
-    toast.error("Could not delete record.");
-  } finally {
-    deleting.value = false;
+  } catch (error) {
+    if (isStaleDeleteCompletion(error)) return;
+    const normalized = adapters.data.normalizeError(error);
+    if (!normalized.postWrite) toast.error(normalized.message);
   }
 }
 
@@ -269,12 +415,13 @@ const canExport = computed(
     Boolean(surface.value.table.data || surface.value.table.load),
 );
 
-const customActions = computed<ListViewActions<TRecord>>(() => ({
+const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
   createRoute: surface.value.createRoute,
   detailRoute: surface.value.detailRoute,
   updateRoute: surface.value.updateRoute,
   can: surface.value.can,
-  deleteRecord: surface.value.deleteRecord,
+  deleteRecord: surface.value.deleteRecord ? guardedDelete : undefined,
+  deleteState: getDeleteState,
 }));
 </script>
 
@@ -482,9 +629,13 @@ const customActions = computed<ListViewActions<TRecord>>(() => ({
                     <template v-if="surface.can?.('delete', record)">
                       <slot
                         name="row-actions-delete"
-                        v-bind="{ record, can: surface.can, deleteRecord: surface.deleteRecord }"
+                        v-bind="{ record, can: surface.can, deleteRecord: customActions.deleteRecord, deleteState: getDeleteState(record) }"
                       >
-                        <Dialog v-if="surface.deleteRecord">
+                        <div v-if="getDeleteState(record).error" role="alert" class="max-w-64 whitespace-normal text-xs text-error">
+                          <p>The delete may have completed. Check the record before trying again.</p>
+                          <p>{{ getDeleteState(record).error?.message }}</p>
+                        </div>
+                        <Dialog v-if="surface.deleteRecord" :key="deleteDialogKey(record)">
                           <template #trigger>
                             <Button
                               kind="icon"
@@ -503,13 +654,13 @@ const customActions = computed<ListViewActions<TRecord>>(() => ({
                               <Button
                                 type="button"
                                 variant="text"
-                                :disabled="deleting"
+                                :disabled="getDeleteState(record).pending"
                                 @click="setOpen(false)"
                               >Cancel</Button>
                               <Button
                                 type="button"
                                 color="error"
-                                :disabled="deleting"
+                                :disabled="getDeleteState(record).disabled"
                                 @click="remove(record, setOpen)"
                               >Delete</Button>
                             </div>

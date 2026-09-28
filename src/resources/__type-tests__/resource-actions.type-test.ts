@@ -52,6 +52,55 @@ void rowCommand.can('1', true)
 void rowCommand.run('1', true)
 void commands.actions.verify.run('1', 'approved')
 
+const routedCommands = defineResource({
+  key: 'routed-custom-policy',
+  identity: (record: Row) => record.id,
+  actions: {
+    scalarEntry: {
+      permission: (id: string) => `rows.${id}`,
+      routePermission: 'rows.enter',
+      route: { name: 'settings-users' },
+      run: async (id: string) => id,
+    },
+    multipleEntry: {
+      permission: (id: string) => `rows.${id}`,
+      routePermission: ['rows.enter', 'rows.audit'] as const,
+      route: { name: 'settings-users' },
+      run: async (id: string) => id,
+    },
+    publicEntry: {
+      permission: () => null,
+      routePermission: null,
+      route: { name: 'settings-users' },
+      run: async () => undefined,
+    },
+    staticEntry: {
+      permission: ['rows.read', 'rows.audit'] as const,
+      route: { name: 'settings-users' },
+      run: async (id: string) => id,
+    },
+  },
+})
+void routedCommands.actions.scalarEntry.route
+void routedCommands.actions.multipleEntry.route
+void routedCommands.actions.publicEntry.route
+void routedCommands.actions.staticEntry.route
+
+type PrimarySaveAction = { permission: null; run: (id: string) => Promise<string> }
+type AlternateSaveAction = { permission: 'rows.write'; run: (id: string) => Promise<string> }
+const validUnionSaveAction: PrimarySaveAction | AlternateSaveAction = Math.random() > 0.5
+  ? { permission: null, run: async (id: string) => id }
+  : { permission: 'rows.write', run: async (id: string) => id }
+const validUnionCommands = defineResource({ key: 'valid-union-action', identity: (record: Row) => record.id, actions: { save: validUnionSaveAction } })
+const validUnionCommandResult: Promise<string> = validUnionCommands.actions.save.run('1')
+type InvalidPermissionSaveAction = { permission: (id: number) => 'rows.write'; run: (id: string) => Promise<string> }
+const invalidUnionSaveAction: PrimarySaveAction | InvalidPermissionSaveAction = Math.random() > 0.5
+  ? { permission: null, run: async (id: string) => id }
+  : { permission: (id: number) => 'rows.write', run: async (id: string) => id }
+
+// @ts-expect-error Every branch of one custom action must satisfy its permission callback contract.
+defineResource({ key: 'invalid-union-action', identity: (record: Row) => record.id, actions: { save: invalidUnionSaveAction } })
+
 // @ts-expect-error command context is bound with withContext
 void commands.actions.set.can('1', true, { record: allowedRow })
 
@@ -130,4 +179,4 @@ const invalidIdentityResultUnion = defineResource({ key: 'mixed-result-identity'
 // @ts-expect-error Submit input cannot widen the schema's own output contract.
 const widenedSubmitInput = defineForm({ schema: mutationSchema, fields: { name: { renderer: 'text' } }, submit: async (output: { name: string; version: number }) => ({ id: output.name }) })
 
-void [invalidMixedCustomActions, invalidReservedActionMap, identityOnlyResult, invalidIdentityResultUnion, widenedSubmitInput]
+void [invalidMixedCustomActions, invalidReservedActionMap, identityOnlyResult, invalidIdentityResultUnion, widenedSubmitInput, validUnionCommandResult]

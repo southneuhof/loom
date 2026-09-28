@@ -134,6 +134,26 @@ describe('FileInput upload surface', () => {
     view.cleanup()
   })
 
+  it.each([
+    ['single', false, asset('single.pdf'), null],
+    ['multi', true, [asset('multi.pdf')], []],
+  ] as const)('clears a selected %s file to its empty model value', async (_name, multi, model, emptyValue) => {
+    const view = mountInput<Asset | Asset[] | null>(FileInput, {
+      model,
+      props: { multi },
+    })
+    await view.flush()
+
+    const remove = [...view.host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.trim() === 'Hapus')
+    expect(remove).toBeDefined()
+    remove?.click()
+    await view.flush()
+
+    expect(view.model.value).toEqual(emptyValue)
+    view.cleanup()
+  })
+
   it('preserves an unchanged save without adding framework properties', async () => {
     const current = { ...asset('first.pdf'), size: 4, metadata: { source: 'upload' } }
     const view = mountInput<Asset[]>(FileInput, { model: [current], props: { multi: true } })

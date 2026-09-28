@@ -247,6 +247,30 @@ describe('text-like input surfaces', () => {
     expect(textarea.value).toBe('')
   })
 
+  it('emits strings for nonnumeric textarea text', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const model = ref<string | number | undefined>()
+    const app = createApp(defineComponent({
+      setup: () => () => h(TextareaInput, {
+        modelValue: model.value,
+        'onUpdate:modelValue': (value: string | number | undefined) => { model.value = value },
+      }),
+    }))
+    app.use(FrameworkPlugin)
+    mounted.push(app)
+    app.mount(host)
+
+    const textarea = host.querySelector<HTMLTextAreaElement>('textarea')
+    if (!textarea) throw new Error('TextareaInput did not render its textarea.')
+    textarea.value = 'Ada'
+    textarea.dispatchEvent(new InputEvent('input', { bubbles: true, inputType: 'insertText', data: 'Ada' }))
+    await nextTick()
+
+    expect(model.value).toBe('Ada')
+    expect(typeof model.value).toBe('string')
+  })
+
   it('keeps a numeric PasswordInput clear unset through its text model', async () => {
     const host = document.createElement('div')
     document.body.append(host)

@@ -4,7 +4,8 @@ import { join } from 'node:path'
 import { createApp, defineComponent, h, ref, toRaw } from 'vue'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { z } from 'zod'
-import type { QueryValues } from '../../../contracts'
+import type { QueryValues, RecordIdentity } from '../../../contracts'
+import type { ListViewSlotActions } from '../../../contracts/views'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import ListView from '../ListView.vue'
 import DetailView from '../DetailView.vue'
@@ -30,14 +31,15 @@ const detailProps = {
 function mountControlledListView(props: Record<string, unknown>) {
   const table = props.table as Record<string, unknown>
   const query = ref<QueryValues>({ ...(table.query as QueryValues) })
+  const updates: QueryValues[] = []
   const Host = defineComponent({
     setup: () => () => h(ListView, {
       ...props,
       table: { ...table, query: query.value },
-      'onUpdate:query': (value: QueryValues) => { query.value = { ...value } },
+      'onUpdate:query': (value: QueryValues) => { updates.push({ ...value }); query.value = { ...value } },
     }),
   })
-  return { view: mountCore(Host, {}), query }
+  return { view: mountCore(Host, {}), query, updates }
 }
 
 function installStorage() {
@@ -346,6 +348,7 @@ describe('ListView', () => {
         updateRoute: (record) => ({ name: 'test-route', params: { id: String(record.id) } }),
         can: (operation, record) => operation === 'delete' && record?.id === '1',
         deleteRecord: async () => undefined,
+        recordIdentity: (record: Record<string, unknown>) => String(record.id),
       },
       {
         slots: {
@@ -367,7 +370,7 @@ describe('ListView', () => {
     expect(typeof actions!.deleteRecord).toBe('function')
     expect(collectionKeys).not.toContain('load')
     expect(collectionKeys).not.toContain('data')
-    expect(Object.keys(actions!)).toEqual(['createRoute', 'detailRoute', 'updateRoute', 'can', 'deleteRecord'])
+    expect(Object.keys(actions!)).toEqual(['createRoute', 'detailRoute', 'updateRoute', 'can', 'deleteRecord', 'deleteState'])
     view.unmount()
   })
 
@@ -450,6 +453,8 @@ describe('ListView', () => {
         schema: z.object({ active: z.string() }),
         fields: { active: { label: 'Aktif', renderer: 'text' } },
         defaults: { active: 'yes' },
+        queryKeys: ['active'],
+        toDraft: (query: Readonly<Record<string, unknown>>) => typeof query.active === 'string' ? { active: query.active } : {},
       },
     })
     await flush()
@@ -468,18 +473,60 @@ describe('ListView', () => {
     view.unmount()
   })
 
-  it('commits the latest parsed filter output and removes its transformed query key when cleared', async () => {
-    const slowParse = deferred<void>()
+  it('validates reset defaults when the query mapping leaves the displayed draft unchanged', async () => {
     const contexts: Record<string, unknown>[] = []
-    const schema = z.object({ selection: z.string() }).transform(async ({ selection }) => {
-      if (selection === 'slow') await slowParse.promise
-      return selection ? { status: selection } : {}
-    })
-    const { view } = mountControlledListView({
+    const { view, query, updates } = mountControlledListView({
       table: {
         schema: z.object({ name: z.string() }),
         columns: { name: { label: 'Name' } },
-        query: { search: 'admin', status: 'old', retained: 'value', page: 3, limit: 25 },
+        query: { status: 'old', page: 3 },
+        load: ({ query }: { query: Record<string, unknown> }) => {
+          contexts.push({ ...query })
+          return { data: [{ name: 'Admin' }] }
+        },
+      },
+      filters: {
+        schema: z.object({ selection: z.string() }).transform(({ selection }) => ({ status: selection })),
+        fields: { selection: { label: 'Status', renderer: 'text' } },
+        defaults: { selection: 'default' },
+        queryKeys: ['status'],
+        toDraft: () => ({}),
+      },
+    })
+    await flush()
+
+    view.find<HTMLButtonElement>('[aria-label="Filter"]')!.click()
+    await flush()
+    expect(document.querySelector<HTMLInputElement>('[id$="-field-selection"]')!.value).toBe('default')
+    const updateCount = updates.length
+
+    ;[...document.querySelectorAll('button')].find((button) => button.textContent === 'Reset filter')!.dispatchEvent(new MouseEvent('click'))
+    await flush()
+
+    expect(updates).toHaveLength(updateCount + 1)
+    expect(query.value).toMatchObject({ status: 'default', page: 1 })
+    expect(contexts.at(-1)).toMatchObject({ status: 'default', page: 1 })
+    view.unmount()
+  })
+
+  it('hydrates and commits transformed filters through their declared query mapping', async () => {
+    const staleParse = deferred<void>()
+    const externalParse = deferred<void>()
+    const contexts: Record<string, unknown>[] = []
+    const schema = z.object({ selection: z.string() }).superRefine(({ selection }, context) => {
+      if (selection === 'invalid') context.addIssue({ code: 'custom', message: 'Invalid selection.' })
+    }).transform(async ({ selection }) => {
+      if (selection === 'slow') await staleParse.promise
+      if (selection === 'pending') await externalParse.promise
+      const normalized = selection.trim()
+      return normalized ? { status: normalized } : {}
+    })
+    const { view, query, updates } = mountControlledListView({
+      table: {
+        schema: z.object({ name: z.string() }),
+        columns: { name: { label: 'Name' } },
+        query: { search: 'admin', sort_by: '-name', status: 'old', retained: 'value', page: 3 },
+        defaultPageSize: 25,
         load: ({ query }: { query: Record<string, unknown> }) => {
           contexts.push({ ...query })
           return { data: [{ name: 'Admin' }] }
@@ -489,6 +536,8 @@ describe('ListView', () => {
         schema,
         fields: { selection: { label: 'Status', renderer: 'text' } },
         defaults: { selection: 'default' },
+        queryKeys: ['status'],
+        toDraft: (query: Readonly<Record<string, unknown>>) => typeof query.status === 'string' ? { selection: query.status } : {},
       },
     })
     await flush()
@@ -496,35 +545,189 @@ describe('ListView', () => {
     view.find<HTMLButtonElement>('[aria-label="Filter"]')!.click()
     await flush()
     const selection = document.querySelector<HTMLInputElement>('[id$="-field-selection"]')!
+
+    expect(selection.value).toBe('old')
+
+    const beforeClear = updates.length
+    selection.value = ''
+    selection.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+    expect(query.value).not.toHaveProperty('status')
+    expect(query.value).toMatchObject({ retained: 'value', search: 'admin', sort_by: '-name', limit: 25, page: 1 })
+    expect(updates).toHaveLength(beforeClear + 1)
+    expect(contexts.at(-1)).not.toHaveProperty('status')
+    expect(contexts.at(-1)).toMatchObject({ retained: 'value', search: 'admin', sort_by: '-name', limit: 25, page: 1 })
+
+    selection.value = ' active '
+    selection.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+    expect(contexts.at(-1)).toMatchObject({ status: 'active', retained: 'value', search: 'admin', sort_by: '-name', limit: 25, page: 1 })
+    expect(selection.value).toBe(' active ')
+
+    const beforeInvalid = updates.length
+    selection.value = 'invalid'
+    selection.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+    expect(query.value).toMatchObject({ status: 'active', page: 1 })
+    expect(updates).toHaveLength(beforeInvalid)
+
     selection.value = 'slow'
     selection.dispatchEvent(new Event('input', { bubbles: true }))
     await flush()
 
-    selection.value = 'active'
-    selection.dispatchEvent(new Event('input', { bubbles: true }))
-    await flush()
-    expect(contexts.at(-1)).toMatchObject({ status: 'active', retained: 'value', search: 'admin', limit: 25, page: 1 })
-    expect(selection.value).toBe('active')
-
-    slowParse.resolve()
-    await flush()
-    expect(contexts.at(-1)).toMatchObject({ status: 'active' })
-    expect(selection.value).toBe('active')
-
-    selection.value = ''
-    selection.dispatchEvent(new Event('input', { bubbles: true }))
-    await flush()
-    expect(contexts.at(-1)).not.toHaveProperty('status')
-    expect(contexts.at(-1)).toMatchObject({ retained: 'value', search: 'admin', limit: 25, page: 1 })
-
     selection.value = 'chosen'
     selection.dispatchEvent(new Event('input', { bubbles: true }))
     await flush()
+    expect(contexts.at(-1)).toMatchObject({ status: 'chosen' })
+
+    staleParse.resolve()
+    await flush()
+    expect(contexts.at(-1)).toMatchObject({ status: 'chosen' })
+    expect(selection.value).toBe('chosen')
+
     ;[...document.querySelectorAll('button')].find((button) => button.textContent === 'Reset filter')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     await flush()
-    expect(document.querySelector<HTMLInputElement>('[id$="-field-selection"]')?.value).toBe('default')
-    expect(contexts.at(-1)).toMatchObject({ status: 'default', retained: 'value', search: 'admin', limit: 25, page: 1 })
+    expect(selection.value).toBe('old')
+    expect(contexts.at(-1)).toMatchObject({ status: 'old', retained: 'value', search: 'admin', sort_by: '-name', limit: 25, page: 1 })
+
+    const beforeReplacement = updates.length
+    selection.value = 'pending'
+    selection.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+
+    query.value = { ...query.value, status: 'external', retained: 'replacement', page: 4 }
+    await flush()
+    expect(selection.value).toBe('external')
+    expect(updates).toHaveLength(beforeReplacement)
+    const loadsAfterReplacement = contexts.length
+
+    externalParse.resolve()
+    await flush()
+    expect(query.value).toMatchObject({ status: 'external', retained: 'replacement', page: 4 })
+    expect(contexts).toHaveLength(loadsAfterReplacement)
+    expect(updates).toHaveLength(beforeReplacement)
+    expect(selection.value).toBe('external')
     view.unmount()
+  })
+
+  it('maps raw URL query values to supported filter drafts without an echo', async () => {
+    const rawQuery = { page: 4, count: '3', status: ['active'], retained: 'raw' }
+    const { view, query, updates } = mountControlledListView({
+      table: {
+        schema: z.object({ name: z.string() }),
+        columns: { name: { label: 'Name' } },
+        query: rawQuery,
+        load: () => ({ data: [{ name: 'Admin' }] }),
+      },
+      filters: {
+        schema: z.object({ count: z.number().optional(), status: z.string().optional(), category: z.string().optional() }),
+        fields: {
+          count: { label: 'Count', renderer: 'text' },
+          status: { label: 'Status', renderer: 'text' },
+          category: { label: 'Category', renderer: 'text' },
+        },
+        defaults: { count: 8, status: 'default', category: 'default' },
+        queryKeys: ['count', 'status', 'category'],
+        toDraft: (values: Readonly<Record<string, unknown>>) => ({
+          count: typeof values.count === 'string' && /^\d+$/.test(values.count) ? Number(values.count) : undefined,
+          status: typeof values.status === 'string' ? values.status : undefined,
+          category: typeof values.category === 'string' ? values.category : undefined,
+        }),
+      },
+    })
+    await flush()
+
+    view.find<HTMLButtonElement>('[aria-label="Filter"]')!.click()
+    await flush()
+
+    const filterInputs = [...document.querySelectorAll<HTMLInputElement>('.is-form-field input')]
+    expect(filterInputs.map((input) => input.value)).toEqual(['3', '', ''])
+    expect(query.value).toEqual(rawQuery)
+    expect(updates).toHaveLength(0)
+    view.unmount()
+  })
+
+  it('keeps raw filter text when its query echo adds the collection page size', async () => {
+    const { view, query } = mountControlledListView({
+      table: {
+        schema: z.object({ name: z.string() }),
+        columns: { name: { label: 'Name' } },
+        query: { status: 'old', page: 3 },
+        defaultPageSize: 25,
+        load: () => ({ data: [{ name: 'Admin' }] }),
+      },
+      filters: {
+        schema: z.object({ selection: z.string() }).transform(({ selection }) => ({ status: selection.trim() })),
+        fields: { selection: { label: 'Status', renderer: 'text' } },
+        defaults: { selection: 'old' },
+        queryKeys: ['status'],
+        toDraft: (values: Readonly<Record<string, unknown>>) => typeof values.status === 'string' ? { selection: values.status } : {},
+      },
+    })
+    await flush()
+
+    view.find<HTMLButtonElement>('[aria-label="Filter"]')!.click()
+    await flush()
+    const selection = document.querySelector<HTMLInputElement>('[id$="-field-selection"]')!
+    expect(selection.value).toBe('old')
+    selection.value = ' active '
+    selection.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+
+    expect(query.value).toMatchObject({ status: 'active', page: 1, limit: 25 })
+    expect(selection.value).toBe(' active ')
+    view.unmount()
+  })
+
+  it('reports filter output keys without ownership and leaves the query unchanged', async () => {
+    const contexts: QueryValues[] = []
+    const { view, query, updates } = mountControlledListView({
+      table: {
+        schema: z.object({ name: z.string() }),
+        columns: { name: { label: 'Name' } },
+        query: { status: 'old', retained: 'value', page: 3 },
+        load: ({ query: values }: { query: QueryValues }) => {
+          contexts.push({ ...values })
+          return { data: [{ name: 'Admin' }] }
+        },
+      },
+      filters: {
+        schema: z.object({ selection: z.string() }).transform(({ selection }) => ({ status: selection, unexpected: 'value' })),
+        fields: { selection: { label: 'Status', renderer: 'text' } },
+        queryKeys: ['status'],
+        toDraft: (values: Readonly<Record<string, unknown>>) => typeof values.status === 'string' ? { selection: values.status } : {},
+      },
+    })
+    const errors: unknown[] = []
+    view.app.config.errorHandler = (error) => { errors.push(error) }
+    await flush()
+    const initialLoads = contexts.length
+
+    view.find<HTMLButtonElement>('[aria-label="Filter"]')!.click()
+    await flush()
+    const selection = document.querySelector<HTMLInputElement>('[id$="-field-selection"]')!
+    selection.value = 'active'
+    selection.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toMatchObject({ message: expect.stringContaining('filters.queryKeys') })
+    expect(query.value).toEqual({ status: 'old', retained: 'value', page: 3 })
+    expect(updates).toHaveLength(0)
+    expect(contexts).toHaveLength(initialLoads)
+    view.unmount()
+  })
+
+  it('rejects page as a filter-owned query key', () => {
+    expect(() => mountControlledListView({
+      table: { schema: z.object({ name: z.string() }), columns: { name: { label: 'Name' } }, query: { page: 2 }, data: [{ name: 'Admin' }] },
+      filters: {
+        schema: z.object({ page: z.number().optional() }),
+        fields: { page: { label: 'Page', renderer: 'number' } },
+        queryKeys: ['page'],
+        toDraft: () => ({}),
+      },
+    })).toThrow('filters.queryKeys cannot include the reserved ListView query key "page".')
   })
 })
 
@@ -799,6 +1002,26 @@ describe('FormView', () => {
 
     expect(onSubmitted).toHaveBeenCalledWith({ id: 1 })
     view.unmount()
+  })
+
+  it('keeps the post-write warning and disables the default save action', async () => {
+    const submit = vi.fn(async () => {
+      throw Object.assign(new Error('The write may have completed.'), { postWrite: true })
+    })
+    const view = mountCore(FormView, { form: formProps(submit) })
+    await flush()
+
+    view.find<HTMLButtonElement>('.is-form-view-controls button[type="submit"]')?.click()
+    const exposedSubmit = view.exposed().submit
+    if (typeof exposedSubmit !== 'function') throw new Error('FormView does not expose submit().')
+    await exposedSubmit()
+    await flush()
+
+    expect(view.exposed().postWriteError).toMatchObject({ postWrite: true })
+    expect(view.find<HTMLButtonElement>('.is-form-view-controls button[type="submit"]')?.disabled).toBe(true)
+    expect(view.find<HTMLButtonElement>('.is-form-view-controls button[type="button"]')?.disabled).toBe(false)
+    expect(view.find('[role="alert"]')?.textContent).toContain('Check the record before starting another save.')
+    expect(submit).toHaveBeenCalledOnce()
   })
 
   it('uses nested submit labels while submitting', async () => {
@@ -1150,6 +1373,9 @@ describe('ListView row delete control', () => {
         table: { ...baseProps.table, load: () => ({ data: [{ id: '1', name: 'Admin' }], meta: { total: 1, totalPage: 1 } }) },
         can: (operation: string, record?: Record<string, unknown>) =>
           operation === 'delete' && record?.id === '1',
+        ...(typeof extra.deleteRecord === 'function' && !('recordIdentity' in extra)
+          ? { recordIdentity: (record: Record<string, unknown>) => String(record.id) }
+          : {}),
         ...extra,
       },
       { slots },
@@ -1160,6 +1386,57 @@ describe('ListView row delete control', () => {
     const view = mountRows({}, { deleteRecord: async () => undefined })
     await flush()
     expect(view.find('button[aria-label="Delete"]')).not.toBeNull()
+    view.unmount()
+  })
+
+  it('requires a record identity at runtime when delete is configured', () => {
+    expect(() => mountCore(ListView, {
+      table: { ...baseProps.table, load: () => ({ data: [{ id: '1', name: 'Admin' }] }) },
+      deleteRecord: async () => undefined,
+    })).toThrow('ListView deleteRecord requires recordIdentity.')
+  })
+
+  it('keeps a post-write warning and blocks the default delete after dialog reopen', async () => {
+    const serverDelete = vi.fn(async () => undefined)
+    const invalidate = vi.fn(async () => {
+      throw new Error('Refresh failed after deletion.')
+    })
+    const deleteRecord = async (record: { id: string }) => {
+      await serverDelete(record.id)
+      try {
+        await invalidate(record.id)
+      } catch {
+        throw Object.assign(new Error('Refresh failed after deletion.'), { postWrite: true, retryable: false })
+      }
+    }
+    const view = mountRows({}, { deleteRecord })
+    const dialog = () => document.body.querySelector<HTMLElement>('[role="dialog"]')
+    const button = (label: string) => [...(dialog()?.querySelectorAll<HTMLButtonElement>('button') ?? [])]
+      .find((item) => item.textContent?.trim() === label)
+
+    await flush()
+    view.find<HTMLButtonElement>('button[aria-label="Delete"]')?.click()
+    await flush()
+    button('Delete')?.click()
+    await flush()
+
+    expect(serverDelete).toHaveBeenCalledOnce()
+    expect(invalidate).toHaveBeenCalledOnce()
+    expect(view.text()).toContain('The delete may have completed. Check the record before trying again.')
+    expect(view.text()).toContain('Refresh failed after deletion.')
+    expect(button('Delete')?.disabled).toBe(true)
+
+    button('Cancel')?.click()
+    await flush()
+    expect(dialog()).toBeNull()
+    view.find<HTMLButtonElement>('button[aria-label="Delete"]')?.click()
+    await flush()
+
+    expect(dialog()).not.toBeNull()
+    expect(button('Delete')?.disabled).toBe(true)
+    button('Delete')?.click()
+    await flush()
+    expect(serverDelete).toHaveBeenCalledOnce()
     view.unmount()
   })
 
@@ -1182,6 +1459,44 @@ describe('ListView row delete control', () => {
     view.unmount()
   })
 
+  it('guards a custom row action that ignores its delete state', async () => {
+    type RowDeleteProps = {
+      record: Record<string, unknown>
+      deleteRecord?: (record: Record<string, unknown>) => Promise<unknown>
+      deleteState: { disabled: boolean; pending: boolean; error?: { message: string; postWrite?: boolean } }
+    }
+    let rowAction: RowDeleteProps | undefined
+    const deleteRecord = vi.fn(async () => {
+      throw Object.assign(new Error('Refresh failed after deletion.'), { postWrite: true, retryable: false })
+    })
+    const view = mountRows({
+      'row-actions-delete': (props) => {
+        rowAction = props as RowDeleteProps
+        return h('button', {
+          class: 'custom-delete',
+          onClick: () => {
+            const action = rowAction
+            if (action?.deleteRecord) void action.deleteRecord(action.record).catch(() => undefined)
+          },
+        }, 'Delete')
+      },
+    }, { deleteRecord })
+    await flush()
+
+    view.find<HTMLButtonElement>('.custom-delete')?.click()
+    await flush()
+    expect(rowAction?.deleteState).toMatchObject({
+      disabled: true,
+      pending: false,
+      error: { message: 'Refresh failed after deletion.', postWrite: true },
+    })
+
+    view.find<HTMLButtonElement>('.custom-delete')?.click()
+    await flush()
+    expect(deleteRecord).toHaveBeenCalledOnce()
+    view.unmount()
+  })
+
   it('hides custom delete content too when permission is missing', async () => {
     const view = mountCore(
       ListView,
@@ -1191,6 +1506,7 @@ describe('ListView row delete control', () => {
         can: (operation: string, record?: Record<string, unknown>) =>
           operation === 'delete' && record?.id === '1',
         deleteRecord: async () => undefined,
+        recordIdentity: (record: Record<string, unknown>) => String(record.id),
       },
       {
         slots: {
@@ -1226,6 +1542,7 @@ describe('ListView standard action overrides', () => {
         can: (operation: string, record?: Record<string, unknown>) =>
           operation === 'delete' ? record?.id === '1' : operation === 'create',
         deleteRecord: async () => undefined,
+        recordIdentity: (record: Record<string, unknown>) => String(record.id),
       },
       { slots },
     )
@@ -1293,5 +1610,150 @@ describe('ListView standard action overrides', () => {
     expect(view.find('.ov-create')).toBeNull()
     expect(view.text()).not.toContain('should-not-render')
     view.unmount()
+  })
+})
+
+type DeleteOutcomeRow = { tenant: string; id: string; name: string; reversed: boolean }
+
+function deleteOutcomeIdentity(record: DeleteOutcomeRow): RecordIdentity {
+  return record.reversed ? { id: record.id, tenant: record.tenant } : { tenant: record.tenant, id: record.id }
+}
+
+function mountDeleteOutcomeList(initialRows: DeleteOutcomeRow[], deleteRecord: (record: DeleteOutcomeRow) => Promise<unknown>) {
+  const rows = ref(initialRows)
+  const namespace = ref('delete-query-one')
+  const query = ref<QueryValues>({ page: 1, limit: 10 })
+  const resourceOwner = ref('delete-outcome-resource')
+  let currentActions: ListViewSlotActions<DeleteOutcomeRow> | undefined
+  let refreshRows: (() => Promise<void>) | undefined
+  const Host = defineComponent({
+    setup: () => () => h(ListView, {
+      table: {
+        schema: z.object({ tenant: z.string(), id: z.string(), name: z.string(), reversed: z.boolean() }),
+        columns: { name: { read: (record: DeleteOutcomeRow) => record.name } },
+        resource: resourceOwner.value,
+        namespace: namespace.value,
+        query: query.value,
+        load: async () => ({ data: rows.value }),
+      },
+      can: () => true,
+      deleteRecord,
+      recordIdentity: deleteOutcomeIdentity,
+    }, {
+      collection: (state) => {
+        currentActions = state.actions as ListViewSlotActions<DeleteOutcomeRow>
+        refreshRows = state.refresh
+        return h('div', (state.records as DeleteOutcomeRow[]).map((record) => h('span', { key: `${record.tenant}-${record.id}` }, record.name)))
+      },
+    }),
+  })
+  return {
+    view: mountCore(Host, {}),
+    rows,
+    namespace,
+    query,
+    resourceOwner,
+    actions: () => {
+      if (!currentActions) throw new Error('The collection slot has not received delete actions.')
+      return currentActions
+    },
+    refresh: () => {
+      if (!refreshRows) throw new Error('The collection slot has not received refresh().')
+      return refreshRows()
+    },
+  }
+}
+
+describe('ListView delete outcomes', () => {
+  it('retains independent post-write outcomes across query and row replacement', async () => {
+    const first = { tenant: 'north', id: '1', name: 'First', reversed: false }
+    const second = { tenant: 'north', id: '2', name: 'Second', reversed: false }
+    const third = { tenant: 'north', id: '3', name: 'Third', reversed: false }
+    const serverDelete = vi.fn(async () => undefined)
+    const invalidate = vi.fn(async (id: string) => {
+      if (id !== '3') throw new Error('Refresh failed after deletion.')
+    })
+    const deleteRecord = vi.fn(async (record: DeleteOutcomeRow) => {
+      await serverDelete(record.id)
+      try {
+        await invalidate(record.id)
+      } catch {
+        throw Object.assign(new Error('Refresh failed after deletion.'), { postWrite: true, retryable: false })
+      }
+      return { id: record.id }
+    })
+    const mounted = mountDeleteOutcomeList([first], deleteRecord)
+    await flush()
+
+    await expect(mounted.actions().deleteRecord!(first)).rejects.toMatchObject({
+      message: 'Refresh failed after deletion.',
+      postWrite: true,
+      retryable: false,
+    })
+    expect(serverDelete).toHaveBeenCalledOnce()
+    expect(invalidate).toHaveBeenCalledOnce()
+
+    const replacedFirst = { ...first, name: 'First refreshed', reversed: true }
+    mounted.rows.value = [replacedFirst, second, third]
+    mounted.query.value = { page: 2, limit: 10 }
+    mounted.namespace.value = 'delete-query-two'
+    await flush()
+    await mounted.refresh()
+    await flush()
+
+    expect(mounted.actions().deleteState(replacedFirst)).toMatchObject({
+      disabled: true,
+      pending: false,
+      error: { message: 'Refresh failed after deletion.', postWrite: true },
+    })
+    await expect(mounted.actions().deleteRecord!(replacedFirst)).rejects.toMatchObject({ postWrite: true })
+    expect(serverDelete).toHaveBeenCalledOnce()
+
+    await expect(mounted.actions().deleteRecord!(second)).rejects.toMatchObject({ postWrite: true })
+    expect(mounted.actions().deleteState(replacedFirst).disabled).toBe(true)
+    expect(mounted.actions().deleteState(second).disabled).toBe(true)
+    expect(serverDelete).toHaveBeenCalledTimes(2)
+
+    await expect(mounted.actions().deleteRecord!(third)).resolves.toEqual({ id: '3' })
+    expect(serverDelete).toHaveBeenCalledTimes(3)
+    expect(mounted.actions().deleteState(third)).toMatchObject({ disabled: false, pending: false })
+    mounted.view.unmount()
+  })
+
+  it('keeps a normalized pre-write failure retryable', async () => {
+    const record = { tenant: 'south', id: '4', name: 'Fourth', reversed: false }
+    const deleteRecord = vi.fn(async () => {
+      if (deleteRecord.mock.calls.length === 1) throw new Error('Delete was rejected.')
+      return 'deleted'
+    })
+    const mounted = mountDeleteOutcomeList([record], deleteRecord)
+    await flush()
+
+    await expect(mounted.actions().deleteRecord!(record)).rejects.toMatchObject({ message: 'Delete was rejected.' })
+    expect(mounted.actions().deleteState(record)).toMatchObject({ disabled: false, pending: false })
+    await expect(mounted.actions().deleteRecord!(record)).resolves.toBe('deleted')
+    expect(deleteRecord).toHaveBeenCalledTimes(2)
+    mounted.view.unmount()
+  })
+
+  it('blocks a duplicate pending delete and ignores its completion after resource rebind', async () => {
+    const record = { tenant: 'west', id: '5', name: 'Fifth', reversed: false }
+    const request = deferred<unknown>()
+    const deleteRecord = vi.fn(() => request.promise)
+    const mounted = mountDeleteOutcomeList([record], deleteRecord)
+    await flush()
+
+    const pending = mounted.actions().deleteRecord!(record)
+    expect(mounted.actions().deleteState(record)).toMatchObject({ disabled: true, pending: true })
+    await expect(mounted.actions().deleteRecord!(record)).rejects.toMatchObject({ message: 'A delete request is already in progress.' })
+    expect(deleteRecord).toHaveBeenCalledOnce()
+
+    mounted.resourceOwner.value = 'rebound-resource'
+    await flush()
+    expect(mounted.actions().deleteState(record)).toMatchObject({ disabled: false, pending: false })
+    request.resolve('deleted')
+    await expect(pending).rejects.toMatchObject({ message: 'Delete completed after the list changed.' })
+    expect(mounted.actions().deleteState(record)).toMatchObject({ disabled: false, pending: false })
+    mounted.view.unmount()
   })
 })

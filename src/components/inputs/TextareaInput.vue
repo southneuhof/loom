@@ -3,10 +3,11 @@ import type { PropType } from 'vue'
 import { ref, watch } from 'vue'
 import BaseInput from './BaseInput.vue'
 import { commonProps } from './commonprops'
+import type { TextareaInputConstraint, TextareaInputModelValue } from './textareaInput.types'
 
 const props = defineProps({
   constraint: {
-    type: Array as PropType<readonly ('number' | 'text')[]>,
+    type: Array as PropType<readonly TextareaInputConstraint[]>,
     default: ['text', 'number'],
   },
   placeholder: {
@@ -20,7 +21,7 @@ const props = defineProps({
   ...commonProps,
 })
 
-const modelValue = defineModel<string | number | undefined>()
+const modelValue = defineModel<TextareaInputModelValue<readonly TextareaInputConstraint[]>>()
 const inputValue = ref<string | number | undefined>(modelValue.value)
 const emit = defineEmits<{
   (event: 'validation:error', message: string | undefined): void

@@ -33,6 +33,7 @@ const queryValues = computed<QueryValues>(() => {
 })
 
 onBeforeUpdate(() => {
+  assertSingleDataSource('Collection', props.data, props.load)
   hasControlledQuery.value = hasQueryProp()
 })
 

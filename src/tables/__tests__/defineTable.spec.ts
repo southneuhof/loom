@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod/v4'
+import { defineDetail } from '../../details/defineDetail'
 import { defineTable } from '../defineTable'
 
 describe('defineTable', () => {
@@ -39,6 +40,40 @@ describe('defineTable', () => {
     expect(() => Reflect.apply(defineTable, undefined, [badMember])).toThrow(
       '[loom][SURFACE_OPTION_INVALID] Table member "columns.amount.options"',
     )
+  })
+
+  it('rejects reserved display props and symbol members in both constructors', () => {
+    const schema = z.object({ status: z.string() })
+    const read = (record: { status: string }) => record.status
+    const constructors = [
+      { name: 'Table', define: defineTable, map: 'columns' },
+      { name: 'Detail', define: defineDetail, map: 'fields' },
+    ] as const
+    const reservedProps = [
+      'model-value',
+      'onUpdate:modelValue',
+      'onUpdate:model-value',
+      'onValidation:touch',
+      'validation:touch',
+    ]
+
+    for (const { name, define, map } of constructors) {
+      const valid = { schema, [map]: { status: { read, props: { title: 'Status' } } } }
+      expect(() => Reflect.apply(define, undefined, [valid])).not.toThrow()
+
+      for (const member of reservedProps) {
+        const invalid = { schema, [map]: { status: { read, props: { [member]: true } } } }
+        expect(() => Reflect.apply(define, undefined, [invalid])).toThrow(
+          `[loom][SURFACE_OPTION_INVALID] ${name} member "${map}.status.props.${member}"`,
+        )
+      }
+
+      const symbol = Symbol('unsupported')
+      const invalid = { schema, [map]: { status: { read, [symbol]: true } } }
+      expect(() => Reflect.apply(define, undefined, [invalid])).toThrow(
+        `[loom][SURFACE_OPTION_INVALID] ${name} member "${map}.status.${String(symbol)}"`,
+      )
+    }
   })
 
   it('allows application formatter keys without app configuration context', () => {

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { createFrameworkQueryClient } from '../../query/client'
 import { resolveFrameworkAdapters } from '../../adapters/projectAdapters'
 import { defineResource } from '../defineResource'
-import { resourceActionForRoute, resetResourceActionRegistry } from '../routeAccess'
+import { evaluateResourceRouteAccess, resetResourceActionRegistry } from '../routeAccess'
 import { registerResourceRuntime, resetResourceRuntimeForTests } from '../runtime'
 
 type Row = { id: string; name: string; status: string; allowedOperations?: string[] }
@@ -32,13 +32,15 @@ afterEach(() => {
 })
 
 describe('bound resource operations', () => {
-  it('returns complete stable primitive bags and preserves route and permission metadata', async () => {
+  it('returns complete stable primitive bags and registers normalized route requirements', async () => {
     installRuntime()
+    const identity = (record: Row) => record.id
     const loadRows = vi.fn(async () => ({ data: [{ id: '1', name: 'One', status: 'new' }] }))
     const loadRecord = vi.fn(async ({ id }: { id: string }) => ({ id, name: 'One', status: 'new' }))
+    const auditPermissions = ['records.read', 'records.audit']
     const records = defineResource({
       key: 'records',
-      identity: (record: Row) => record.id,
+      identity,
       list: {
         permission: 'records.list',
         route: { name: 'records-list' },
@@ -67,7 +69,7 @@ describe('bound resource operations', () => {
       delete: { permission: 'records.delete', run: async (id) => id },
       actions: {
         audit: {
-          permission: ['records.audit', 'records.read'],
+          permission: auditPermissions,
           route: { name: 'custom-set', params: (id) => ({ id }) },
           run: async (id: string) => id,
         },
@@ -76,21 +78,22 @@ describe('bound resource operations', () => {
 
     const list = records.list
     const row: Row = { id: '1', name: 'One', status: 'new' }
+    expect(list.recordIdentity).toBe(identity)
     expect(list.createRoute).toEqual({ name: 'records-create' })
-    expect(resourceActionForRoute('records-detail')).toEqual({
-      resourceKey: 'records',
-      action: 'detail',
-      permission: 'records.detail',
-    })
     expect(list.detailRoute?.(row)).toEqual({ name: 'records-detail', params: { id: '1' } })
     expect(list.updateRoute?.(row)).toEqual({ name: 'records-update', params: { id: '1' } })
     expect(records.actions.audit.route?.name).toBe('custom-set')
-    expect(resourceActionForRoute('custom-set')).toEqual({
-      resourceKey: 'records',
-      action: 'audit',
-      permission: null,
-      permissions: ['records.audit', 'records.read'],
-    })
+    auditPermissions[0] = 'records.changed'
+    const auditRequests: Array<{ operation: string; permission: string | null }> = []
+    expect(evaluateResourceRouteAccess('custom-set', {
+      allows: (request) => {
+        auditRequests.push(request)
+        return true
+      },
+    })).toBe(true)
+    expect(auditRequests).toHaveLength(2)
+    expect(auditRequests.every((request) => request.operation === 'audit')).toBe(true)
+    expect(auditRequests.map((request) => request.permission).sort()).toEqual(['records.audit', 'records.read'])
     expect(records.actions.audit.can('1')).toBe(true)
     await expect(list.table.load({ query: {} })).resolves.toMatchObject({ data: [{ id: '1', name: 'One' }] })
     expect(loadRows).toHaveBeenCalledOnce()
@@ -104,6 +107,94 @@ describe('bound resource operations', () => {
     await expect(update.form.load({ id: '1' })).resolves.toEqual({ name: 'Row 1' })
     await expect(update.form.submit({ name: 'Changed' })).resolves.toEqual({ id: '1', name: 'Changed', status: 'updated' })
     await expect(records.delete({ id: '1', record: row }).run()).resolves.toBe('1')
+  })
+
+  it('keeps routed dynamic entry policy separate from argument-dependent execution checks', async () => {
+    let executionPermissions: string[] = []
+    installRuntime({ allows: ({ permission }) => typeof permission === 'string' && executionPermissions.includes(permission) })
+    const permission = vi.fn((intent: 'create' | 'delete') => `records.${intent}`)
+    const run = vi.fn(async (intent: 'create' | 'delete') => intent)
+    const records = defineResource({
+      key: 'dynamic-route-access',
+      identity: (record: Row) => record.id,
+      actions: {
+        assign: {
+          permission,
+          routePermission: ['records.read', 'records.manage'] as const,
+          route: { name: 'custom-set', params: (id) => ({ id }) },
+          run,
+        },
+      },
+    })
+    expect(permission).not.toHaveBeenCalled()
+    const entryRequests: Array<{ operation: string; permission: string | null }> = []
+    expect(evaluateResourceRouteAccess('custom-set', {
+      allows: (request) => {
+        entryRequests.push(request)
+        return true
+      },
+    })).toBe(true)
+    expect(entryRequests).toHaveLength(2)
+    expect(entryRequests.every((request) => request.operation === 'assign')).toBe(true)
+    expect(entryRequests.map((request) => request.permission).sort()).toEqual(['records.manage', 'records.read'])
+    expect(permission).not.toHaveBeenCalled()
+    expect(records.actions.assign).not.toHaveProperty('routePermission')
+    expect(records.actions.assign.can('create')).toBe(false)
+    expect(permission).toHaveBeenLastCalledWith('create')
+    await expect(records.actions.assign.run('create')).rejects.toThrow('[loom] Resource "dynamic-route-access" action "assign" is not allowed.')
+    expect(permission).toHaveBeenLastCalledWith('create')
+    expect(run).not.toHaveBeenCalled()
+    executionPermissions = ['records.delete']
+    await expect(records.actions.assign.run('delete')).resolves.toBe('delete')
+    expect(run).toHaveBeenCalledOnce()
+  })
+
+  it('treats equivalent route permission sets as one registration and rejects conflicting ownership', () => {
+    const register = (key: string, action: string, permissions: string[]) => defineResource({
+      key,
+      identity: (record: Row) => record.id,
+      actions: {
+        [action]: {
+          permission: permissions,
+          route: { name: 'custom-set' },
+          run: async (id: string) => id,
+        },
+      },
+    })
+    register('route-owner', 'archive', ['records.read', 'records.manage'])
+    expect(() => register('route-owner', 'archive', ['records.manage', 'records.read'])).not.toThrow()
+    expect(() => register('other-route-owner', 'archive', ['records.manage', 'records.read'])).toThrow('[loom] Route action conflict for "custom-set".')
+    expect(() => register('route-owner', 'restore', ['records.manage', 'records.read'])).toThrow('[loom] Route action conflict for "custom-set".')
+    expect(() => register('route-owner', 'archive', ['records.manage', 'records.audit'])).toThrow('[loom] Route action conflict for "custom-set".')
+  })
+
+  it.each([
+    {
+      name: 'a routed dynamic command without routePermission',
+      action: { permission: (id: string) => `records.${id}`, route: { name: 'custom-set' }, run: async (id: string) => id },
+      message: 'has argument-dependent permission and needs routePermission for route entry',
+    },
+    {
+      name: 'a static command with an independent routePermission',
+      action: { permission: 'records.write', routePermission: 'records.read', route: { name: 'custom-set' }, run: async (id: string) => id },
+      message: 'routePermission only applies to routed commands with argument-dependent permission',
+    },
+    {
+      name: 'an unrouted command with routePermission',
+      action: { permission: null, routePermission: null, run: async (id: string) => id },
+      message: 'routePermission only applies to routed commands with argument-dependent permission',
+    },
+    {
+      name: 'a routed dynamic command with an empty route permission array',
+      action: { permission: (id: string) => `records.${id}`, routePermission: [], route: { name: 'custom-set' }, run: async (id: string) => id },
+      message: 'routePermission must be a nonempty permission string, a nonempty string array, or null',
+    },
+  ])('rejects $name at runtime', ({ action, message }) => {
+    expect(() => defineResource({
+      key: 'invalid-route-policy',
+      identity: (record: Row) => record.id,
+      actions: { change: action },
+    } as never)).toThrow(message)
   })
 
   it('resolves runtime access only when extracted operations execute and carries the bound row', async () => {
@@ -155,7 +246,7 @@ describe('bound resource operations', () => {
     expect(requests.filter((request) => request.record !== undefined)).toHaveLength(6)
     expect(requests[0].record).not.toBe(row)
     expect(requests[0].record).toEqual(row)
-    expect(invalidate).toHaveBeenCalledTimes(2)
+    expect(invalidate).toHaveBeenCalledTimes(3)
   })
 
   it('checks null permissions at the access adapter and retains row policy', async () => {
@@ -339,6 +430,7 @@ describe('bound resource operations', () => {
     expect(Object.isFrozen(policyRecord.allowedOperations)).toBe(true)
     expect(invalidate.mock.calls.map(([filter]) => filter.queryKey)).toEqual([
       ['resource', 'captured-scalar', 'list'],
+      ['resource', 'captured-scalar', 'options'],
       ['resource', 'captured-scalar', 'detail', 'first'],
     ])
 
@@ -374,6 +466,7 @@ describe('bound resource operations', () => {
     expect(accessRequests.at(-1)?.record).toMatchObject({ tenantId: 'north', status: 'ready' })
     expect(invalidate.mock.calls.map(([filter]) => filter.queryKey)).toEqual([
       ['resource', 'captured-composite', 'list'],
+      ['resource', 'captured-composite', 'options'],
       ['resource', 'captured-composite', 'detail', { tenantId: 'north', userId: 7 }],
     ])
   })
@@ -505,6 +598,7 @@ describe('bound resource operations', () => {
     expect(updateSubmit).toHaveBeenCalledOnce()
     expect(invalidate.mock.calls.map(([filter]) => filter.queryKey)).toEqual([
       ['resource', 'invalid-update-result', 'list'],
+      ['resource', 'invalid-update-result', 'options'],
       ['resource', 'invalid-update-result', 'detail', 'bound'],
     ])
 
@@ -534,6 +628,8 @@ describe('bound resource operations', () => {
       },
       fields: { status: { renderer: 'text' } },
       defaults: { status: 'open' },
+      queryKeys: ['status'],
+      toDraft: (query: Readonly<Record<string, unknown>>) => typeof query.status === 'string' ? { status: query.status } : {},
     }
     const exportOptions = { filename: 'records', sheetName: 'Records', pageSize: 50 }
     const afterSubmit = vi.fn()

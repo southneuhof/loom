@@ -19,4 +19,10 @@ const formProps: FormProps<Input, Output, string> = {
   <Form v-bind="formProps" :form="formProps" />
   <!-- @vue-expect-error DialogForm does not accept a nested form prop. -->
   <DialogForm v-bind="formProps" :form="formProps" title="Create user" />
+  <Form v-bind="formProps">
+    <template #actions="actions">{{ actions.postWriteError?.message }}</template>
+  </Form>
+  <DialogForm v-bind="formProps" title="Create user">
+    <template #actions="actions">{{ actions.postWriteError?.message }}</template>
+  </DialogForm>
 </template>

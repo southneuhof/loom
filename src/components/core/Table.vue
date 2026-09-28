@@ -38,11 +38,12 @@ const forwardedSlots = computed(() => Object.fromEntries(
 const collectionRef = ref<{ refresh: () => Promise<void>; query: QueryValues; updateQuery: (patch: QueryValues) => void; replaceQuery: (values: QueryValues) => void }>()
 
 onBeforeUpdate(() => {
+  assertSingleDataSource('Table', props.data, props.load)
   hasControlledQuery.value = hasQueryProp()
 })
 
 const collectionProps = computed<CollectionProps<TRecord, TQuery>>(() => {
-  const value: CollectionProps<TRecord, TQuery> = {
+  const options = {
     resource: props.resource,
     searchParameters: props.searchParameters,
     namespace: props.namespace,
@@ -50,12 +51,14 @@ const collectionProps = computed<CollectionProps<TRecord, TQuery>>(() => {
     pageSizeOptions: props.pageSizeOptions,
     defaultPageSize: props.defaultPageSize,
     reorderable: props.reorderable,
+    ...(props.meta !== undefined ? { meta: props.meta } : {}),
+    ...(hasControlledQuery.value ? { query: props.query as TQuery } : {}),
   }
-  if (props.meta !== undefined) value.meta = props.meta
-  if (props.data !== undefined) value.data = props.data
-  else {
-    const load = props.load
-    if (load !== undefined) value.load = async (context: CollectionLoadContext<TQuery>): Promise<CollectionResult<TRecord>> => {
+  if (props.data !== undefined) return { ...options, data: props.data }
+  const load = props.load
+  return {
+    ...options,
+    load: async (context: CollectionLoadContext<TQuery>): Promise<CollectionResult<TRecord>> => {
       const runtime = querySchemaRuntime.value
       if (!runtime) return load(context)
       const result = await runtime.parseAsync(context.query)
@@ -70,10 +73,8 @@ const collectionProps = computed<CollectionProps<TRecord, TQuery>>(() => {
         ...result.data,
       }
       return load({ ...context, query })
-    }
+    },
   }
-  if (hasControlledQuery.value) value.query = props.query as TQuery
-  return value
 })
 
 function updateQuery(patch: QueryValues) {

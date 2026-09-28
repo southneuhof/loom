@@ -69,6 +69,7 @@ interface DialogEvents {
 function mountDialogForm(options: DialogMountOptions = {}) {
   const initialOpen = options.initialOpen ?? options.props?.open === true
   const open = ref(initialOpen)
+  const dialogForm = ref<Record<string, unknown> | null>(null)
   const events: DialogEvents = {
     submitted: [],
     errors: [],
@@ -78,9 +79,10 @@ function mountDialogForm(options: DialogMountOptions = {}) {
   }
   const Host = defineComponent({
     setup(_, { expose }) {
-      expose({ open })
+      expose({ open, dialogForm })
       return () => {
         const props: Record<string, unknown> = {
+          ref: dialogForm,
           schema,
           fields,
           submit: async () => 'saved',
@@ -313,6 +315,50 @@ describe('DialogForm', () => {
     expect(view.events.submitted).toEqual(['saved'])
     expect(view.view.find('[role="dialog"]')).not.toBeNull()
     expect(view.events.openUpdates).toEqual([])
+  })
+
+  it('keeps the post-write warning and disables only the default save action', async () => {
+    const submit = vi.fn(async () => {
+      throw Object.assign(new Error('The write may have completed.'), { postWrite: true })
+    })
+    const view = mount({ initialOpen: true, props: { submit, initialData: { name: 'Ada' } } })
+    await flush()
+
+    button(view.view, 'Submit')?.click()
+    const dialogForm = view.view.exposed().dialogForm as Record<string, unknown> | null
+    const exposedSubmit = dialogForm?.submit
+    if (typeof exposedSubmit !== 'function') throw new Error('DialogForm does not expose submit().')
+    await exposedSubmit()
+    await flush()
+
+    expect(dialogForm?.postWriteError).toMatchObject({ postWrite: true })
+    expect(button(view.view, 'Submit')?.disabled).toBe(true)
+    expect(button(view.view, 'Cancel')?.disabled).toBe(false)
+    expect(view.view.find('[role="alert"]')?.textContent).toContain('Check the record before starting another save.')
+    expect(view.events.errors).toHaveLength(1)
+  })
+
+  it('passes the post-write error to custom action slots', async () => {
+    const submit = vi.fn(async () => {
+      throw Object.assign(new Error('The write may have completed.'), { postWrite: true })
+    })
+    const actionScopes: DialogSlotScope[] = []
+    const view = mount({
+      initialOpen: true,
+      props: { submit, initialData: { name: 'Ada' } },
+      slots: {
+        actions: (scope) => {
+          actionScopes.push(scope)
+          return h('button', { type: 'button', onClick: () => { void scope.submit?.() } }, 'Save')
+        },
+      },
+    })
+    await flush()
+
+    button(view.view, 'Save')?.click()
+    await vi.waitFor(() => expect(actionScopes.at(-1)?.postWriteError).toMatchObject({ postWrite: true }))
+
+    expect(submit).toHaveBeenCalledOnce()
   })
 
   it('forwards one reset and one submit error while preserving the open dialog', async () => {

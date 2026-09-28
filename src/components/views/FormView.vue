@@ -37,6 +37,7 @@ const draft = computed(() => instance.value?.draft)
 const dirty = computed(() => instance.value?.dirty ?? false)
 const submitting = computed(() => instance.value?.submitting ?? false)
 const submitPending = computed(() => instance.value?.submitPending ?? false)
+const postWriteError = computed(() => instance.value?.postWriteError)
 const validating = computed(() => instance.value?.validating ?? false)
 const inputPending = computed(() => instance.value?.inputPending ?? false)
 const discardDialogOpen = ref(false)
@@ -61,7 +62,7 @@ function refresh() {
   return instance.value?.refresh()
 }
 
-defineExpose({ draft, dirty, submitting, submitPending, validating, inputPending, validate, submit, reset, refresh })
+defineExpose({ draft, dirty, submitting, submitPending, postWriteError, validating, inputPending, validate, submit, reset, refresh })
 
 function settlePendingLeave(allow: boolean) {
   const resolve = resolvePendingLeave
@@ -158,7 +159,7 @@ onBeforeUnmount(() => {
               <slot name="actions" v-bind="actions">
                 <div class="is-form-view-controls flex flex-col gap-2 border-t border-outline-variant pt-5 sm:flex-row sm:justify-end">
                   <Button type="button" variant="text" class="w-full sm:w-auto" :disabled="instance?.submitting || instance?.validating" @click="router.back()">Cancel</Button>
-                  <Button v-if="hasSubmit" type="submit" class="w-full sm:w-auto" :disabled="form.disabled === true || actions.submitPending || actions.inputPending">{{
+                  <Button v-if="hasSubmit" type="submit" class="w-full sm:w-auto" :disabled="form.disabled === true || actions.submitPending || postWriteError !== undefined || actions.inputPending">{{
                     instance?.submitting ? submittingLabel : submitLabel
                   }}</Button>
                 </div>
