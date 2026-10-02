@@ -78,6 +78,12 @@ const goodTable = defineTable({
   },
 })
 const goodDetail = defineDetail({ schema: schemaUser, fields: { displayName: sharedName } })
+const sharedFormFields = { name: { renderer: 'text' } } as const
+const goodSpreadForm = defineForm({ schema: schemaUser, fields: { ...sharedFormFields } })
+const sharedTableColumns = { name: {} } as const
+const goodSpreadTable = defineTable({ schema: schemaUser, columns: { ...sharedTableColumns } })
+const sharedDetailFields = { name: {} } as const
+const goodSpreadDetail = defineDetail({ schema: schemaUser, fields: { ...sharedDetailFields } })
 
 const userRoleReadSchema = z4.object({
   id: z4.string(),
@@ -225,6 +231,9 @@ void [
   input3,
   submitted3,
   submitted4,
+  goodSpreadForm,
+  goodSpreadTable,
+  goodSpreadDetail,
   readRoleNames,
   nullableDraft,
   draftShape,

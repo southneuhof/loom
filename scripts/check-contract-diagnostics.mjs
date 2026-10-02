@@ -17,7 +17,9 @@ const moduleSpecifier = (fromDirectory, targetPath) => {
   return path.startsWith('.') ? path : `./${path}`
 }
 const common = (runDirectory) => `import { defineResource } from ${JSON.stringify(relative(runDirectory, join(packageDirectory, 'src/resources/defineResource')).replaceAll('\\', '/'))}
+import { defineDetail } from ${JSON.stringify(relative(runDirectory, join(packageDirectory, 'src/details/defineDetail')).replaceAll('\\', '/'))}
 import { defineForm } from ${JSON.stringify(relative(runDirectory, join(packageDirectory, 'src/forms/defineForm')).replaceAll('\\', '/'))}
+import { defineTable } from ${JSON.stringify(relative(runDirectory, join(packageDirectory, 'src/tables/defineTable')).replaceAll('\\', '/'))}
 import type { RawSchema } from ${JSON.stringify(relative(runDirectory, join(packageDirectory, 'src/contracts/schema')).replaceAll('\\', '/'))}
 import type { AssetValue } from '@southneuhof/loom/assets'
 import type { FileManagerValueAdapter, ManagedAsset } from '@southneuhof/loom/file-manager'
@@ -682,6 +684,80 @@ void resource
 ]
 
 const surfaceCases = [
+  {
+    name: 'form-fields-use-schema-input',
+    expectedLocation: 'form field absent from schema input',
+    expectedLineOffset: 2,
+    expectedTerms: [],
+    valid: `const sharedFields = { name: { renderer: 'text' } } as const
+const form = defineForm({ schema: draftSchema, fields: { ...sharedFields } })
+void form
+`,
+    invalid: `const sharedFields = { name: { renderer: 'text' } } as const
+defineForm({ schema: draftSchema, fields: { ...sharedFields, missing: { renderer: 'text' } } })
+`,
+  },
+  {
+    name: 'table-columns-use-schema-output',
+    expectedLocation: 'table column absent from schema output',
+    expectedLineOffset: 2,
+    expectedTerms: [],
+    valid: `const sharedColumns = { name: {} }
+const table = defineTable({ schema: rowSchema, columns: { ...sharedColumns, id: {} } })
+void table
+`,
+    invalid: `const sharedColumns = { name: {} }
+defineTable({ schema: rowSchema, columns: { ...sharedColumns, missing: {} } })
+`,
+  },
+  {
+    name: 'detail-fields-use-schema-output',
+    expectedLocation: 'detail field absent from schema output',
+    expectedLineOffset: 2,
+    expectedTerms: [],
+    valid: `const sharedFields = { name: {} }
+const detail = defineDetail({ schema: rowSchema, fields: { ...sharedFields, id: {} } })
+void detail
+`,
+    invalid: `const sharedFields = { name: {} }
+defineDetail({ schema: rowSchema, fields: { ...sharedFields, missing: {} } })
+`,
+  },
+  {
+    name: 'display-accessor-path-must-exist',
+    expectedLocation: 'display accessor reads a missing record property',
+    expectedLineOffset: 3,
+    expectedTerms: ['missing'],
+    valid: `const table = defineTable({
+  schema: rowSchema,
+  columns: { displayName: { read: (record: Row) => record.name } },
+})
+void table
+`,
+    invalid: `defineTable({
+  schema: rowSchema,
+  columns: { displayName: { read: (record: Row) => record.missing } },
+})
+`,
+  },
+  {
+    name: 'typed-derived-display-key-needs-read',
+    expectedLocation: 'derived display key without an accessor',
+    expectedLineOffset: 1,
+    expectedTerms: [],
+    valid: `const table = defineTable({
+  schema: rowSchema,
+  columns: { displayName: { read: (record: Row) => record.name.toUpperCase() } },
+})
+const detail = defineDetail({
+  schema: rowSchema,
+  fields: { displayName: { read: (record: Row) => record.name.toUpperCase() } },
+})
+void [table, detail]
+`,
+    invalid: `defineTable({ schema: rowSchema, columns: { displayName: {} } })
+`,
+  },
   {
     name: 'collection-both-sources',
     expectedLocation: 'Collection both data and load',

@@ -196,7 +196,8 @@ visibility.
 ## Executable examples
 
 Use these fixtures as current contract examples. They exercise real components
-and application source. The Loom and web type checks compile the type fixtures.
+and application source. Loom checks its type fixtures; the web type check checks
+application source.
 
 | Contract | Fixture |
 |---|---|
@@ -210,15 +211,10 @@ and application source. The Loom and web type checks compile the type fixtures.
 
 ## Checks and exports
 
-Run the checker on changed route directories:
-
-```sh
-node scripts/module-ui-check.mjs --sources 'apps/web/src/routes/(authenticated)/<module>'
-```
-
-The checker follows resource surface maps and their local fragments. Review its
-display messages against returned values and API contracts. A pass does not
-prove visual acceptance.
+Use Loom and web type checks for surface and app contracts. Run web lint and
+focused tests for changed app owners. The [surface architecture guide](../../docs/resource_system_overhaul/ARCHITECTURE.md)
+and [web verification guide](../../.agents/skills/web-ui-surfaces/references/verification.md)
+describe the current checks.
 
 | Import | Purpose |
 |---|---|

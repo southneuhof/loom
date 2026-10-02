@@ -69,6 +69,7 @@ export type ListViewSlotActions<TRecord extends object = Record<string, unknown>
 export type ListViewProps<TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>, TFilterInput extends object = Partial<TQuery>> = {
   title?: string
   description?: string
+  actionLabels?: Partial<Record<'create' | 'view' | 'edit' | 'delete', string>>
   filters?: ListFilters<TQuery, TFilterInput>
   export?: ListExportOptions<TRecord, TQuery> | false
   table: TableProps<TRecord, TQuery>

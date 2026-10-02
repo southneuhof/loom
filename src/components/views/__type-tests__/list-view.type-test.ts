@@ -35,6 +35,7 @@ const transformedFilters = {
 
 ListView({ table, filters: transformedFilters })
 ListView({ table: { ...table, reorderable: true } })
+ListView({ table, actionLabels: { create: 'New Sale', view: 'Open Sale' } })
 
 const identityWithoutDelete = { table, recordIdentity: (record: Role) => record.id }
 type IdentityRequiresDelete = Assert<Equal<typeof identityWithoutDelete extends ListViewProps<Role, RoleQuery> ? true : false, false>>

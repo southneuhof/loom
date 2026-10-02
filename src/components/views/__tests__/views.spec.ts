@@ -1530,19 +1530,20 @@ describe('ListView standard action overrides', () => {
     },
   }
 
-  function mountWith(slots: Record<string, unknown>) {
+  function mountWith(slots: Record<string, unknown>, overrides: Record<string, unknown> = {}) {
     return mountCore(
       ListView,
       {
         ...baseProps,
         table: { ...baseProps.table, load: () => ({ data: [{ id: '1', name: 'Admin' }], meta: { total: 1, totalPage: 1 } }) },
         createRoute: { name: 'test-route' },
-        detailRoute: (record: Record<string, unknown>) => ({ name: 'test-route', params: { id: String(record.id) } }),
-        updateRoute: (record: Record<string, unknown>) => ({ name: 'test-route', params: { id: String(record.id) } }),
+        detailRoute: (record: Record<string, unknown>) => `/records/${String(record.id)}`,
+        updateRoute: (record: Record<string, unknown>) => `/records/${String(record.id)}/edit`,
         can: (operation: string, record?: Record<string, unknown>) =>
-          operation === 'delete' ? record?.id === '1' : operation === 'create',
+          operation === 'delete' ? record?.id === '1' : ['create', 'detail', 'update'].includes(operation),
         deleteRecord: async () => undefined,
         recordIdentity: (record: Record<string, unknown>) => String(record.id),
+        ...overrides,
       },
       { slots },
     )
@@ -1577,6 +1578,24 @@ describe('ListView standard action overrides', () => {
     view.unmount()
   })
 
+  it('does not render view or edit replacements when their record access is denied', async () => {
+    const view = mountWith({
+      'row-actions-view': () => h('span', { class: 'ov-view' }, 'V'),
+      'row-actions-edit': () => h('span', { class: 'ov-edit' }, 'E'),
+      'row-actions-delete': () => h('span', { class: 'ov-del' }, 'D'),
+    }, {
+      can: (operation: string, record?: Record<string, unknown>) =>
+        operation === 'create' || (operation === 'delete' && record?.id === '1'),
+    })
+    await flush()
+    expect(view.find('.ov-view')).toBeNull()
+    expect(view.find('.ov-edit')).toBeNull()
+    expect(view.find('.ov-del')).not.toBeNull()
+    expect(view.find('a[aria-label="View"]')).toBeNull()
+    expect(view.find('a[aria-label="Edit"]')).toBeNull()
+    view.unmount()
+  })
+
   it('replaces the toolbar Create button via #create-action', async () => {
     let createCan: unknown
     const view = mountWith({
@@ -1593,22 +1612,88 @@ describe('ListView standard action overrides', () => {
     view.unmount()
   })
 
-  it('hides create override content when no create route is permitted', async () => {
+  it('hides a denied Create replacement while keeping resource actions available', async () => {
+    const createAction = vi.fn(() => h('span', { class: 'ov-create' }, 'should-not-render'))
     const view = mountCore(
       ListView,
       {
         ...baseProps,
         table: { ...baseProps.table, load: () => ({ data: [{ id: '1', name: 'Admin' }], meta: { totalPage: 1 } }) },
+        createRoute: { name: 'test-route' },
+        can: () => false,
       },
       {
         slots: {
-          'create-action': () => h('span', { class: 'ov-create' }, 'should-not-render'),
+          'create-action': createAction,
+          'resource-action': () => h('span', { class: 'ov-resource' }, 'Independent action'),
         },
       },
     )
     await flush()
     expect(view.find('.ov-create')).toBeNull()
     expect(view.text()).not.toContain('should-not-render')
+    expect(view.find('.ov-resource')).not.toBeNull()
+    expect(createAction).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it('does not render the default Create control when create access is denied', async () => {
+    const view = mountWith({}, { can: () => false })
+    await flush()
+    expect(view.find('a[href="/"]')).toBeNull()
+    expect(view.text()).not.toContain('Create')
+    view.unmount()
+  })
+
+  it('updates Create visibility when permission changes', async () => {
+    const canCreate = ref(false)
+    const createAction = vi.fn(() => h('span', { class: 'ov-create' }, 'New sale'))
+    const Host = defineComponent({
+      setup(_, { slots }) {
+        return () => h(ListView, {
+          ...baseProps,
+          table: { ...baseProps.table, data: [] },
+          createRoute: { name: 'test-route' },
+          can: (operation: string) => operation !== 'create' || canCreate.value,
+        }, slots)
+      },
+    })
+    const view = mountCore(Host, {}, {
+      slots: { 'create-action': createAction },
+    })
+    await flush()
+    expect(view.find('.ov-create')).toBeNull()
+    expect(createAction).not.toHaveBeenCalled()
+    canCreate.value = true
+    await flush()
+    expect(view.find('.ov-create')?.textContent).toBe('New sale')
+    expect(createAction).toHaveBeenCalled()
+    createAction.mockClear()
+    canCreate.value = false
+    await flush()
+    expect(view.find('.ov-create')).toBeNull()
+    expect(createAction).not.toHaveBeenCalled()
+    view.unmount()
+  })
+
+  it('uses action labels for the standard controls and keeps their route targets', async () => {
+    const view = mountWith({}, {
+      actionLabels: {
+        create: 'New Sale',
+        view: 'Open Sale',
+        edit: 'Change Sale',
+        delete: 'Remove Sale',
+      },
+    })
+    await flush()
+
+    const createLink = view.find<HTMLAnchorElement>('a[href="/"]')
+    const viewLink = view.find<HTMLAnchorElement>('a[aria-label="Open Sale"]')
+    const editLink = view.find<HTMLAnchorElement>('a[aria-label="Change Sale"]')
+    expect(createLink?.textContent).toContain('New Sale')
+    expect(viewLink?.getAttribute('href')).toBe('/records/1')
+    expect(editLink?.getAttribute('href')).toBe('/records/1/edit')
+    expect(view.find('button[aria-label="Remove Sale"]')).not.toBeNull()
     view.unmount()
   })
 })

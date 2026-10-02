@@ -536,11 +536,11 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
             </div>
           </div>
           <div v-if="surface.createRoute || $slots['resource-action']" class="flex flex-row justify-end gap-2">
-            <template v-if="surface.createRoute">
+            <template v-if="surface.createRoute && (surface.can?.('create') ?? true)">
               <slot name="create-action" v-bind="{ can: surface.can, target: surface.createRoute }">
-                <RouterLink v-if="surface.can?.('create') ?? true" :to="surface.createRoute">
+                <RouterLink :to="surface.createRoute">
                   <Button>
-                    <template #icon><Icon name="add" /></template>Create
+                    <template #icon><Icon name="add" /></template>{{ props.actionLabels?.create ?? 'Create' }}
                   </Button>
                 </RouterLink>
               </slot>
@@ -588,7 +588,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
                     class="flex items-center justify-end gap-1"
                     aria-label="Row actions"
                   >
-                    <template v-if="surface.detailRoute?.(record)">
+                    <template v-if="surface.detailRoute?.(record) && (surface.can?.('detail', record) ?? true)">
                       <slot name="row-actions-view" v-bind="{ record, can: surface.can, target: surface.detailRoute(record)! }">
                         <RouterLink
                           v-slot="{ href, navigate }"
@@ -599,7 +599,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
                             kind="icon"
                             variant="standard"
                             :href="href"
-                            ariaLabel="View"
+                            :ariaLabel="props.actionLabels?.view ?? 'View'"
                             @click.stop="navigate"
                           >
                             <template #icon><Icon name="eye" size="base" /></template>
@@ -607,7 +607,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
                         </RouterLink>
                       </slot>
                     </template>
-                    <template v-if="surface.updateRoute?.(record)">
+                    <template v-if="surface.updateRoute?.(record) && (surface.can?.('update', record) ?? true)">
                       <slot name="row-actions-edit" v-bind="{ record, can: surface.can, target: surface.updateRoute(record)! }">
                         <RouterLink
                           v-slot="{ href, navigate }"
@@ -618,7 +618,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
                             kind="icon"
                             variant="standard"
                             :href="href"
-                            ariaLabel="Edit"
+                            :ariaLabel="props.actionLabels?.edit ?? 'Edit'"
                             @click.stop="navigate"
                           >
                             <template #icon><Icon name="edit" size="base" /></template>
@@ -641,7 +641,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
                               kind="icon"
                               variant="standard"
                               color="error"
-                              ariaLabel="Delete"
+                              :ariaLabel="props.actionLabels?.delete ?? 'Delete'"
                               @click.stop
                             >
                               <template #icon><Icon name="delete-bin" size="base" /></template>
