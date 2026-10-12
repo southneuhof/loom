@@ -1,6 +1,8 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { onBeforeUnmount, ref, useAttrs, watch } from 'vue'
 import Icon from '@southneuhof/loom/components/base/Icon.vue'
+
+defineOptions({ inheritAttrs: false })
 
 const props = defineProps({
   debounced: {
@@ -14,6 +16,15 @@ const props = defineProps({
 })
 
 const modelValue = defineModel<string>({ default: '' })
+const attrs = useAttrs()
+
+function wrapperAttrs(): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(attrs).filter(([key]) => key === 'class' || key === 'style'))
+}
+
+function inputAttrs(): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(attrs).filter(([key]) => key !== 'class' && key !== 'style'))
+}
 
 const value = ref<string>(modelValue.value)
 let debounceTimer: ReturnType<typeof setTimeout> | undefined
@@ -36,8 +47,8 @@ onBeforeUnmount(() => clearTimeout(debounceTimer))
 </script>
 
 <template>
-  <div class="flex flex-row gap-4 rounded-full py-3 pl-4 outline outline-1 outline-outline/[24%] transition-all ease-linear">
+  <div v-bind="wrapperAttrs()" class="flex flex-row gap-4 rounded-full py-3 pl-4 outline outline-1 outline-outline/[24%] transition-all ease-linear">
     <Icon class="text-primary" name="search"></Icon>
-    <input class="w-full bg-transparent focus-visible:outline-none" :placeholder="placeholder" v-model="value" />
+    <input v-bind="inputAttrs()" class="w-full bg-transparent focus-visible:outline-none" :placeholder="placeholder" v-model="value" />
   </div>
 </template>

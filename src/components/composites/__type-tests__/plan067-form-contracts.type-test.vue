@@ -39,8 +39,8 @@ const pageProps = {
       <!-- @vue-expect-error Age accepts number and its clear states. -->
       {{ setValue('old') }}
     </template>
-    <template #input:name="{ value, setValue }">
-      <button type="button" @click="setValue('Ada')">{{ value }}</button>
+    <template #input:name="{ value, setValue, controlBindings }">
+      <button v-bind="controlBindings" type="button" @click="setValue('Ada')">{{ value }}</button>
       <!-- @vue-expect-error Name accepts string and its clear states. -->
       {{ setValue(42) }}
     </template>
@@ -60,8 +60,8 @@ const pageProps = {
       <!-- @vue-expect-error DialogForm preserves the age setter contract. -->
       {{ setValue('old') }}
     </template>
-    <template #input:name="{ value, setValue }">
-      <button type="button" @click="setValue('Ada')">{{ value }}</button>
+    <template #input:name="{ value, setValue, controlBindings }">
+      <button v-bind="controlBindings" type="button" @click="setValue('Ada')">{{ value }}</button>
       <!-- @vue-expect-error DialogForm preserves the name setter contract. -->
       {{ setValue(42) }}
     </template>
@@ -79,8 +79,8 @@ const pageProps = {
       <!-- @vue-expect-error FormView preserves the age setter contract. -->
       {{ setValue('old') }}
     </template>
-    <template #input:name="{ value, setValue }">
-      <button type="button" @click="setValue('Ada')">{{ value }}</button>
+    <template #input:name="{ value, setValue, controlBindings }">
+      <button v-bind="controlBindings" type="button" @click="setValue('Ada')">{{ value }}</button>
       <!-- @vue-expect-error FormView preserves the name setter contract. -->
       {{ setValue(42) }}
     </template>

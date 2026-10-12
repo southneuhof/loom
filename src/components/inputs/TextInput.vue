@@ -110,6 +110,18 @@ function nativeAttributes(): TextInputNativeAttributes {
     'aria-roledescription': Reflect.get(props, 'ariaRoledescription'),
   }
 }
+
+function describedByAttribute(): TextInputNativeAttributes['aria-describedby'] {
+  return Reflect.get(props, 'ariaDescribedby')
+}
+
+function invalidAttribute(): TextInputNativeAttributes['aria-invalid'] {
+  return Reflect.get(props, 'ariaInvalid')
+}
+
+function requiredAttribute(): TextInputNativeAttributes['aria-required'] {
+  return Reflect.get(props, 'ariaRequired')
+}
 </script>
 
 <template>
@@ -117,40 +129,43 @@ function nativeAttributes(): TextInputNativeAttributes {
     :class="$attrs.class"
     :style="$attrs.style"
     :field="props.field"
-    :enable-helper-message="props.enableHelperMessage ?? false"
     :label="props.label"
     :helper-message="props.helperMessage"
     :disabled="props.disabled"
     :error="props.error"
     :required="props.required"
+    :id="props.id"
+    :ariaDescribedby="describedByAttribute()"
+    :ariaInvalid="invalidAttribute()"
+    :ariaRequired="requiredAttribute()"
     @validation:touch="emit('validation:touch')"
   >
     <template #label v-if="$slots.label">
       <slot name="label"></slot>
     </template>
-    <div
-      :class="twMerge(`flex flex-row items-center gap-4 rounded-lg bg-transparent py-3 pl-4 outline outline-1 outline-outline/[24%] transition-[outline-color,box-shadow] duration-150 ease-out focus-within:outline-secondary focus-within:ring-1 focus-within:ring-secondary/30 ${props.error ? 'outline-error focus-within:outline-error focus-within:ring-error/30 ' : ''} ${props.disabled ? 'pointer-events-none cursor-not-allowed opacity-60 ' : ''}`)"
-    >
-      <Icon v-if="props.icon" :name="(props.icon as any)" />
-      <p v-if="props.prefix">{{ props.prefix }}</p>
-      <input
-        :type="props.type ?? 'text'"
-        class="w-full bg-transparent focus-visible:outline-none"
-        v-bind="{ ...nativeAttributes(), ...dataAttributes() }"
-        :required="props.required"
-        v-model="inputValue"
-        @beforeinput="(e) => checkInput(e as InputEvent)"
-        @input="emit('input', $event)"
-        @change="emit('change', $event)"
-        @focus="emit('focus', $event)"
-        @blur="emit('blur', $event)"
-        @keydown="emit('keydown', $event)"
-        @keyup="emit('keyup', $event)"
-        @click="emit('click', $event)"
-        :disabled="props.disabled"
-      />
-      <p v-if="props.suffix" class="mr-4 min-w-max">{{ props.suffix }}</p>
-      <div v-if="$slots.action" class="mr-4 max-h-min"><slot name="action"></slot></div>
-    </div>
+    <template #default="{ controlBindings }">
+      <div
+        :class="twMerge(`flex flex-row items-center gap-4 rounded-lg bg-transparent py-3 pl-4 outline outline-1 outline-outline/[24%] transition-[outline-color,box-shadow] duration-150 ease-out focus-within:outline-secondary focus-within:ring-1 focus-within:ring-secondary/30 ${props.error ? 'outline-error focus-within:outline-error focus-within:ring-error/30 ' : ''} ${props.disabled ? 'pointer-events-none cursor-not-allowed opacity-60 ' : ''}`)"
+      >
+        <Icon v-if="props.icon" :name="(props.icon as any)" />
+        <p v-if="props.prefix">{{ props.prefix }}</p>
+        <input
+          :type="props.type ?? 'text'"
+          class="w-full bg-transparent focus-visible:outline-none"
+          v-bind="{ ...nativeAttributes(), ...dataAttributes(), ...controlBindings }"
+          v-model="inputValue"
+          @beforeinput="(e) => checkInput(e as InputEvent)"
+          @input="emit('input', $event)"
+          @change="emit('change', $event)"
+          @focus="emit('focus', $event)"
+          @blur="emit('blur', $event)"
+          @keydown="emit('keydown', $event)"
+          @keyup="emit('keyup', $event)"
+          @click="emit('click', $event)"
+        />
+        <p v-if="props.suffix" class="mr-4 min-w-max">{{ props.suffix }}</p>
+        <div v-if="$slots.action" class="mr-4 max-h-min"><slot name="action"></slot></div>
+      </div>
+    </template>
   </BaseInput>
 </template>

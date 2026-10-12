@@ -118,11 +118,17 @@ watch(loading, applyDefault, { immediate: true })
 </script>
 
 <template>
-  <BaseInput v-bind="props">
+  <BaseInput v-bind="props" v-slot="{ controlBindings }">
     <p v-if="loading" class="text-muted">Memuat data...</p>
     <p v-else-if="error" class="text-error">{{ error.message }} <button type="button" @click="refresh">Coba lagi</button></p>
-    <div v-else-if="data.length" :class="`${directionClass[direction]} ${$attrs.class as string} flex-wrap`">
-      <Radio v-for="item in data" @click="choose(item[pick])" :description="String(item[view] ?? '')" :checked="modelValue === item[pick]">
+    <div v-else-if="data.length" role="radiogroup" :aria-required="controlBindings['aria-required']" :aria-invalid="controlBindings['aria-invalid']" :class="`${directionClass[direction]} ${$attrs.class as string} flex-wrap`">
+      <Radio
+        v-for="(item, index) in data"
+        v-bind="{ ...controlBindings, id: index === 0 ? controlBindings.id : undefined, name: typeof $attrs.name === 'string' ? $attrs.name : controlBindings.id, required: controlBindings.required && index === 0 }"
+        @click="choose(item[pick])"
+        :description="String(item[view] ?? '')"
+        :checked="modelValue === item[pick]"
+      >
         <template v-if="$slots['label']" #label>
           <slot name="label" v-bind="{ data: item }" />
         </template>

@@ -17,7 +17,6 @@ import Table from '../../core/Table.vue'
 const props = withDefaults(defineProps<LookupInputProps<TRecord>>(), {
   field: '',
   label: '',
-  enableHelperMessage: false,
   helperMessage: '',
   error: '',
   disabled: false,
@@ -170,7 +169,6 @@ const rows = computed<TRecord[]>(() => sourceMode() === 'data' ? [...(props.data
 const baseInputProps = computed(() => ({
   field: props.field,
   label: props.label,
-  enableHelperMessage: props.enableHelperMessage,
   helperMessage: props.helperMessage,
   disabled: props.disabled,
   error: props.error,
@@ -563,12 +561,12 @@ const displayValue = computed(() => {
 </script>
 
 <template>
-  <BaseInput v-bind="baseInputProps">
+  <BaseInput v-bind="baseInputProps" v-slot="{ controlBindings }">
     <div class="flex flex-row items-center gap-2">
       <Dialog v-model="dialogOpen" :disabled="disabled">
         <template #trigger>
-          <slot v-if="$slots.trigger" name="trigger" />
-          <div v-else class="overlay flex max-w-fit cursor-pointer items-center justify-between gap-4 rounded-lg bg-surface-container-high px-4 py-2 after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active">
+          <slot v-if="$slots.trigger" name="trigger" :control-bindings="controlBindings" />
+          <div v-else v-bind="controlBindings" class="overlay flex max-w-fit cursor-pointer items-center justify-between gap-4 rounded-lg bg-surface-container-high px-4 py-2 after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active">
             <p class="min-w-max">{{ displayValue }}</p>
             <Icon name="arrow-right-up" />
           </div>

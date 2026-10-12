@@ -3,6 +3,7 @@ import type { Label, LabelDictionary } from './labels'
 import type { MaybePromise } from './load'
 import type { RawSchema, SchemaIssue, SchemaParseResult } from './schema'
 import type { SubmitError } from './results'
+import type { BaseInputControlBindings } from './formControlBindings'
 
 export type FormValidationTrigger = 'blur' | 'submit'
 
@@ -39,6 +40,7 @@ export interface FormInputSlotProps<TInput extends object, TKey extends Extract<
   readonly field: FormInputSlotField<TInput, TKey>
   readonly setValue: (value: FormDraft<TInput>[TKey]) => void
   readonly error?: string
+  readonly controlBindings: BaseInputControlBindings
   readonly touched: boolean
   readonly disabled: boolean
   readonly validating: boolean

@@ -88,11 +88,10 @@ const label = computed(() => selected.value.map((asset) => asset.name).join(', '
 </script>
 
 <template>
-  <BaseInput v-bind="props">
+  <BaseInput v-bind="props" :error="error || props.error" v-slot="{ controlBindings }">
     <Dialog>
-      <template #trigger><Button type="button" :disabled="props.disabled">{{ label }}</Button></template>
+      <template #trigger><Button v-bind="controlBindings" type="button" :disabled="props.disabled">{{ label }}</Button></template>
       <template #content="{ setOpen }"><AssetPicker @select="async (asset) => { await select(asset); setOpen(false) }" @cancel="setOpen(false)" /></template>
     </Dialog>
-    <p v-if="error" role="alert" class="text-error">{{ error }}</p>
   </BaseInput>
 </template>

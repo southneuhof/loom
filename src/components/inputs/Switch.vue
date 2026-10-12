@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, type PropType } from 'vue'
+import BaseInput from './BaseInput.vue'
 
 type SwitchSize = 'lg' | 'md'
 
@@ -38,6 +39,10 @@ const props = defineProps({
     required: false,
     default: false,
   },
+  field: { type: String, default: '' },
+  helperMessage: { type: String, default: '' },
+  error: { type: String, default: '' },
+  required: { type: Boolean, default: false },
 })
 
 const modelValue = defineModel<boolean>({ default: false })
@@ -91,19 +96,29 @@ function handleClick() {
 </script>
 
 <template>
-  <div class="flex flex-row items-center gap-4">
-    <button
-      type="button"
-      @click="handleClick"
-      :class="`rounded-full ${sizeMap[props.size].track} ${props.disabled ? classMap.track.disabled : isChecked ? classMap.track.active : classMap.track.inactive}`"
-      :disabled="props.disabled"
-    >
-      <div class="flex h-full w-full">
-        <div
-          :class="`rounded-full transition-all ${sizeMap[props.size].thumb} ${props.disabled ? classMap.thumb.disabled : isChecked ? classMap.thumb.active : classMap.thumb.inactive} ${isChecked && !props.disabled ? sizeMap[props.size].thumbActive : ''}`"
-        ></div>
-      </div>
-    </button>
-    <div v-if="label || description">{{ label || description }}</div>
-  </div>
+  <BaseInput
+    :field="props.field"
+    :label="''"
+    :helper-message="props.helperMessage"
+    :error="props.error"
+    :disabled="props.disabled"
+    :required="props.required"
+    v-slot="{ controlBindings }">
+    <div class="flex flex-row items-center gap-4">
+      <button
+        v-bind="controlBindings"
+        type="button"
+        @click="handleClick"
+        :class="`rounded-full ${sizeMap[props.size].track} ${props.disabled ? classMap.track.disabled : isChecked ? classMap.track.active : classMap.track.inactive}`"
+        :disabled="props.disabled"
+      >
+        <div class="flex h-full w-full">
+          <div
+            :class="`rounded-full transition-all ${sizeMap[props.size].thumb} ${props.disabled ? classMap.thumb.disabled : isChecked ? classMap.thumb.active : classMap.thumb.inactive} ${isChecked && !props.disabled ? sizeMap[props.size].thumbActive : ''}`"
+          ></div>
+        </div>
+      </button>
+      <div v-if="label || description">{{ label || description }}</div>
+    </div>
+  </BaseInput>
 </template>

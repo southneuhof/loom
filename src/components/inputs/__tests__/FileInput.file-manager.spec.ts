@@ -98,6 +98,47 @@ afterEach(() => {
 })
 
 describe('FileManager asset selection', () => {
+  it('renders a direct invalid asset error through BaseInput', async () => {
+    const invalid: AssetValue = { ...stored, id: 'uploads/missing.pdf' }
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(defineComponent({
+      setup: () => () => h(FileManagerInput, { modelValue: invalid }),
+    }))
+    app.use(FrameworkPlugin, {
+      adapters: { assets: assetAdapter(readFixture) },
+      queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }),
+    })
+    app.use(FileManagerPlugin, fileManagerOptions(async () => stored))
+    app.mount(host)
+    apps.push(app)
+    await flush()
+
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Invalid asset value.')
+    expect(host.querySelector('button')?.textContent).toContain('Pilih berkas')
+  })
+
+  it('keeps direct asset provider failures visible', async () => {
+    const options = fileManagerOptions(async () => stored)
+    options.values.fromModel = async () => { throw new Error('Asset lookup failed.') }
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(defineComponent({
+      setup: () => () => h(FileManagerInput, { modelValue: stored }),
+    }))
+    app.use(FrameworkPlugin, {
+      adapters: { assets: assetAdapter(readFixture) },
+      queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }),
+    })
+    app.use(FileManagerPlugin, options)
+    app.mount(host)
+    apps.push(app)
+    await flush()
+
+    expect(host.querySelector('[role="alert"]')?.textContent).toBe('Asset lookup failed.')
+    expect(host.querySelector('button')?.textContent).toContain('Pilih berkas')
+  })
+
   it('reads selected stored assets through the app service before updating FileInput', async () => {
     const read = vi.fn((value: unknown): AssetValue | null => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) return null

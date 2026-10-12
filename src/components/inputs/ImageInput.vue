@@ -58,12 +58,12 @@ const props = defineProps({
 })
 defineOptions({ inheritAttrs: false })
 const attrs = useAttrs()
-const controlAttrs = computed(() => Object.fromEntries(
-  Object.entries(attrs).filter(([key]) => key === 'id' || key.startsWith('aria-')),
-))
-const wrapperAttrs = computed(() => Object.fromEntries(
-  Object.entries(attrs).filter(([key]) => key === 'class' || key === 'style'),
-))
+function controlAttrs(): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(attrs).filter(([key]) => key === 'id' || key.startsWith('aria-')))
+}
+function wrapperAttrs(): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(attrs).filter(([key]) => key === 'class' || key === 'style'))
+}
 const fileManager = useOptionalFileManager()
 const AssetPicker = defineAsyncComponent(() => import('../../file-manager/AssetPicker.vue'))
 const assets = useAssetAdapter()
@@ -328,10 +328,12 @@ watch(() => props.disabled, (disabled) => {
 </script>
 
 <template>
-  <BaseInput v-bind="{ ...props, ...wrapperAttrs }">
+  <BaseInput
+    v-bind="{ ...props, ...wrapperAttrs(), ...controlAttrs() }"
+    :error="props.error || (invalidAsset ? 'Invalid asset value.' : '')"
+    v-slot="{ controlBindings }">
     <div class="flex flex-col gap-4">
-      <div v-if="invalidAsset" role="alert" class="flex items-center gap-3 rounded-md bg-error-container p-3 text-on-error-container">
-        <span>Invalid asset value.</span>
+      <div v-if="invalidAsset" class="flex items-center gap-3 rounded-md bg-error-container p-3 text-on-error-container">
         <Button type="button" variant="text" :disabled="props.disabled" @click="clearInvalidAssets">Remove invalid values</Button>
       </div>
       <div class="flex flex-col gap-2">
@@ -400,7 +402,7 @@ watch(() => props.disabled, (disabled) => {
                   </div>
                 </template>
               </Popover>
-              <input v-bind="controlAttrs" ref="fileInput" type="file" hidden :disabled="props.disabled || invalidAsset || !canAddImage" :accept="'image/*'" class="rounded-md p-2" @change="handleFileUpload($event)" />
+              <input v-bind="{ ...controlAttrs(), ...controlBindings, required: false }" ref="fileInput" type="file" hidden :disabled="props.disabled || invalidAsset || !canAddImage" :accept="'image/*'" class="rounded-md p-2" @change="handleFileUpload($event)" />
             </template>
             <div v-else class="relative flex h-40 w-40 flex-col items-center justify-center rounded-xl outline-dashed outline-2 outline-outline">
               <Spinner />

@@ -9,10 +9,12 @@ import Dialog from '../base/Dialog.vue'
 import Button from '@southneuhof/loom/components/base/Button.vue'
 import Icon from '@southneuhof/loom/components/base/Icon.vue'
 import Spinner from '@southneuhof/loom/components/base/Spinner.vue'
+import BaseInput from './BaseInput.vue'
+import { commonProps } from './commonprops'
 
 const props = defineProps({
-  disabled: { type: Boolean, default: false },
   uploadPath: { type: String, default: '' },
+  ...commonProps,
 })
 const assets = useAssetAdapter()
 const modelValue = defineModel<AssetValue | null>()
@@ -210,32 +212,40 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="flex flex-row gap-4">
-    <img v-if="image" :src="image" class="h-36 w-36 rounded-xl bg-surface-container-highest object-scale-down" />
-    <p v-if="invalidAsset" role="alert" class="text-error">Invalid asset value.</p>
-    <div class="flex flex-col items-center justify-center gap-2">
-      <Dialog @close="deactivateCamera">
-        <template #title>Kamera</template>
-        <template #trigger>
-          <Button v-if="!image" :disabled="props.disabled || invalidAsset || mutation.pending.value" @click="activateCamera()">Buka Kamera <Icon name="camera" /></Button>
-          <Button v-else :disabled="props.disabled || invalidAsset || mutation.pending.value" @click="activateCamera()">Ambil Ulang Foto <Icon class="h-5 w-5" name="refresh" /></Button>
-        </template>
-        <template #content="{ setOpen }">
-          <div class="flex h-full w-full flex-col items-center gap-4">
-            <div v-if="cameraLoading || mutation.pending.value" class="flex items-center justify-center" :style="{ width: canvasProperties.width, height: canvasProperties.height }">
-              <Spinner />
+  <BaseInput
+    :field="props.field"
+    :label="props.label"
+    :helper-message="props.helperMessage"
+    :error="props.error || (invalidAsset ? 'Invalid asset value.' : '')"
+    :disabled="props.disabled"
+    :required="props.required"
+    v-slot="{ controlBindings }">
+    <div class="flex flex-row gap-4">
+      <img v-if="image" :src="image" class="h-36 w-36 rounded-xl bg-surface-container-highest object-scale-down" />
+      <div class="flex flex-col items-center justify-center gap-2">
+        <Dialog @close="deactivateCamera">
+          <template #title>Kamera</template>
+          <template #trigger>
+            <Button v-if="!image" v-bind="controlBindings" :disabled="props.disabled || invalidAsset || mutation.pending.value" @click="activateCamera()">Buka Kamera <Icon name="camera" /></Button>
+            <Button v-else v-bind="controlBindings" :disabled="props.disabled || invalidAsset || mutation.pending.value" @click="activateCamera()">Ambil Ulang Foto <Icon class="h-5 w-5" name="refresh" /></Button>
+          </template>
+          <template #content="{ setOpen }">
+            <div class="flex h-full w-full flex-col items-center gap-4">
+              <div v-if="cameraLoading || mutation.pending.value" class="flex items-center justify-center" :style="{ width: canvasProperties.width, height: canvasProperties.height }">
+                <Spinner />
+              </div>
+              <video v-show="!isPhotoTaken" ref="camera" class="max-w-full" :width="canvasProperties.width" :height="canvasProperties.height" autoplay></video>
+              <canvas v-show="isPhotoTaken" ref="canvas" class="max-w-full" :width="canvasProperties.width" :height="canvasProperties.height"></canvas>
+              <div class="flex w-full flex-row justify-center gap-2">
+                <Button v-if="!isPhotoTaken" :disabled="props.disabled || mutation.pending.value" @click="takePhoto()" variant="tonal" class="aspect-square h-12 w-12"><Icon name="camera" /></Button>
+                <Button v-else :disabled="props.disabled || mutation.pending.value" @click="resetCameraState()" variant="tonal" class="aspect-square h-12 w-12"><Icon class="h-5 w-5" name="refresh" /></Button>
+                <Button v-if="isPhotoTaken" :disabled="props.disabled || mutation.pending.value" @click=";[commitPhoto(), setOpen(false)]" class="aspect-square h-12 w-12" variant="tonal" color="success"><Icon name="check" /></Button>
+              </div>
             </div>
-            <video v-show="!isPhotoTaken" ref="camera" class="max-w-full" :width="canvasProperties.width" :height="canvasProperties.height" autoplay></video>
-            <canvas v-show="isPhotoTaken" ref="canvas" class="max-w-full" :width="canvasProperties.width" :height="canvasProperties.height"></canvas>
-            <div class="flex w-full flex-row justify-center gap-2">
-              <Button v-if="!isPhotoTaken" :disabled="props.disabled || mutation.pending.value" @click="takePhoto()" variant="tonal" class="aspect-square h-12 w-12"><Icon name="camera" /></Button>
-              <Button v-else :disabled="props.disabled || mutation.pending.value" @click="resetCameraState()" variant="tonal" class="aspect-square h-12 w-12"><Icon class="h-5 w-5" name="refresh" /></Button>
-              <Button v-if="isPhotoTaken" :disabled="props.disabled || mutation.pending.value" @click=";[commitPhoto(), setOpen(false)]" class="aspect-square h-12 w-12" variant="tonal" color="success"><Icon name="check" /></Button>
-            </div>
-          </div>
-        </template>
-      </Dialog>
-      <Button v-if="image || invalidAsset" :disabled="props.disabled" @click="resetComponentState()" class="w-full" variant="tonal">Hapus Foto <Icon name="delete-bin" /></Button>
+          </template>
+        </Dialog>
+        <Button v-if="image || invalidAsset" :disabled="props.disabled" @click="resetComponentState()" class="w-full" variant="tonal">Hapus Foto <Icon name="delete-bin" /></Button>
+      </div>
     </div>
-  </div>
+  </BaseInput>
 </template>

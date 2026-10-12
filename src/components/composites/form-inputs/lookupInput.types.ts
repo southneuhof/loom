@@ -27,7 +27,6 @@ export type LookupInputBaseProps<TValue extends object> = {
   placeholder?: string
   field?: string
   label?: string
-  enableHelperMessage?: boolean
   helperMessage?: string
   error?: string
   disabled?: boolean

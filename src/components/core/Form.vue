@@ -1,12 +1,14 @@
 <script setup lang="ts" generic="TInput extends object, TOutput extends object, TResult, TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>">
 import { computed, getCurrentInstance, onBeforeUpdate, reactive, ref, useAttrs, type WritableComputedRef } from 'vue'
-import type { FormDraft, FormDraftSnapshot, FormSlots } from '../../contracts/forms'
+import type { FormDraft, FormDraftSnapshot, FormInputSlotProps, FormSlots } from '../../contracts/forms'
 import type { SubmitError } from '../../contracts/results'
 import type { FormProps } from '../../forms/props'
 import { formNativeAttributeNames } from '../../forms/props'
 import { useFormSession } from '../../forms/useFormSession'
 import { useRendererRegistry } from '../../renderers/registry'
 import Button from '../base/Button.vue'
+import BaseInput from '../inputs/BaseInput.vue'
+import type { BaseInputControlBindings } from '../../contracts/formControlBindings'
 import { useFrameworkUiDefaults } from '../views/uiDefaults'
 
 defineOptions({ inheritAttrs: false })
@@ -125,19 +127,40 @@ function fieldDisabled(key: string): boolean {
   return props.disabled === true || state.disabled || state.props.disabled === true
 }
 
-function fieldAriaInvalid(key: string): unknown {
-  return issueFor(key) ? 'true' : fieldState(key).props['aria-invalid']
+function helperMessageFor(key: string): string | undefined {
+  const helperMessage: unknown = Reflect.get(fieldState(key).props, 'helperMessage')
+  return typeof helperMessage === 'string' ? helperMessage : undefined
 }
 
-function fieldAriaRequired(key: string): unknown {
-  return fieldState(key).required ? 'true' : fieldState(key).props['aria-required']
+function authoredAriaAttribute(key: string, attribute: 'aria-describedby'): string | undefined
+function authoredAriaAttribute(key: string, attribute: 'aria-invalid'): BaseInputControlBindings['aria-invalid']
+function authoredAriaAttribute(key: string, attribute: 'aria-required'): BaseInputControlBindings['aria-required']
+function authoredAriaAttribute(key: string, attribute: 'aria-describedby' | 'aria-invalid' | 'aria-required'): unknown {
+  return Reflect.get(fieldState(key).props, attribute)
 }
 
-function fieldAriaDescribedBy(key: string): string | undefined {
-  const authored = fieldState(key).props['aria-describedby']
-  const errorId = issueFor(key) ? `${session.formId}-error-${key}` : undefined
-  const values = [typeof authored === 'string' ? authored : undefined, errorId].filter((value): value is string => value !== undefined)
-  return values.length > 0 ? [...new Set(values)].join(' ') : undefined
+function inputSlotProps<TKey extends TKeys>(key: TKey, controlBindings: BaseInputControlBindings): FormInputSlotProps<TInput, TKey> {
+  const field = session.fieldFor(key)
+  if (!field) throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" is not selected.`)
+  return {
+    value: fieldValue(key),
+    draft: draft.value,
+    field: {
+      key,
+      renderer: field.input.renderer,
+      label: fieldLabel(key),
+      required: field.required,
+      props: { ...(field.input.props ?? {}) },
+      span: field.input.span,
+    },
+    setValue: (value) => setSlotValue(key, value),
+    error: issueFor(key),
+    controlBindings,
+    touched: session.touchedField(key),
+    disabled: fieldDisabled(key),
+    validating: session.validatingField(key),
+    formValidating: validating.value,
+  }
 }
 
 const formIssues = computed(() =>
@@ -199,9 +222,11 @@ defineExpose({
     </template>
 
     <template v-else>
-      <p v-if="formIssues.length > 0" :id="`${session.formId}-errors`" role="alert" class="rounded-lg bg-error-container px-4 py-3 text-sm leading-5 text-on-error-container">
-        {{ formIssues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ') }}
-      </p>
+      <BaseInput
+        v-if="formIssues.length > 0"
+        class="rounded-lg bg-error-container px-4 py-3"
+        :error="formIssues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')"
+      />
 
       <div class="grid grid-cols-12 gap-x-4 gap-y-5">
         <div v-for="field in visibleFields" :key="field.key" class="is-form-field flex min-w-0 flex-col gap-2" :style="{ gridColumn: `span ${fieldSpan(field.key)} / span ${fieldSpan(field.key)}` }">
@@ -210,45 +235,34 @@ defineExpose({
             <span v-if="fieldState(field.key).required" class="text-error" aria-hidden="true">*</span>
           </label>
 
-          <slot
-            :name="`input:${field.key}`"
-            :value="fieldValue(field.key)"
-            :draft="draft"
-            :field="{
-              key: field.key,
-              renderer: field.input.renderer,
-              label: fieldLabel(field.key),
-              required: field.required,
-              props: { ...(field.input.props ?? {}) },
-              span: field.input.span,
-            }"
-            :set-value="(value: FormDraft<TInput>[TKeys]) => setSlotValue(field.key, value)"
+          <BaseInput
+            v-if="$slots[`input:${field.key}`]"
+            :id="fieldId(field.key)"
+            :helper-message="helperMessageFor(field.key)"
             :error="issueFor(field.key)"
-            :touched="session.touchedField(field.key)"
+            :required="fieldState(field.key).required"
             :disabled="fieldDisabled(field.key)"
-            :validating="session.validatingField(field.key)"
-            :form-validating="validating"
+            :ariaInvalid="authoredAriaAttribute(field.key, 'aria-invalid')"
+            :ariaRequired="authoredAriaAttribute(field.key, 'aria-required')"
+            :ariaDescribedby="authoredAriaAttribute(field.key, 'aria-describedby')"
+            v-slot="{ controlBindings }"
           >
-            <component
-              :is="renderers.require(fieldRenderer(field.key))"
-              :key="fieldComponentKey(field.key)"
-              v-bind="fieldState(field.key).props"
-              v-model="fieldModel(field.key).value"
-              :id="fieldId(field.key)"
-              :error="issueFor(field.key)"
-              :required="fieldState(field.key).required"
-              :disabled="fieldDisabled(field.key)"
-              :aria-invalid="fieldAriaInvalid(field.key)"
-              :aria-required="fieldAriaRequired(field.key)"
-              :aria-describedby="fieldAriaDescribedBy(field.key)"
-              @validation:touch="session.touch(field.key)"
-              @validation:error="session.setControlError(field.key, $event)"
-            />
-          </slot>
+            <slot :name="`input:${field.key}`" v-bind="inputSlotProps(field.key, controlBindings)" />
+          </BaseInput>
 
-          <p v-if="issueFor(field.key)" :id="`${session.formId}-error-${field.key}`" role="alert" class="text-sm leading-5 text-error">
-            {{ issueFor(field.key) }}
-          </p>
+          <component
+            v-else
+            :is="renderers.require(fieldRenderer(field.key))"
+            :key="fieldComponentKey(field.key)"
+            v-bind="fieldState(field.key).props"
+            v-model="fieldModel(field.key).value"
+            :id="fieldId(field.key)"
+            :error="issueFor(field.key)"
+            :required="fieldState(field.key).required"
+            :disabled="fieldDisabled(field.key)"
+            @validation:touch="session.touch(field.key)"
+            @validation:error="session.setControlError(field.key, $event)"
+          />
         </div>
       </div>
 

@@ -47,7 +47,6 @@ export type TextInputProps = TextInputNativeAttributes & {
   type?: string
   constraint?: readonly TextInputConstraint[]
   field?: string
-  enableHelperMessage?: boolean
   label?: string
   helperMessage?: string
   disabled?: boolean

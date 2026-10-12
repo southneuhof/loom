@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { createApp, defineComponent, h, nextTick, ref, type App } from 'vue'
+import { userEvent } from 'vitest/browser'
+import { createApp, defineComponent, h, nextTick, ref, type App, type Component } from 'vue'
+import '@vuepic/vue-datepicker/dist/main.css'
 import DateInput from '../DateInput.vue'
+import MonthInput from '../MonthInput.vue'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 
 const apps: App[] = []
@@ -24,6 +27,23 @@ function mountDate(initial: string | null) {
       teleport: false,
       modelValue: model.value,
       'onUpdate:modelValue': (value: string | null) => { model.value = value },
+    }),
+  }))
+  app.use(FrameworkPlugin)
+  app.mount(host)
+  apps.push(app)
+  return { host, model }
+}
+
+function mountPicker(component: Component, props: Record<string, unknown>) {
+  const model = ref<unknown>(null)
+  const host = document.createElement('div')
+  document.body.append(host)
+  const app = createApp(defineComponent({
+    setup: () => () => h(component, {
+      ...props,
+      modelValue: model.value,
+      'onUpdate:modelValue': (value: unknown) => { model.value = value },
     }),
   }))
   app.use(FrameworkPlugin)
@@ -69,5 +89,57 @@ describe('DateInput real calendar', () => {
     await frame()
 
     expect(view.model.value).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+  })
+
+  it('keeps text entry, focus, and the calendar affordance on a date input', async () => {
+    const view = mountPicker(DateInput, {
+      id: 'date-control',
+      label: 'Date',
+      placeholder: 'Enter a date',
+      helperMessage: 'Use year-month-day format.',
+    })
+    await frame(6)
+
+    const input = view.host.querySelector<HTMLInputElement>('#date-control')!
+    expect(input.inputMode).toBe('text')
+    expect(input.placeholder).toBe('Enter a date')
+    expect(input.classList.contains('dp__input')).toBe(true)
+    expect(input.classList.contains('dp__input_icon_pad')).toBe(true)
+    const helper = view.host.querySelector<HTMLElement>('[id$="-helper"]')!
+    expect(input.getAttribute('aria-describedby')).toContain(helper.id)
+    const calendarIcon = view.host.querySelector<HTMLElement>('.dp__input_icon')
+    expect(calendarIcon).not.toBeNull()
+    calendarIcon!.click()
+    await frame()
+    expect(document.querySelector('.dp__menu')).not.toBeNull()
+
+    input.focus()
+    expect(document.activeElement).toBe(input)
+    await frame()
+    expect(input.classList.contains('dp__input_focus')).toBe(true)
+    await userEvent.type(input, '2026-03-20')
+    await frame()
+    expect(view.model.value).toBe('2026-03-20')
+  })
+
+  it('keeps the month placeholder and stock read-only input affordances', async () => {
+    const view = mountPicker(MonthInput, {
+      id: 'month-control',
+      label: 'Month',
+      placeholder: 'Choose a month',
+    })
+    await frame(6)
+
+    const input = view.host.querySelector<HTMLInputElement>('#month-control')!
+    expect(input.placeholder).toBe('Choose a month')
+    expect(input.inputMode).toBe('none')
+    expect(input.readOnly).toBe(true)
+    expect(input.classList.contains('dp__input_readonly')).toBe(true)
+    expect(input.classList.contains('dp__input_reg')).toBe(true)
+    expect(view.host.querySelector('.dp__input_icon')).not.toBeNull()
+
+    view.host.querySelector<HTMLElement>('.dp__input_icon')!.click()
+    await frame()
+    expect(document.querySelector('.dp__menu')).not.toBeNull()
   })
 })

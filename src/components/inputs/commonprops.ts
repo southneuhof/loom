@@ -3,10 +3,6 @@ export const commonProps = {
     type: String,
     default: '',
   },
-  enableHelperMessage: {
-    type: Boolean,
-    default: false,
-  },
   label: {
     type: String,
     default: '',

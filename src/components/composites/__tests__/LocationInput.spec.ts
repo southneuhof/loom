@@ -96,6 +96,10 @@ function input(host: HTMLElement, id: string) {
   return host.querySelector<HTMLInputElement>(`#${id}`)!
 }
 
+function searchInput(host: HTMLElement) {
+  return host.querySelector<HTMLInputElement>('.location-popover-trigger input')!
+}
+
 function enter(inputElement: HTMLInputElement, value: string) {
   inputElement.value = value
   inputElement.dispatchEvent(new Event('input', { bubbles: true }))
@@ -130,6 +134,34 @@ afterEach(() => {
 })
 
 describe('LocationInput model form', () => {
+  it('uses a unique generated input id and keeps explicit ids', async () => {
+    const operations: LocationOperations = {
+      mapConfig: async () => ({ apiKey: 'map-key' }),
+      autocomplete: async () => [],
+      detail: async () => ({ lat: 0, lng: 0 }),
+    }
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(defineComponent({
+      setup: () => () => h('div', [
+        h(LocationInput, { operations }),
+        h(LocationInput, { operations }),
+        h(LocationInput, { operations, id: 'explicit-location' }),
+      ]),
+    }))
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await flush()
+
+    const inputs = host.querySelectorAll<HTMLInputElement>('input')
+    expect(inputs).toHaveLength(3)
+    expect(inputs[0]!.id).not.toBe('')
+    expect(inputs[1]!.id).not.toBe('')
+    expect(inputs[0]!.id).not.toBe(inputs[1]!.id)
+    expect(inputs[2]!.id).toBe('explicit-location')
+  })
+
   it('shows a map configuration failure', async () => {
     const operations: LocationOperations = {
       mapConfig: vi.fn(async () => { throw new Error('Map configuration failed.') }),
@@ -162,7 +194,7 @@ describe('LocationInput model form', () => {
     expect(view.model.value).toEqual({ lat: -5, lng: 110 })
     expect(view.host.querySelector('label')?.textContent).toContain('Nama Lokasi')
 
-    enter(input(view.host, 'location-search-box'), 'harbor')
+    enter(searchInput(view.host), 'harbor')
     await flush()
     expect(operations.autocomplete).toHaveBeenCalledWith({ input: 'harbor', signal: expect.any(AbortSignal) })
     const suggestion = [...view.host.querySelectorAll<HTMLElement>('[role="button"]')]
@@ -199,9 +231,9 @@ describe('LocationInput model form', () => {
     const view = mountLocation(operations)
     await flush()
 
-    enter(input(view.host, 'location-search-box'), 'first')
+    enter(searchInput(view.host), 'first')
     await flush()
-    enter(input(view.host, 'location-search-box'), 'latest')
+    enter(searchInput(view.host), 'latest')
     await flush()
     resolveFirst([{ id: 'first', primaryText: 'First' }])
     await flush()
@@ -224,9 +256,9 @@ describe('LocationInput model form', () => {
     const view = mountLocation(operations)
     await flush()
 
-    enter(input(view.host, 'location-search-box'), 'first')
+    enter(searchInput(view.host), 'first')
     await flush()
-    enter(input(view.host, 'location-search-box'), 'latest')
+    enter(searchInput(view.host), 'latest')
     await flush()
     rejectFirst(new Error('Stale location failure.'))
     await flush()
@@ -249,7 +281,7 @@ describe('LocationInput model form', () => {
     await flush()
 
     view.host.querySelector<HTMLButtonElement>('button[aria-label="Gunakan lokasi saat ini"]')!.click()
-    enter(input(view.host, 'location-search-box'), 'harbor')
+    enter(searchInput(view.host), 'harbor')
     await flush()
     const suggestion = [...view.host.querySelectorAll<HTMLButtonElement>('[role="button"]')]
       .find((button) => button.textContent?.trim() === 'Harbor')

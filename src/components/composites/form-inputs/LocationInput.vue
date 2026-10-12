@@ -6,6 +6,7 @@ import {
   onMounted,
   ref,
   watch,
+  useAttrs,
   type PropType,
 } from "vue";
 import { z } from "zod/v4";
@@ -31,6 +32,7 @@ const props = defineProps({
   ...commonProps,
   operations: { type: Object as PropType<LocationOperations>, required: true },
 });
+const attrs = useAttrs();
 const modelValue = defineModel<Coordinate>();
 const emit = defineEmits<{ (event: "validation:touch"): void }>();
 const query = ref("");
@@ -68,6 +70,10 @@ const locationForm = defineForm({ schema: locationSchema, fields: locationFields
 const formModel = computed<Coordinate>(
   () => modelValue.value ?? { lat: center.value.lat, lng: center.value.lng },
 );
+
+function inputId(): string | undefined {
+  return typeof attrs.id === "string" ? attrs.id : undefined;
+}
 
 function updateFormModel(value: FormDraftSnapshot<LocationInput>) {
   geolocationGeneration += 1;
@@ -201,14 +207,14 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <BaseInput v-bind="props">
+  <BaseInput v-bind="props" :id="inputId()" v-slot="{ controlBindings }">
     <div class="grid grid-cols-12 gap-8">
       <div class="col-span-3 flex flex-col gap-4">
         <Popover class="w-full">
           <template #trigger
             ><SearchBox
               v-model="query"
-              v-bind="{ id: 'location-search-box' }"
+              v-bind="controlBindings"
               class="w-full"
               placeholder="Cari lokasi..."
           /></template>

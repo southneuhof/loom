@@ -202,10 +202,11 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <BaseInput v-bind="props">
+  <BaseInput v-bind="props" v-slot="{ controlBindings }">
     <Popover v-model="open" :disabled="disabled">
       <template #trigger>
         <div
+          v-bind="{ ...controlBindings, 'data-testid': 'color-trigger' }"
           :class="
             twMerge(
               `flex w-full min-w-0 items-center rounded-lg bg-surface-container outline outline-1 outline-outline/[24%] transition-all ease-linear focus-within:outline-2 ${
@@ -214,7 +215,6 @@ onBeforeUnmount(() => {
               ($attrs.class as string),
             )
           "
-          v-bind="{ 'data-testid': 'color-trigger' }"
         >
           <div class="flex min-w-0 flex-1 items-center gap-3 px-3 py-2.5">
             <div

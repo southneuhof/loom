@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import Datepicker from '@vuepic/vue-datepicker'
 import BaseInput from './BaseInput.vue'
+import DatepickerControlInput from './DatepickerControlInput.vue'
+import DatepickerInputIcon from './DatepickerInputIcon.vue'
 import { useFrameworkUi } from '../../adapters/projectAdapters'
 import { commonProps } from './commonprops'
 import { ref, watch } from 'vue'
@@ -87,9 +89,11 @@ function handleBlur() {
 </script>
 
 <template>
-  <BaseInput v-bind="props">
+  <BaseInput v-bind="props" v-slot="{ controlBindings }">
     <Datepicker
       v-model="internalValue"
+      :disabled="controlBindings.disabled"
+      :required="controlBindings.required"
       :min-date="props.minDate"
       :placeholder="props.placeholder"
       month-picker
@@ -102,6 +106,22 @@ function handleBlur() {
       @focusout.stop
       @update:model-value="markModelUpdated"
       @blur="handleBlur"
-    />
+    >
+      <template #dp-input="{ value, isMenuOpen, onInput, onBlur, onFocus, onKeypress, onPaste }">
+        <DatepickerControlInput
+          :control-bindings="controlBindings"
+          :value="value"
+          :is-menu-open="isMenuOpen"
+          input-mode="none"
+          :placeholder="props.placeholder"
+          :on-input="onInput"
+          :on-blur="onBlur"
+          :on-focus="onFocus"
+          :on-keypress="onKeypress"
+          :on-paste="onPaste"
+        />
+      </template>
+      <template #input-icon><DatepickerInputIcon /></template>
+    </Datepicker>
   </BaseInput>
 </template>

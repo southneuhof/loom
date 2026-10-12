@@ -25,7 +25,6 @@ async function mountColorInput(initialValue = '#FF0000FF', extraProps: Record<st
         v-model="model"
         label="Theme Color"
         helper-message="Use a hex color"
-        :enable-helper-message="true"
         v-bind="props"
       />
     `,

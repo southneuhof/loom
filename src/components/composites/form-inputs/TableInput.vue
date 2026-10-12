@@ -51,7 +51,6 @@ const emit = defineEmits<{ (event: 'validation:touch'): void }>()
 
 const baseInputProps = computed(() => ({
   field: props.field,
-  enableHelperMessage: props.enableHelperMessage,
   helperMessage: props.helperMessage,
   disabled: props.disabled,
   error: props.error,
@@ -91,7 +90,7 @@ function draftFor(row: TRow): FormDraft<TInput> {
 </script>
 
 <template>
-  <BaseInput v-bind="baseInputProps" :label="''">
+  <BaseInput v-bind="baseInputProps" :label="''" v-slot="{ controlBindings }">
     <div class="flex flex-col gap-4">
       <div class="flex flex-row justify-end">
         <DialogForm
@@ -103,8 +102,8 @@ function draftFor(row: TRow): FormDraft<TInput> {
           :submit="createRow"
         >
           <template #trigger>
-            <slot v-if="$slots['create-button']" name="create-button" />
-            <Button v-else type="button"><Icon name="add" />Tambah</Button>
+            <slot v-if="$slots['create-button']" name="create-button" :control-bindings="controlBindings" />
+            <Button v-else v-bind="controlBindings" type="button"><Icon name="add" />Tambah</Button>
           </template>
         </DialogForm>
       </div>

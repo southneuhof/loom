@@ -70,7 +70,7 @@ watch(
 </script>
 
 <template>
-  <BaseInput v-bind="props">
+  <BaseInput v-bind="props" v-slot="{ controlBindings }">
     <div class="flex flex-col gap-4">
       <div class="flex flex-row flex-wrap gap-2">
         <template v-if="tags.length">
@@ -81,7 +81,7 @@ watch(
         <div v-else class="h-[25px] max-h-[25px] min-h-[25px] text-muted">Belum ada data yang dimasukkan</div>
       </div>
       <TextInput
-        v-bind="{ prefix, suffix, icon, constraint }"
+        v-bind="{ prefix, suffix, icon, constraint, ...controlBindings }"
         placeholder="Tekan tombol koma (,) untuk memisahkan"
         :model-value="inputValue"
         @update:model-value="(value) => (inputValue = String(value))"

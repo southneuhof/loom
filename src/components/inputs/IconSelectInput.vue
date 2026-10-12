@@ -64,12 +64,13 @@ onMounted(() => {
 </script>
 
 <template>
-  <BaseInput v-bind="props">
+  <BaseInput v-bind="props" v-slot="{ controlBindings }">
     <div class="flex w-full flex-col gap-2">
       <div class="flex items-center gap-3">
         <Dialog v-model="open" :disabled="disabled">
           <template #trigger>
             <div
+              v-bind="controlBindings"
               :key="`${selectedClass}`"
               class="overlay flex max-w-fit cursor-pointer flex-row items-center justify-between gap-3 rounded-lg bg-surface-container-high px-4 py-2 after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active"
               @click="openPicker"

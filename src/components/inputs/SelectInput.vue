@@ -323,11 +323,12 @@ onMounted(() => {
 </script>
 
 <template>
-  <BaseInput v-bind="props">
+  <BaseInput v-bind="props" v-slot="{ controlBindings }">
     <div class="w-full min-w-0 max-w-full">
       <Popover :class="$attrs.class" :disabled="disabled" contentClass="p-0">
         <template #trigger>
           <div
+            v-bind="controlBindings"
             :class="`flex w-full min-w-0 max-w-full flex-row items-center justify-between gap-2 overflow-hidden rounded-lg bg-transparent px-4 py-2 outline outline-1 outline-outline/[24%] transition-[outline-color,box-shadow] duration-150 ease-out focus-within:outline-secondary focus-within:ring-1 focus-within:ring-secondary/30 ${
               disabled ? 'pointer-events-none cursor-not-allowed opacity-60 ' : ''
             } ${$attrs.class || ''}`"

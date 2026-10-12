@@ -59,7 +59,9 @@ describe('renderer registry', () => {
     expect(input.value).toBe('Admin')
     expect(input.id).toBe('field-name')
     expect(input.getAttribute('aria-invalid')).toBe('true')
-    expect(input.getAttribute('aria-describedby')).toBe('error-name')
+    const error = host.querySelector<HTMLElement>('[role="alert"]')!
+    expect(error.textContent).toBe('Sudah dipakai')
+    expect(input.getAttribute('aria-describedby')?.split(/\s+/)).toEqual(expect.arrayContaining(['error-name', error.id]))
     expect(input.classList.contains('custom-control')).toBe(false)
     expect(wrapper.classList.contains('custom-control')).toBe(true)
     expect(control.classList.contains('outline-error')).toBe(true)

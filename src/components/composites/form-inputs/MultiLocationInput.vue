@@ -22,11 +22,11 @@ const tempLocation = ref()
 </script>
 
 <template>
-  <BaseInput v-bind="props">
+  <BaseInput v-bind="props" v-slot="{ controlBindings }">
     <div class="flex flex-col gap-4">
       <Dialog @close="() => (tempLocation = null)">
         <template #trigger>
-          <Button><Icon name="add" />Tambah Lokasi</Button>
+          <Button v-bind="controlBindings"><Icon name="add" />Tambah Lokasi</Button>
         </template>
         <template #content="{ setOpen }">
           <LocationInput v-model="tempLocation" :operations="operations" />

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { commonProps } from './commonprops'
 import BaseInput from './BaseInput.vue'
-import { onUnmounted, ref, watch, type PropType } from 'vue'
+import { onBeforeUnmount, ref, watch, type PropType } from 'vue'
 import 'tinymce/tinymce'
 import 'tinymce/skins/ui/oxide/skin.css'
 import 'tinymce/skins/ui/oxide/content.css'
@@ -26,9 +26,7 @@ import 'tinymce/plugins/table/plugin.js'
 import 'tinymce/plugins/help/plugin.js'
 import 'tinymce/plugins/wordcount/plugin.js'
 import 'tinymce/plugins/help/js/i18n/keynav/en.js'
-import Editor from '@tinymce/tinymce-vue'
-import tinymce from 'tinymce/tinymce'
-import { v4 as uuid } from 'uuid'
+import RichTextEditorControl from './RichTextEditorControl.vue'
 
 const props = defineProps({
   contentType: {
@@ -80,8 +78,6 @@ const init = {
   content_style: ".mce-content-body {font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif;}",
 }
 
-const id = uuid()
-
 const editorMountQueue: (() => void)[] = ((window as any).__tinymce_mount_queue__ ??= [])
 let isProcessingQueue = (window as any).__tinymce_queue_processing__ ?? false
 
@@ -103,23 +99,27 @@ const processQueue = () => {
 
 const shouldMount = ref(false)
 
-editorMountQueue.push(() => {
+const mountEditor = () => {
   shouldMount.value = true
-})
+}
+
+editorMountQueue.push(mountEditor)
 processQueue()
 
-onUnmounted(() => {
-  const idx = editorMountQueue.findIndex((fn) => fn === undefined)
+onBeforeUnmount(() => {
+  const idx = editorMountQueue.indexOf(mountEditor)
   if (idx > -1) editorMountQueue.splice(idx, 1)
 })
 </script>
 
 <template>
   <BaseInput v-bind="props">
-    <Editor v-if="shouldMount" :id="id" api-key="no-api-key" v-model="modelValue" :init="init" />
-    <div v-else class="editor-placeholder" :style="{ height: `${props.height}px` }">
-      <span>Loading editor...</span>
-    </div>
+    <template #default="{ controlBindings }">
+      <RichTextEditorControl v-if="shouldMount" v-model="modelValue" :control-bindings="controlBindings" :init="init" />
+      <div v-else class="editor-placeholder" :style="{ height: `${props.height}px` }">
+        <span>Loading editor...</span>
+      </div>
+    </template>
   </BaseInput>
 </template>
 

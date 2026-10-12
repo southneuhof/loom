@@ -174,6 +174,12 @@ the submit shape. Use schema transforms for value conversion. Defaults come
 from explicit input factories or `initialData`; schema defaults run during
 parsing.
 
+Form owns validation state and labels. BaseInput is the only validation message
+renderer. It shows helper text and errors as separate messages after the
+control, in that order. Raw `input:<key>` slots receive typed
+`controlBindings`; bind them to the actual focusable control. Do not print a
+second error or nest another message-bearing BaseInput in a custom slot.
+
 Built-in file and image inputs keep the same stored asset objects through load,
 edit, and submit. Do not add client identity conversion. Shared form readiness
 blocks submission while upload work remains pending. See
@@ -201,6 +207,7 @@ application source.
 
 | Contract | Fixture |
 |---|---|
+| BaseInput message order and links, managed Form delegation, custom slots, and summaries | [base-input.spec.ts](src/components/inputs/__tests__/base-input.spec.ts), [form.spec.ts](src/components/core/__tests__/form.spec.ts), [Form.browser.spec.ts](src/components/core/__tests__/Form.browser.spec.ts) |
 | One numeric SelectInput prop bag in standalone, Form, and DialogForm | [SelectForm.browser.spec.ts](src/components/composites/__tests__/SelectForm.browser.spec.ts) |
 | DateInput string model, submit override, and managed input slots | [SurfaceParity.browser.spec.ts](src/components/composites/__tests__/SurfaceParity.browser.spec.ts), [date-input-model.type-test.ts](src/components/composites/__type-tests__/date-input-model.type-test.ts), [plan067-form-contracts.type-test.vue](src/components/composites/__type-tests__/plan067-form-contracts.type-test.vue) |
 | App-scoped assets for direct and managed inputs and previews | [AssetParity.browser.spec.ts](src/assets/__tests__/AssetParity.browser.spec.ts) |

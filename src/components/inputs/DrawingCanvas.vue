@@ -95,7 +95,7 @@ const clearCanvas = () => {
 </script>
 
 <template>
-  <BaseInput v-bind="props">
+  <BaseInput v-bind="props" v-slot="{ controlBindings }">
     <Card v-if="isSaved == null" class="flex flex-row items-center gap-4" color="surfaceContainerHigh">
       <Icon name="information" />
       <div class="flex flex-col">
@@ -119,6 +119,7 @@ const clearCanvas = () => {
     </Card>
     <div class="flex max-w-fit flex-col gap-4 p-0.5">
       <canvas
+        v-bind="controlBindings"
         class="canvas-container outline outline-1 outline-outline"
         ref="canvas"
         :width="width"

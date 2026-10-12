@@ -135,12 +135,17 @@ function handleItemClick(item: Option): void {
 </script>
 
 <template>
-  <BaseInput v-bind="props">
+  <BaseInput v-bind="props" v-slot="{ controlBindings }">
     <p v-if="loading" class="text-muted">Memuat data...</p>
     <p v-else-if="error" class="text-error">{{ error.message }} <button type="button" @click="refresh">Coba lagi</button></p>
-    <div v-else class="grid gap-4 grid-dynamic-[250px]">
-      <template v-for="item in data">
-        <Checkbox :label="String(item[view] ?? '')" :onToggle="() => handleItemClick(item)" :checked="!!modelValue.find((mvItem) => Object.is(identity(mvItem), item[pick]))" />
+    <div v-else role="group" class="grid gap-4 grid-dynamic-[250px]" :aria-required="controlBindings['aria-required']" :aria-invalid="controlBindings['aria-invalid']">
+      <template v-for="(item, index) in data">
+        <Checkbox
+          v-bind="{ ...controlBindings, id: index === 0 ? controlBindings.id : undefined, required: false }"
+          :label="String(item[view] ?? '')"
+          :onToggle="() => handleItemClick(item)"
+          :checked="!!modelValue.find((mvItem) => Object.is(identity(mvItem), item[pick]))"
+        />
       </template>
     </div>
   </BaseInput>

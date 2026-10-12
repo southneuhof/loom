@@ -12,6 +12,7 @@ export type { Coordinate, LocationPrediction, LocationOperations } from './locat
 
 export type { Label, LabelDictionary } from './labels'
 export type { DisplayField } from './display'
+export type { BaseInputControlBindings } from './formControlBindings'
 export type { TableColumn, TableDefinition } from './tables'
 export type { DetailField, DetailDefinition } from './details'
 export type {

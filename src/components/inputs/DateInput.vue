@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import Datepicker from '@vuepic/vue-datepicker'
 import BaseInput from './BaseInput.vue'
+import DatepickerControlInput from './DatepickerControlInput.vue'
+import DatepickerInputIcon from './DatepickerInputIcon.vue'
 import { useFrameworkUi } from '../../adapters/projectAdapters'
 import { commonProps } from './commonprops'
 import { ref, watch, type PropType } from 'vue'
@@ -8,6 +10,7 @@ import { isValid, lightFormat, parse } from 'date-fns'
 import { datepickerPopupClass, datepickerPopupConfig, datepickerTeleportProp } from './datepickerPopup'
 
 const props = defineProps({
+  placeholder: String,
   locale: {
     type: String,
     default: 'id-ID',
@@ -117,10 +120,13 @@ function handleBlur() {
 </script>
 
 <template>
-  <BaseInput v-bind="props">
+  <BaseInput v-bind="props" v-slot="{ controlBindings }">
     <Datepicker
       :class="datepickerPopupClass"
       v-model="internalValue"
+      :disabled="controlBindings.disabled"
+      :required="controlBindings.required"
+      :placeholder="props.placeholder"
       :minDate="minDate"
       auto-apply
       :inline="inline"
@@ -136,6 +142,22 @@ function handleBlur() {
       @invalid-date="markInvalidDate"
       @text-input="handleTextInput"
       @blur="handleBlur"
-    />
+    >
+      <template #dp-input="{ value, isMenuOpen, onInput, onBlur, onFocus, onKeypress, onPaste }">
+        <DatepickerControlInput
+          :control-bindings="controlBindings"
+          :value="value"
+          :is-menu-open="isMenuOpen"
+          input-mode="text"
+          :placeholder="props.placeholder"
+          :on-input="onInput"
+          :on-blur="onBlur"
+          :on-focus="onFocus"
+          :on-keypress="onKeypress"
+          :on-paste="onPaste"
+        />
+      </template>
+      <template #input-icon><DatepickerInputIcon /></template>
+    </Datepicker>
   </BaseInput>
 </template>

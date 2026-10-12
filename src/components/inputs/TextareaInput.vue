@@ -70,13 +70,13 @@ watch(
 </script>
 
 <template>
-  <BaseInput v-bind="props">
+  <BaseInput v-bind="props" v-slot="{ controlBindings }">
     <div
       :class="`flex h-full flex-row items-center gap-4 rounded-lg bg-transparent pl-4 pt-3 outline outline-1 outline-outline/[24%] transition-[outline-color,box-shadow] duration-150 ease-out focus-within:outline-secondary focus-within:ring-1 focus-within:ring-secondary/30 ${
         error ? 'outline-error focus-within:outline-error focus-within:ring-error/30 ' : ''
       } ${disabled ? 'pointer-events-none cursor-not-allowed opacity-60 ' : ''}`"
     >
-      <textarea class="h-full w-full bg-transparent focus-visible:outline-none" :rows="rows" :placeholder="placeholder" v-model="inputValue" @beforeinput="(e) => checkInput(e as InputEvent)" />
+      <textarea v-bind="controlBindings" class="h-full w-full bg-transparent focus-visible:outline-none" :rows="rows" :placeholder="placeholder" v-model="inputValue" @beforeinput="(e) => checkInput(e as InputEvent)" />
       <div v-if="$slots.action" class="mr-4 max-h-min"><slot name="action"></slot></div>
     </div>
   </BaseInput>

@@ -6,6 +6,8 @@ import { FrameworkPlugin } from '../../../adapters/plugin'
 import { createFrameworkQueryClient } from '../../../query'
 import { defineForm } from '../../../forms/defineForm'
 import Form from '../Form.vue'
+import CheckboxGroupInput from '../../inputs/CheckboxGroupInput.vue'
+import RadioGroupInput from '../../inputs/RadioGroupInput.vue'
 import TextInput from '../../inputs/TextInput.vue'
 import TextareaInput from '../../inputs/TextareaInput.vue'
 import './browser.css'
@@ -178,6 +180,188 @@ describe('Form control contracts in the browser', () => {
     expect(managedInputEvents).toHaveLength(1)
     expect(directInput.value).toBe('Changed directly')
     expect(managedInput.value).toBe('Changed in form')
+  })
+
+  it('links direct and managed helper and error messages to their controls', async () => {
+    const directValue = ref('Ada')
+    const directHelper = ref('Use your full name.')
+    const directError = ref('Enter a valid name.')
+    const submitted = vi.fn(async (value: { name: string }) => value)
+    const form = defineForm({
+      schema: z.object({ name: z.string().min(2, 'Enter at least two characters.') }),
+      fields: {
+        name: {
+          renderer: 'text',
+          props: {
+            id: 'managed-name',
+            helperMessage: 'Use the name on the account.',
+            'aria-describedby': 'managed-authored-hint',
+          },
+        },
+      },
+      submit: submitted,
+    })
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(defineComponent({
+      setup: () => () => h('div', [
+        h(TextInput, {
+          id: 'direct-name',
+          label: 'Direct name',
+          helperMessage: directHelper.value,
+          error: directError.value,
+          required: true,
+          'aria-describedby': 'direct-authored-hint',
+          modelValue: directValue.value,
+          'onUpdate:modelValue': (value: string | number | undefined) => { directValue.value = String(value ?? '') },
+        }),
+        h(Form, { ...form, initialData: { name: '' } }),
+      ]),
+    }))
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await settle()
+
+    const directInput = host.querySelector<HTMLInputElement>('#direct-name')!
+    const directDescriptions = directInput.getAttribute('aria-describedby')?.split(/\s+/) ?? []
+    const directHelperNode = document.getElementById(directDescriptions.find((id) => id !== 'direct-authored-hint')!)
+    const directErrorNode = host.querySelector<HTMLElement>('[role="alert"]')!
+    expect(directDescriptions).toContain('direct-authored-hint')
+    expect(directDescriptions).toContain(directHelperNode?.id)
+    expect(directDescriptions).toContain(directErrorNode.id)
+    expect(directHelperNode?.textContent).toBe('Use your full name.')
+    expect(directErrorNode.textContent).toBe('Enter a valid name.')
+    expect(directInput.required).toBe(true)
+    expect(directInput.getAttribute('aria-invalid')).toBe('true')
+    expect(directInput.compareDocumentPosition(directHelperNode!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(directHelperNode?.compareDocumentPosition(directErrorNode) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    const managedInput = host.querySelector<HTMLInputElement>('#managed-name')!
+    host.querySelector<HTMLFormElement>('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await vi.waitFor(() => expect(host.querySelectorAll('[role="alert"]')).toHaveLength(2))
+
+    const managedDescriptions = managedInput.getAttribute('aria-describedby')?.split(/\s+/) ?? []
+    const managedHelper = document.getElementById(managedDescriptions.find((id) => id !== 'managed-authored-hint')!)
+    const managedErrorId = managedDescriptions.find((id) => id !== 'managed-authored-hint' && id !== managedHelper?.id)
+    const managedError = managedErrorId ? document.getElementById(managedErrorId) : null
+    expect(managedDescriptions).toContain('managed-authored-hint')
+    expect(managedHelper?.textContent).toBe('Use the name on the account.')
+    expect(managedError?.textContent).toBe('Enter at least two characters.')
+    expect(managedInput.getAttribute('aria-invalid')).toBe('true')
+    expect(managedDescriptions).toContain(managedError?.id)
+    expect(managedHelper?.id).not.toBe(directHelperNode?.id)
+    expect(managedError?.id).not.toBe(directErrorNode.id)
+
+    const directErrorId = directErrorNode.id
+    directError.value = 'Update the direct error.'
+    await settle()
+    expect(document.getElementById(directErrorId)?.textContent).toBe('Update the direct error.')
+    directError.value = ''
+    await settle()
+    expect(document.getElementById(directErrorId)).toBeNull()
+    expect(directInput.getAttribute('aria-describedby')?.split(/\s+/)).toEqual(['direct-authored-hint', directHelperNode?.id])
+    expect(directInput.getAttribute('aria-invalid')).not.toBe('true')
+    directHelper.value = 'Updated direct helper.'
+    await settle()
+    expect(document.getElementById(directHelperNode!.id)?.textContent).toBe('Updated direct helper.')
+    app.unmount()
+  })
+
+  it('links Switch and label-suppressed checkbox messages to their controls', async () => {
+    const submitted = vi.fn(async (value: { enabled: boolean; confirmed: boolean }) => value)
+    const form = defineForm({
+      schema: z.object({
+        enabled: z.boolean().refine(Boolean, 'Turn on access.'),
+        confirmed: z.boolean().refine(Boolean, 'Confirm access.'),
+      }),
+      fields: {
+        enabled: { renderer: 'switch', props: { helperMessage: 'Controls account access.' } },
+        confirmed: { renderer: 'checkbox', props: { helperMessage: 'Confirms account access.' } },
+      },
+      submit: submitted,
+    })
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(defineComponent({
+      setup: () => () => h(Form, { ...form, initialData: { enabled: false, confirmed: false } }),
+    }))
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await vi.waitFor(async () => {
+      await settle()
+      expect(host.querySelector('button[type="submit"]')).not.toBeNull()
+      expect(host.querySelector('input[type="checkbox"]')).not.toBeNull()
+    })
+
+    host.querySelector<HTMLFormElement>('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await vi.waitFor(() => expect(host.querySelectorAll('[role="alert"]')).toHaveLength(2))
+
+    const enabledField = host.querySelector<HTMLElement>('.is-form-field')!
+    const switchControl = enabledField.querySelector<HTMLButtonElement>('button[type="button"]')!
+    const switchMessages = Array.from(enabledField.querySelectorAll<HTMLElement>('[id$="-helper"], [role="alert"]'))
+    expect(switchControl.id).toBe(enabledField.querySelector('label')?.htmlFor)
+    expect(switchControl.getAttribute('aria-invalid')).toBe('true')
+    expect(switchMessages.map((message) => message.textContent)).toEqual(['Controls account access.', 'Turn on access.'])
+    expect(switchMessages.map((message) => message.id)).toEqual(switchControl.getAttribute('aria-describedby')?.split(/\s+/))
+
+    const checkboxField = host.querySelectorAll<HTMLElement>('.is-form-field')[1]!
+    const checkbox = checkboxField.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+    const checkboxMessages = Array.from(checkboxField.querySelectorAll<HTMLElement>('[id$="-helper"], [role="alert"]'))
+    expect(checkbox.id).toBe(checkboxField.querySelector('label')?.htmlFor)
+    expect(checkbox.getAttribute('aria-invalid')).toBe('true')
+    expect(checkboxMessages.map((message) => message.textContent)).toEqual(['Confirms account access.', 'Confirm access.'])
+    expect(checkboxMessages.map((message) => message.id)).toEqual(checkbox.getAttribute('aria-describedby')?.split(/\s+/))
+  })
+
+  it('keeps required choice groups valid after one choice is selected', async () => {
+    const checkboxValue = ref<Array<string | number | Record<string, unknown>>>([])
+    const radioValue = ref<string | undefined>()
+    const choices = [{ id: 'read', name: 'Read' }, { id: 'write', name: 'Write' }]
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(defineComponent({
+      setup: () => () => h('form', { novalidate: false }, [
+        h(CheckboxGroupInput, {
+          label: 'Permissions',
+          data: choices,
+          required: true,
+          modelValue: checkboxValue.value,
+          'onUpdate:modelValue': (value: Array<string | number | Record<string, unknown>>) => { checkboxValue.value = value },
+        }),
+        h(RadioGroupInput, {
+          label: 'Account type',
+          data: [{ id: 'person', name: 'Person' }, { id: 'team', name: 'Team' }],
+          required: true,
+          modelValue: radioValue.value,
+          'onUpdate:modelValue': (value: string | number | undefined) => { radioValue.value = String(value ?? '') || undefined },
+        }),
+      ]),
+    }))
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await settle()
+
+    const formElement = host.querySelector<HTMLFormElement>('form')!
+    expect(formElement.noValidate).toBe(false)
+    expect(host.querySelector('[role="group"]')?.getAttribute('aria-required')).toBe('true')
+    expect(host.querySelector('[role="radiogroup"]')?.getAttribute('aria-required')).toBe('true')
+    expect(formElement.checkValidity()).toBe(false)
+
+    const read = host.querySelector<HTMLInputElement>('input[type="checkbox"]')!
+    read.click()
+    const radios = host.querySelectorAll<HTMLInputElement>('input[type="radio"]')
+    expect(radios).toHaveLength(2)
+    radios[0]!.click()
+    await settle()
+
+    expect(formElement.checkValidity()).toBe(true)
+    expect(checkboxValue.value).toEqual([choices[0]])
+    expect(radioValue.value).toBe('person')
+    expect([...host.querySelectorAll<HTMLInputElement>('input[type="checkbox"]')].filter((input) => input.checked)).toHaveLength(1)
+    expect([...host.querySelectorAll<HTMLInputElement>('input[type="radio"]')].filter((input) => input.checked)).toHaveLength(1)
   })
 
   it('keeps invalid numeric TextInput drafts local and submits only valid or unset values', async () => {

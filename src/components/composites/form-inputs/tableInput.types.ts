@@ -18,7 +18,6 @@ interface TableInputBase<TInput extends object, TRow extends object> {
   disabled?: boolean
   field?: string
   label?: string
-  enableHelperMessage?: boolean
   helperMessage?: string
   error?: string
   required?: boolean

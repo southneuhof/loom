@@ -45,12 +45,12 @@ const props = defineProps({
   ...commonProps,
 })
 const attrs = useAttrs()
-const controlAttrs = computed(() => Object.fromEntries(
-  Object.entries(attrs).filter(([key]) => key === 'id' || key.startsWith('aria-')),
-))
-const wrapperAttrs = computed(() => Object.fromEntries(
-  Object.entries(attrs).filter(([key]) => key === 'class' || key === 'style'),
-))
+function controlAttrs(): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(attrs).filter(([key]) => key === 'id' || key.startsWith('aria-')))
+}
+function wrapperAttrs(): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(attrs).filter(([key]) => key === 'class' || key === 'style'))
+}
 const fileManager = useOptionalFileManager()
 const AssetPicker = defineAsyncComponent(() => import('../../file-manager/AssetPicker.vue'))
 const assets = useAssetAdapter()
@@ -314,9 +314,12 @@ const canAddFile = computed(() => !invalidAsset.value && (props.multi || rows.va
 </script>
 
 <template>
-  <BaseInput v-bind="{ ...props, ...wrapperAttrs }">
+  <BaseInput
+    v-bind="{ ...props, ...wrapperAttrs(), ...controlAttrs() }"
+    :error="props.error || (invalidAsset ? 'Invalid asset value.' : '')"
+    v-slot="{ controlBindings }">
     <input
-      v-bind="controlAttrs"
+      v-bind="{ ...controlAttrs(), ...controlBindings, required: false }"
       ref="fileInput"
       type="file"
       hidden
@@ -360,8 +363,7 @@ const canAddFile = computed(() => !invalidAsset.value && (props.multi || rows.va
               </Button>
             </div>
           </div>
-          <div v-else role="alert" class="flex items-center gap-3 rounded-md bg-error-container p-3 text-on-error-container">
-            <span>Invalid asset value.</span>
+          <div v-else class="flex items-center gap-3 rounded-md bg-error-container p-3 text-on-error-container">
             <Button type="button" variant="text" :disabled="props.disabled" @click="handleFileDelete(row.id)">Remove invalid value</Button>
           </div>
         </template>

@@ -6,6 +6,7 @@ import { useFormInputPending } from '../useFormInputState'
 import { deferred, flush, mountCore } from './harness'
 import type { FrameworkAdaptersInput } from '../../../adapters/projectAdapters'
 import { testAssetAdapter } from '../../inputs/__tests__/harness'
+import type { BaseInputControlBindings } from '../../../contracts/formControlBindings'
 
 const mounted: Array<ReturnType<typeof mountCore>> = []
 
@@ -34,6 +35,118 @@ afterEach(() => {
 })
 
 describe('Form session', () => {
+  it('shows managed helper and validation text once after the registered control', async () => {
+    const submitResult = vi.fn(async (data: { name: string }) => data)
+    const view = mount({
+      schema: z.object({ name: z.string().min(1, 'Enter a name.') }),
+      fields: {
+        name: {
+          renderer: 'text',
+          props: { helperMessage: 'Use the name on the account.' },
+        },
+      },
+      initialData: { name: '' },
+      submit: submitResult,
+    })
+    await flush()
+
+    submit(view)
+    await flush()
+
+    const input = view.host.querySelector<HTMLInputElement>('input[id$="-field-name"]')
+    const field = input?.closest('.is-form-field')
+    const helper = Array.from(field?.querySelectorAll<HTMLElement>('*') ?? [])
+      .find((element) => element.textContent === 'Use the name on the account.')
+    const errors = Array.from(field?.querySelectorAll<HTMLElement>('[role="alert"]') ?? [])
+      .filter((element) => element.textContent === 'Enter a name.')
+    expect(helper).toBeDefined()
+    expect(input?.compareDocumentPosition(helper!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(errors).toHaveLength(1)
+    expect(helper?.compareDocumentPosition(errors[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(submitResult).not.toHaveBeenCalled()
+  })
+
+  it('delegates custom slot validation text and supplies bindings for the raw control', async () => {
+    const submitResult = vi.fn(async (data: { name: string }) => data)
+    const view = mount({
+      schema: z.object({ name: z.string().min(1, 'Enter a name.') }),
+      fields: {
+        name: {
+          renderer: 'text',
+          props: { helperMessage: 'Use the name on the account.' },
+        },
+      },
+      initialData: { name: '' },
+      submit: submitResult,
+    }, {
+      'input:name': (scope) => {
+        const controlBindings = scope.controlBindings as BaseInputControlBindings
+        const setValue = scope.setValue as (value: string) => void
+        return h('input', {
+          ...controlBindings,
+          value: String(scope.value ?? ''),
+          onInput: (event: Event) => setValue((event.target as HTMLInputElement).value),
+        })
+      },
+    })
+    await flush()
+
+    submit(view)
+    await flush()
+
+    const input = view.host.querySelector<HTMLInputElement>('input')
+    const label = view.host.querySelector<HTMLLabelElement>('label')
+    const field = input?.closest('.is-form-field')
+    const helper = Array.from(field?.querySelectorAll<HTMLElement>('*') ?? [])
+      .find((element) => element.textContent === 'Use the name on the account.')
+    const errors = field?.querySelectorAll<HTMLElement>('[role="alert"]')
+    const descriptions = input?.getAttribute('aria-describedby')?.split(' ') ?? []
+    expect(input?.id).toBe(label?.htmlFor)
+    expect(input?.getAttribute('aria-invalid')).toBe('true')
+    expect(descriptions).toContain(helper?.id)
+    expect(descriptions).toContain(errors?.[0]?.id)
+    expect(helper).toBeDefined()
+    expect(errors).toHaveLength(1)
+    expect(helper?.compareDocumentPosition(errors?.[0]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    expect(submitResult).not.toHaveBeenCalled()
+  })
+
+  it('shows a rejected unmatched required field in the form summary', async () => {
+    const submitResult = vi.fn(async (data: { name: string; secret: string }) => data)
+    const view = mount({
+      schema: z.object({ name: z.string(), secret: z.string() }),
+      fields: { name: { renderer: 'text' } },
+      initialData: { name: 'Ada' },
+      submit: submitResult,
+    })
+    await flush()
+
+    submit(view)
+    await flush()
+
+    const summary = view.host.querySelector<HTMLElement>('[role="alert"]')
+    expect(summary?.textContent).toContain('secret:')
+    expect(submitResult).not.toHaveBeenCalled()
+  })
+
+  it('shows a root validation issue in the form summary', async () => {
+    const submitResult = vi.fn(async (data: { name: string }) => data)
+    const view = mount({
+      schema: z.object({ name: z.string() }).refine(() => false, 'The form is incomplete.'),
+      fields: { name: { renderer: 'text' } },
+      initialData: { name: 'Ada' },
+      submit: submitResult,
+    })
+    await flush()
+
+    submit(view)
+    await flush()
+
+    const summary = view.host.querySelector<HTMLElement>('[role="alert"]')
+    expect(summary?.textContent).toContain('The form is incomplete.')
+    expect(submitResult).not.toHaveBeenCalled()
+  })
+
   it('keeps per-session defaults and IDs, with explicit falsey and undefined values above factories', async () => {
     let defaultCalls = 0
     let overriddenFactoryCalls = 0
