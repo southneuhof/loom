@@ -30,7 +30,6 @@ const modelValue = defineModel<string>()
 // if (props.defaultToCurrent && !modelValue.value) modelValue.value = {hours: String(new Date().getHours()), minutes: String(new Date().getMinutes()), seconds: String(new Date().getSeconds())}
 
 const internalValue = ref<TimeParts | null>()
-const modelUpdated = ref(false)
 
 if (props.defaultToCurrent) internalValue.value = { hours: new Date().getHours(), minutes: new Date().getMinutes(), seconds: new Date().getSeconds() }
 else if (modelValue.value) internalValue.value = parseTimeValue(modelValue.value)
@@ -44,7 +43,7 @@ watch(
     }
     modelValue.value = formatTimeValue(internalValue.value)
   },
-  { immediate: props.defaultToCurrent }
+  { immediate: props.defaultToCurrent, flush: 'sync' }
 )
 
 watch(
@@ -68,14 +67,8 @@ function displayFormatter(value: Record<string, any>) {
   return modelValue.value ? modelValue.value : 'Masukkan Waktu'
 }
 
-function markModelUpdated() {
-  modelUpdated.value = true
-}
-
 function handleBlur() {
-  const wasUpdated = modelUpdated.value
-  modelUpdated.value = false
-  if (!wasUpdated) emit('validation:touch')
+  emit('validation:touch')
 }
 </script>
 
@@ -88,13 +81,11 @@ function handleBlur() {
       :placeholder="props.placeholder"
       :format="displayFormatter"
       time-picker
-      auto-apply
       :dark="useFrameworkUi().colorPreference().value === 'dark'"
       :teleport="teleport"
       :config="datepickerPopupConfig"
       :class="datepickerPopupClass"
       @focusout.stop
-      @update:model-value="markModelUpdated"
       @blur="handleBlur"
     >
       <template #dp-input="{ value, isMenuOpen, onInput, onBlur, onFocus, onKeypress, onPaste }">

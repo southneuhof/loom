@@ -28,6 +28,30 @@ afterEach(() => {
 })
 
 describe('ListView collection presentation', () => {
+  it('renders its custom empty slot when loading returns no records', async () => {
+    const table: TableProps<Role, RoleQuery> = {
+      namespace: 'browser-list-view-empty-slot',
+      schema: z.object({ name: z.string() }),
+      columns: { name: { label: 'Name' } },
+      load: async () => ({ data: [] }),
+    }
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(defineComponent({
+      setup: () => () => h(ListView, { title: 'Roles', table }, {
+        empty: () => h('p', { 'data-empty-message': '' }, 'No roles match your search.'),
+      }),
+    }))
+    app.use(createRouter({ history: createMemoryHistory(), routes: [{ path: '/:pathMatch(.*)*', component: { render: () => null } }] }))
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await frame(6)
+
+    expect(host.querySelector('[data-empty-message]')?.textContent).toBe('No roles match your search.')
+    expect(host.querySelector('table')).toBeNull()
+  })
+
   it('keeps one loader, query, and records when switching table and custom views', async () => {
     const host = document.createElement('div')
     document.body.append(host)

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, type PropType } from 'vue'
+import { computed, useAttrs, type PropType } from 'vue'
 import BaseInput from './BaseInput.vue'
 
 type SwitchSize = 'lg' | 'md'
@@ -45,8 +45,12 @@ const props = defineProps({
   required: { type: Boolean, default: false },
 })
 
+defineOptions({ inheritAttrs: false })
+
+const emit = defineEmits<{ (event: 'validation:touch'): void }>()
 const modelValue = defineModel<boolean>({ default: false })
 const isChecked = computed(() => modelValue.value)
+const attrs = useAttrs()
 
 const classMap = {
   track: {
@@ -93,21 +97,46 @@ function handleClick() {
     props.onDeactive()
   }
 }
+
+function nativeAttributes(): Record<string, unknown> {
+  const attributes = Object.fromEntries(Object.entries(attrs).filter(([key]) => (
+    key !== 'class'
+    && key !== 'style'
+    && key !== 'id'
+    && key !== 'aria-describedby'
+    && key !== 'aria-invalid'
+    && key !== 'aria-required'
+  )))
+  if (attributes['aria-label'] === undefined && attributes['aria-labelledby'] === undefined) {
+    attributes['aria-label'] = props.label || props.description || undefined
+  }
+  return attributes
+}
 </script>
 
 <template>
   <BaseInput
+    :class="attrs.class as string"
+    :style="attrs.style as string"
     :field="props.field"
     :label="''"
+    :id="attrs.id as string | undefined"
+    :ariaDescribedby="attrs['aria-describedby'] as string | undefined"
+    :ariaInvalid="attrs['aria-invalid'] as string | boolean | undefined"
+    :ariaRequired="attrs['aria-required'] as string | boolean | undefined"
     :helper-message="props.helperMessage"
     :error="props.error"
     :disabled="props.disabled"
     :required="props.required"
-    v-slot="{ controlBindings }">
+    v-slot="{ controlBindings }"
+    @validation:touch="emit('validation:touch')"
+  >
     <div class="flex flex-row items-center gap-4">
       <button
-        v-bind="controlBindings"
+        v-bind="{ ...nativeAttributes(), ...controlBindings }"
         type="button"
+        role="switch"
+        :aria-checked="isChecked"
         @click="handleClick"
         :class="`rounded-full ${sizeMap[props.size].track} ${props.disabled ? classMap.track.disabled : isChecked ? classMap.track.active : classMap.track.inactive}`"
         :disabled="props.disabled"

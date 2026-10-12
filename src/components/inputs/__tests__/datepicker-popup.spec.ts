@@ -113,7 +113,7 @@ describe('datepicker popup safety', () => {
     view.unmount()
   })
 
-  it.each(inputs)('%s treats a model update as input, not validation', async (_name, component) => {
+  it.each(inputs.filter(([, component]) => component !== TimeInput))('%s treats a model update as input, not validation', async (_name, component) => {
     const touch = vi.fn()
     const view = await mountInput(component, {}, { 'onValidation:touch': touch })
 
@@ -128,10 +128,13 @@ describe('datepicker popup safety', () => {
     view.unmount()
   })
 
-  it('Time commits the picked value before the blur validation', async () => {
-    const view = await mountInput(TimeInput, {}, { 'onValidation:touch': () => {} })
-    expect(picker.latest.timePicker).toBe(true)
-    expect(picker.latest.autoApply).toBe(true)
+  it('Time validates a committed model update on picker blur', async () => {
+    const touch = vi.fn()
+    const view = await mountInput(TimeInput, {}, { 'onValidation:touch': touch })
+    picker.triggerModelUpdate?.()
+    picker.triggerBlur?.()
+
+    expect(touch).toHaveBeenCalledOnce()
     view.unmount()
   })
 

@@ -16,6 +16,9 @@ const table: TableProps<Role, RoleQuery> = {
 
 <template>
   <ListView :table="table">
+    <template #empty>
+      <span>No roles match.</span>
+    </template>
     <template #collection="{ records, query, meta, loading, error, empty, refresh, updateQuery, actions }">
       <span>{{ records[0]?.name }}</span>
       <span>{{ query.state }}</span>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { PropType } from 'vue'
-import { ref, watch } from 'vue'
+import { ref, useAttrs, watch } from 'vue'
 import BaseInput from './BaseInput.vue'
 import { commonProps } from './commonprops'
 import type { TextareaInputConstraint, TextareaInputModelValue } from './textareaInput.types'
@@ -21,11 +21,15 @@ const props = defineProps({
   ...commonProps,
 })
 
+defineOptions({ inheritAttrs: false })
+
 const modelValue = defineModel<TextareaInputModelValue<readonly TextareaInputConstraint[]>>()
 const inputValue = ref<string | number | undefined>(modelValue.value)
 const emit = defineEmits<{
+  (event: 'validation:touch'): void
   (event: 'validation:error', message: string | undefined): void
 }>()
+const attrs = useAttrs()
 const constraintRegex = {
   number: /^[0-9]*$/,
   text: /^[a-zA-Z\s]*$/,
@@ -67,16 +71,42 @@ watch(
   },
   { immediate: true }
 )
+
+function nativeAttributes(): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(attrs).filter(([key]) => (
+    key !== 'class'
+    && key !== 'style'
+    && key !== 'id'
+    && key !== 'aria-describedby'
+    && key !== 'aria-invalid'
+    && key !== 'aria-required'
+  )))
+}
 </script>
 
 <template>
-  <BaseInput v-bind="props" v-slot="{ controlBindings }">
+  <BaseInput
+    :class="attrs.class as string"
+    :style="attrs.style as string"
+    :field="props.field"
+    :label="props.label"
+    :helper-message="props.helperMessage"
+    :disabled="props.disabled"
+    :error="props.error"
+    :required="props.required"
+    :id="attrs.id as string | undefined"
+    :ariaDescribedby="attrs['aria-describedby'] as string | undefined"
+    :ariaInvalid="attrs['aria-invalid'] as string | boolean | undefined"
+    :ariaRequired="attrs['aria-required'] as string | boolean | undefined"
+    v-slot="{ controlBindings }"
+    @validation:touch="emit('validation:touch')"
+  >
     <div
       :class="`flex h-full flex-row items-center gap-4 rounded-lg bg-transparent pl-4 pt-3 outline outline-1 outline-outline/[24%] transition-[outline-color,box-shadow] duration-150 ease-out focus-within:outline-secondary focus-within:ring-1 focus-within:ring-secondary/30 ${
         error ? 'outline-error focus-within:outline-error focus-within:ring-error/30 ' : ''
       } ${disabled ? 'pointer-events-none cursor-not-allowed opacity-60 ' : ''}`"
     >
-      <textarea v-bind="controlBindings" class="h-full w-full bg-transparent focus-visible:outline-none" :rows="rows" :placeholder="placeholder" v-model="inputValue" @beforeinput="(e) => checkInput(e as InputEvent)" />
+      <textarea v-bind="{ ...nativeAttributes(), ...controlBindings }" class="h-full w-full bg-transparent focus-visible:outline-none" :rows="rows" :placeholder="placeholder" v-model="inputValue" @beforeinput="(e) => checkInput(e as InputEvent)" />
       <div v-if="$slots.action" class="mr-4 max-h-min"><slot name="action"></slot></div>
     </div>
   </BaseInput>

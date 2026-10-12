@@ -113,6 +113,7 @@ const submitDisabled = computed(() => props.disabled === true || submitting.valu
 watch(open, (value, previous) => {
   if (value === previous) return
   dialogGeneration.value += 1
+  if (value) formMountGeneration.value += 1
   closeOwnership += 1
   checkingClose.value = false
 })
@@ -245,7 +246,6 @@ defineExpose({
         <slot name="header" :request-close="requestClose" />
 
         <Form
-          v-if="open"
           :key="formMountGeneration"
           ref="form"
           v-bind="forwardedFormProps"

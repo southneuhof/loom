@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { commonProps } from './commonprops'
 import BaseInput from './BaseInput.vue'
-import { onBeforeUnmount, ref, watch, type PropType } from 'vue'
+import { onBeforeUnmount, ref, type PropType } from 'vue'
 import 'tinymce/tinymce'
 import 'tinymce/skins/ui/oxide/skin.css'
 import 'tinymce/skins/ui/oxide/content.css'

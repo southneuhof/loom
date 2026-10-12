@@ -58,6 +58,7 @@ defineSlots<{
   "create-action"?: (props: { can?: ListViewActions<TRecord>["can"]; target: import("vue-router").RouteLocationRaw }) => unknown;
   "resource-action"?: () => unknown;
   header?: () => unknown;
+  empty?: () => unknown;
   filters?: () => unknown;
   body?: (props: { table: TableProps<TRecord, TQuery> }) => unknown;
   footer?: () => unknown;
