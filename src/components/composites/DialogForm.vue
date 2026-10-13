@@ -17,7 +17,7 @@ const props = withDefaults(defineProps<DialogFormProps<TInput, TOutput, TResult,
 defineSlots<DialogFormSlots<TInput, TKeys>>()
 const emit = defineEmits<{
   (event: 'update:modelValue', value: FormDraftSnapshot<TInput>): void
-  (event: 'submitted', result: TResult): void
+  (event: 'submitted', result: TResult, refreshError?: SubmitError): void
   (event: 'error', error: SubmitError): void
   (event: 'reset'): void
   (event: 'update:open', value: boolean): void
@@ -183,9 +183,10 @@ function handleDialogModel(value: boolean): void {
   setOpen(value)
 }
 
-function handleSubmitted(result: TResult, generation: number): void {
+function handleSubmitted(result: TResult, refreshError: SubmitError | undefined, generation: number): void {
   if (generation !== dialogGeneration.value || !open.value) return
-  emit('submitted', result)
+  if (refreshError === undefined) emit('submitted', result)
+  else emit('submitted', result, refreshError)
   if (props.closeOnSubmitted !== false) open.value = false
 }
 
@@ -251,7 +252,7 @@ defineExpose({
           v-bind="forwardedFormProps"
           @submit.capture="noteSubmit"
           @update:model-value="emit('update:modelValue', $event)"
-          @submitted="handleSubmitted($event, dialogGeneration)"
+          @submitted="(result, refreshError) => handleSubmitted(result, refreshError, dialogGeneration)"
           @error="emit('error', $event)"
           @reset="emit('reset')"
         >

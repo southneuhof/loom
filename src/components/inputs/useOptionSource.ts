@@ -39,7 +39,7 @@ export function useOptionSource<TOption extends object>(
     }
   })
   watch(() => props.load, (load, previousLoad) => {
-    if (props.data === undefined && load && previousLoad) void source.refresh()
+    if (props.data === undefined && load && previousLoad) void source.refresh().catch(() => undefined)
   })
 
   return {

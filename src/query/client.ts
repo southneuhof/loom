@@ -6,9 +6,9 @@
  * component or resource APIs.
  */
 import { inject, type InjectionKey } from 'vue'
-import { QueryClient, useQueryClient } from '@tanstack/vue-query'
+import { CancelledError, isCancelledError, QueryClient, useQueryClient } from '@tanstack/vue-query'
 import { defaultQueryRuntimeDefaults, type QueryRuntimeDefaults } from '../adapters/projectAdapters'
-import { recordKey, resourceKey, resourceOptionsKeyPrefix } from './keys'
+import { selectResourceQueries } from './feedback'
 import type { RecordIdentity } from '../contracts'
 
 export const frameworkQueryClientKey: InjectionKey<QueryClient> = Symbol.for('loom-query-client')
@@ -38,13 +38,19 @@ export interface ResourceInvalidation {
 }
 
 export async function invalidateResourceData(client: QueryClient, { resource, id }: ResourceInvalidation): Promise<void> {
-  if (id === undefined) {
-    await client.invalidateQueries({ queryKey: resourceKey(resource) })
-    return
-  }
-  await Promise.all([
-    client.invalidateQueries({ queryKey: [...resourceKey(resource), 'list'] }),
-    client.invalidateQueries({ queryKey: resourceOptionsKeyPrefix(resource) }),
-    client.invalidateQueries({ queryKey: recordKey({ resource, id, variant: 'display' }).slice(0, 4) }),
-  ])
+  const selection = selectResourceQueries(client, resource, id)
+  const queries = selection.queries
+  const activeQueries = new Map(queries
+    .filter((query) => query.isActive() && !query.isStatic())
+    .map((query) => [query, query.state.dataUpdateCount]))
+  const invalidations = selection.groups.flatMap((group) => group.queries.length > 0
+    ? group.queries.map((query) => client.invalidateQueries({ queryKey: query.queryKey, exact: true }, { throwOnError: true }))
+    : [client.invalidateQueries({ queryKey: group.key }, { throwOnError: true })])
+  const results = await Promise.allSettled(invalidations)
+  const errors = results.flatMap((result) => result.status === 'rejected' ? [result.reason] : [])
+  const failedRead = errors.findIndex((error) => !isCancelledError(error))
+  if (failedRead >= 0) throw errors[failedRead]
+  const canceledRead = errors.some(isCancelledError)
+    || [...activeQueries].some(([query, dataUpdateCount]) => query.state.dataUpdateCount === dataUpdateCount)
+  if (canceledRead) throw new CancelledError()
 }

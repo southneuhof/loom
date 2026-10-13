@@ -157,6 +157,57 @@ type DetailBagShape = {
 
 type TableQuery<TTable> = TTable extends { load: (context: CollectionLoadContext<infer TQuery>) => unknown } ? (TQuery extends object ? TQuery : Record<string, unknown>) : Record<string, unknown>
 
+type QuerySortBy<TTable> = TableQuery<TTable> extends { sort_by?: infer TSortBy }
+  ? Exclude<TSortBy, null | undefined>
+  : never
+
+type QuerySortIsUnbounded<TTable> = string extends keyof TableQuery<TTable>
+  ? true
+  : string extends QuerySortBy<TTable>
+    ? true
+    : false
+
+type ResourceColumnSortKey<TKey extends string, TColumn> = 'sortKey' extends keyof TColumn
+  ? TColumn extends { sortKey?: infer TSortKey extends string | undefined }
+    ? Exclude<TSortKey, undefined> | (undefined extends TSortKey ? TKey : never)
+    : TKey
+  : TKey
+
+type ResourceSortMemberValid<TTable, TKey extends string, TColumn> = TColumn extends unknown
+  ? 'sortable' extends keyof TColumn
+    ? TColumn extends { sortable?: infer TSortable }
+      ? true extends TSortable
+        ? QuerySortIsUnbounded<TTable> extends true
+          ? true
+          : [ResourceColumnSortKey<TKey, TColumn>] extends [QuerySortBy<TTable>]
+            ? true
+            : false
+        : true
+      : true
+    : true
+  : never
+
+type InvalidResourceSortKeys<TTable, TColumns> = {
+  [TKey in keyof TColumns]-?: TKey extends string
+    ? [ResourceSortMemberValid<TTable, TKey, TColumns[TKey]>] extends [true]
+      ? never
+      : TKey
+    : never
+}[keyof TColumns]
+
+type ResourceSortKeyDiagnostic<TKey extends string> = {
+  readonly __sortKeyMustBeAllowedByLoaderQuery: never
+  readonly __columnName: TKey
+}
+
+type ResourceSortColumnsDiagnostic<TTable, TColumns> = [InvalidResourceSortKeys<TTable, TColumns>] extends [never]
+  ? {}
+  : {
+      columns: {
+        [TKey in InvalidResourceSortKeys<TTable, TColumns>]-?: TKey extends string ? ResourceSortKeyDiagnostic<TKey> : never
+      }
+    }
+
 type ListFilterInput<TList, TQuery extends object> = TList extends { filters: infer TFilters }
   ? TFilters extends { schema: { readonly _input: infer TInput } }
     ? TInput extends object
@@ -554,9 +605,9 @@ type FactoryResultDiagnostic<TFactory, TDiagnostic> = TFactory extends (...args:
 type FactoryResult<TFactory> = TFactory extends (...args: never[]) => infer TResult ? TResult : never
 
 type ResourceListBagDiagnostic<TList> = TList extends { table: infer TTable }
-  ? keyof ExtraMemberDiagnostic<TTable, ResourceListTable> extends never
+  ? keyof (ExtraMemberDiagnostic<TTable, ResourceListTable> & ResourceSortColumnsDiagnostic<TTable, TTable extends { columns: infer TColumns } ? TColumns : object>) extends never
     ? {}
-    : { table: ExtraMemberDiagnostic<TTable, ResourceListTable> }
+    : { table: ExtraMemberDiagnostic<TTable, ResourceListTable> & ResourceSortColumnsDiagnostic<TTable, TTable extends { columns: infer TColumns } ? TColumns : object> }
   : {}
 
 type ResourceListDiagnostic<TList> = ExtraMemberDiagnostic<TList, ResourceListDeclaration> & ResourceListBagDiagnostic<TList>

@@ -23,7 +23,7 @@ const props = defineProps<FormViewProps<TInput, TOutput, TResult, TKeys>>()
 defineSlots<FormViewSlots<TInput, TOutput, TResult, TKeys>>()
 const form = computed(() => props.form)
 const emit = defineEmits<{
-  (event: 'submitted', result: TResult): void
+  (event: 'submitted', result: TResult, refreshError?: SubmitError): void
   (event: 'error', error: SubmitError): void
 }>()
 const slots = useSlots()
@@ -71,10 +71,11 @@ function settlePendingLeave(allow: boolean) {
   resolve?.(allow)
 }
 
-async function submitted(result: TResult) {
-  emit('submitted', result)
+async function submitted(result: TResult, refreshError?: SubmitError) {
+  if (refreshError === undefined) emit('submitted', result)
+  else emit('submitted', result, refreshError)
   const successMessage = props.successMessage === undefined ? 'Changes saved.' : props.successMessage
-  if (successMessage) toast.success(successMessage)
+  if (successMessage && refreshError === undefined) toast.success(successMessage)
 
   let handled = false
   const navigate = async (to: RouteLocationRaw) => {

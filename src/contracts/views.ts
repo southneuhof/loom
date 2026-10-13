@@ -59,6 +59,8 @@ export type ListViewDeleteState = Readonly<{
   disabled: boolean
   pending: boolean
   error?: Readonly<SubmitError>
+  refreshing?: boolean
+  refresh?: () => Promise<void>
 }>
 
 export type ListViewSlotActions<TRecord extends object = Record<string, unknown>> = Omit<ListViewActions<TRecord>, 'deleteRecord' | 'recordIdentity'> & {

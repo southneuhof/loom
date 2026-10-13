@@ -3,6 +3,7 @@ import { computed, getCurrentInstance, onBeforeUpdate, reactive, ref, useAttrs, 
 import type { FormDraft, FormDraftSnapshot, FormInputSlotProps, FormSlots } from '../../contracts/forms'
 import type { SubmitError } from '../../contracts/results'
 import type { FormProps } from '../../forms/props'
+import { isConfirmedWriteRefreshError } from '../../resources/postWriteOutcome'
 import { formNativeAttributeNames } from '../../forms/props'
 import { useFormSession } from '../../forms/useFormSession'
 import { useRendererRegistry } from '../../renderers/registry'
@@ -23,7 +24,7 @@ const attrsRevision = ref(0)
 
 const emit = defineEmits<{
   (event: 'update:modelValue', value: FormDraftSnapshot<TInput>): void
-  (event: 'submitted', result: TResult): void
+  (event: 'submitted', result: TResult, refreshError?: SubmitError): void
   (event: 'error', error: SubmitError): void
   (event: 'reset'): void
 }>()
@@ -32,7 +33,10 @@ const controlGenerations = reactive(new Map<string, number>())
 const fieldModels = new Map<string, WritableComputedRef<unknown>>()
 const session = useFormSession(props, {
   updateModel: (value) => emit('update:modelValue', value),
-  submitted: (result) => emit('submitted', result),
+  submitted: (result, refreshError) => {
+    if (refreshError === undefined) emit('submitted', result)
+    else emit('submitted', result, refreshError)
+  },
   error: (error) => emit('error', error),
   reset: () => emit('reset'),
 })
@@ -202,9 +206,11 @@ defineExpose({
 
 <template>
   <form v-bind="nativeFormBindings" :id="session.formId" :novalidate="props.novalidate === '' ? true : (props.novalidate ?? true)" class="flex flex-col gap-5" @submit.prevent="submit">
-    <p v-if="postWriteError" role="alert" class="rounded-lg bg-error-container px-4 py-3 text-sm leading-5 text-on-error-container">
-      The save may have completed. Check the record before starting another save.
-    </p>
+    <div v-if="postWriteError" role="alert" class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-error-container px-4 py-3 text-sm leading-5 text-on-error-container">
+      <p v-if="isConfirmedWriteRefreshError<TResult>(postWriteError)">Changes saved. The data could not be refreshed.</p>
+      <p v-else>The save may have completed. Check the record before starting another save.</p>
+      <Button v-if="isConfirmedWriteRefreshError<TResult>(postWriteError)" type="button" variant="text" class="min-w-0 px-4" @click="session.refresh">Retry refresh</Button>
+    </div>
 
     <slot v-if="loading" name="loading">
       <div class="rounded-lg bg-surface-container px-4 py-3 text-sm text-on-surface">
@@ -266,7 +272,7 @@ defineExpose({
         </div>
       </div>
 
-      <slot name="actions" :submit="submit" :reset="reset" :submitting="submitting" :submit-pending="submitPending" :post-write-error="postWriteError" :validating="validating" :dirty="dirty" :input-pending="inputPending">
+      <slot name="actions" :submit="submit" :reset="reset" :refresh="session.refresh" :submitting="submitting" :submit-pending="submitPending" :post-write-error="postWriteError" :validating="validating" :dirty="dirty" :input-pending="inputPending">
         <Button v-if="hasSubmit" type="submit" :disabled="props.disabled === true || loading || submitPending || submitting || inputPending || postWriteError !== undefined">
           {{ submitting ? (props.submittingLabel ?? submitLabel) : submitLabel }}
         </Button>

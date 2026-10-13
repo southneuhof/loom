@@ -42,6 +42,36 @@ describe('default data adapter', () => {
       postWrite: true,
     })
   })
+
+  it('preserves confirmed write results, refresh callbacks, and issues', () => {
+    const result = undefined
+    const refresh = async () => {}
+    const issues = [{ path: ['name'], message: 'Required.' }]
+    const normalized = defaultDataAdapter.normalizeError({
+      message: 'The write was saved, but the read failed.',
+      code: 'RESOURCE_POST_WRITE_INVALIDATION_FAILED',
+      operation: 'delete',
+      retryable: false,
+      postWrite: true,
+      writeOutcome: 'confirmed',
+      result,
+      refresh,
+      issues,
+    })
+
+    expect(normalized).toEqual({
+      message: 'The write was saved, but the read failed.',
+      code: 'RESOURCE_POST_WRITE_INVALIDATION_FAILED',
+      operation: 'delete',
+      retryable: false,
+      postWrite: true,
+      writeOutcome: 'confirmed',
+      result: undefined,
+      refresh,
+      issues,
+    })
+    expect(Object.hasOwn(normalized, 'result')).toBe(true)
+  })
 })
 
 describe('adapter resolution', () => {

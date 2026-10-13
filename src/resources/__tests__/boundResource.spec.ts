@@ -568,12 +568,15 @@ describe('bound resource operations', () => {
     )
 
     expect(createError).toMatchObject({ code: 'RESOURCE_RESULT_INVALID', operation: 'create', retryable: false, postWrite: true })
+    expect(createError).toHaveProperty('writeOutcome', 'uncertain')
+    expect(createError).not.toHaveProperty('result')
     expect((createError as Error).message).toContain('may have completed')
     expect(resolveFrameworkAdapters().data.normalizeError(createError)).toMatchObject({
       code: 'RESOURCE_RESULT_INVALID',
       operation: 'create',
       retryable: false,
       postWrite: true,
+      writeOutcome: 'uncertain',
     })
     expect(createSubmit).toHaveBeenCalledOnce()
     expect(create.create.defaultTo).toBe(false)
@@ -594,7 +597,7 @@ describe('bound resource operations', () => {
       (error: unknown) => error,
     )
 
-    expect(updateError).toMatchObject({ code: 'RESOURCE_RESULT_INVALID', operation: 'update', retryable: false, postWrite: true })
+    expect(updateError).toMatchObject({ code: 'RESOURCE_RESULT_INVALID', operation: 'update', retryable: false, postWrite: true, writeOutcome: 'uncertain' })
     expect(updateSubmit).toHaveBeenCalledOnce()
     expect(invalidate.mock.calls.map(([filter]) => filter.queryKey)).toEqual([
       ['resource', 'invalid-update-result', 'list'],
@@ -614,8 +617,49 @@ describe('bound resource operations', () => {
       (error: unknown) => error,
     )
 
-    expect(invalidationError).toMatchObject({ code: 'RESOURCE_POST_WRITE_INVALIDATION_FAILED', operation: 'create', retryable: false, postWrite: true })
+    expect(invalidationError).toMatchObject({
+      code: 'RESOURCE_POST_WRITE_INVALIDATION_FAILED',
+      operation: 'create',
+      retryable: false,
+      postWrite: true,
+      writeOutcome: 'confirmed',
+      result: { id: 'valid-result' },
+      refresh: expect.any(Function),
+    })
+    const normalized = resolveFrameworkAdapters().data.normalizeError(invalidationError)
+    if (!normalized.refresh) throw new Error('Confirmed refresh failure has no recovery callback.')
+    await expect(normalized.refresh()).rejects.toThrow('Query client unavailable')
     expect(validSubmit).toHaveBeenCalledOnce()
+  })
+
+  it('keeps an undefined delete result and offers reads-only recovery after refresh failure', async () => {
+    const queryClient = installRuntime()
+    vi.spyOn(queryClient, 'invalidateQueries').mockRejectedValue(new Error('Read refresh failed.'))
+    const run = vi.fn(async () => undefined)
+    const resource = defineResource({
+      key: 'undefined-delete-result',
+      identity: (record: { id: string }) => record.id,
+      delete: { permission: null, run },
+    })
+
+    const error = await resource.delete({ id: 'record-1' }).run().then(
+      () => undefined,
+      (caught: unknown) => caught,
+    )
+    const normalized = resolveFrameworkAdapters().data.normalizeError(error)
+
+    expect(normalized).toMatchObject({
+      code: 'RESOURCE_POST_WRITE_INVALIDATION_FAILED',
+      operation: 'delete',
+      postWrite: true,
+      writeOutcome: 'confirmed',
+      result: undefined,
+      refresh: expect.any(Function),
+    })
+    expect(Object.hasOwn(normalized, 'result')).toBe(true)
+    if (!normalized.refresh) throw new Error('Confirmed delete refresh failure has no recovery callback.')
+    await expect(normalized.refresh()).rejects.toThrow('Read refresh failed.')
+    expect(run).toHaveBeenCalledOnce()
   })
 
   it('forwards canonical list and form View props while binding primitives', async () => {

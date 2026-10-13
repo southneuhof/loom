@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { createApp, defineComponent, h, ref, toRaw } from 'vue'
+import { createApp, defineComponent, h, ref, toRaw, type Component } from 'vue'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { z } from 'zod'
-import type { QueryValues, RecordIdentity } from '../../../contracts'
+import type { CollectionSlotProps, QueryValues, RecordIdentity } from '../../../contracts'
 import type { ListViewSlotActions } from '../../../contracts/views'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import ListView from '../ListView.vue'
@@ -14,6 +14,10 @@ import Form from '../../core/Form.vue'
 import { deferred, flush, mountCore } from '../../core/__tests__/harness'
 import { testAssetAdapter } from '../../inputs/__tests__/harness'
 import type { AssetAdapter } from '../../../assets/contracts'
+import { defineResource } from '../../../resources/defineResource'
+import { useFrameworkQueryClient } from '../../../query/client'
+import { resetResourceRuntimeForTests } from '../../../resources/runtime'
+import { toast } from 'vue-sonner'
 
 const viewsRoot = join(__dirname, '..')
 
@@ -27,6 +31,7 @@ const detailProps = {
   fields: { name: { label: 'Nama', read: (record: { name: string }) => record.name } },
   data: { name: 'Admin' },
 }
+const boundDeleteListCleanup = new Set<() => void>()
 
 function mountControlledListView(props: Record<string, unknown>) {
   const table = props.table as Record<string, unknown>
@@ -719,15 +724,46 @@ describe('ListView', () => {
   })
 
   it('rejects page as a filter-owned query key', () => {
-    expect(() => mountControlledListView({
-      table: { schema: z.object({ name: z.string() }), columns: { name: { label: 'Name' } }, query: { page: 2 }, data: [{ name: 'Admin' }] },
-      filters: {
-        schema: z.object({ page: z.number().optional() }),
-        fields: { page: { label: 'Page', renderer: 'number' } },
-        queryKeys: ['page'],
-        toDraft: () => ({}),
-      },
-    })).toThrow('filters.queryKeys cannot include the reserved ListView query key "page".')
+    const errors: Array<{ error: unknown; info: string }> = []
+    const host = document.createElement('div')
+    const app = createApp(
+      defineComponent({
+        setup: () => () =>
+          h(ListView, {
+            table: { schema: z.object({ name: z.string() }), columns: { name: { label: 'Name' } }, query: { page: 2 }, data: [{ name: 'Admin' }] },
+            filters: {
+              schema: z.object({ page: z.number().optional() }),
+              fields: { page: { label: 'Page', renderer: 'number' } },
+              queryKeys: ['page'],
+              toDraft: () => ({}),
+            },
+          }),
+      })
+    )
+    app.config.errorHandler = (error, _instance, info) => {
+      errors.push({ error, info })
+    }
+    app.use(
+      createRouter({
+        history: createMemoryHistory(),
+        routes: [{ path: '/:pathMatch(.*)*', name: 'test-route', component: { render: () => null } }],
+      })
+    )
+    app.use(FrameworkPlugin, { adapters: { assets: testAssetAdapter } })
+    let mounted = false
+    try {
+      app.mount(host)
+      mounted = true
+      const setupErrors = errors.filter(({ info }) => info === 'setup function')
+      expect(setupErrors).toHaveLength(1)
+      expect(setupErrors[0]?.error).toMatchObject({
+        message: '[loom][SURFACE_OPTION_INVALID] filters.queryKeys cannot include the reserved ListView query key "page".',
+      })
+    } finally {
+      if (mounted) app.unmount()
+      host.remove()
+      resetResourceRuntimeForTests()
+    }
   })
 })
 
@@ -1390,12 +1426,43 @@ describe('ListView row delete control', () => {
   })
 
   it('requires a record identity at runtime when delete is configured', () => {
-    expect(() => mountCore(ListView, {
-      table: { ...baseProps.table, load: () => ({ data: [{ id: '1', name: 'Admin' }] }) },
-      deleteRecord: async () => undefined,
-    })).toThrow('ListView deleteRecord requires recordIdentity.')
+    const errors: Array<{ error: unknown; info: string }> = []
+    const host = document.createElement('div')
+    const app = createApp(
+      defineComponent({
+        setup: () => () =>
+          h(ListView, {
+            table: { ...baseProps.table, load: () => ({ data: [{ id: '1', name: 'Admin' }] }) },
+            deleteRecord: async () => undefined,
+          }),
+      })
+    )
+    app.config.errorHandler = (error, _instance, info) => {
+      errors.push({ error, info })
+    }
+    app.use(
+      createRouter({
+        history: createMemoryHistory(),
+        routes: [{ path: '/:pathMatch(.*)*', name: 'test-route', component: { render: () => null } }],
+      })
+    )
+    app.use(FrameworkPlugin, { adapters: { assets: testAssetAdapter } })
+    let mounted = false
+    try {
+      app.mount(host)
+      mounted = true
+      const identityErrors = errors.filter(({ error, info }) =>
+        info === 'watcher getter'
+        && error instanceof Error
+        && error.message === '[loom][SURFACE_OPTION_INVALID] ListView deleteRecord requires recordIdentity.'
+      )
+      expect(identityErrors).toHaveLength(1)
+    } finally {
+      if (mounted) app.unmount()
+      host.remove()
+      resetResourceRuntimeForTests()
+    }
   })
-
   it('keeps a post-write warning and blocks the default delete after dialog reopen', async () => {
     const serverDelete = vi.fn(async () => undefined)
     const invalidate = vi.fn(async () => {
@@ -1725,10 +1792,10 @@ function mountDeleteOutcomeList(initialRows: DeleteOutcomeRow[], deleteRecord: (
       deleteRecord,
       recordIdentity: deleteOutcomeIdentity,
     }, {
-      collection: (state) => {
-        currentActions = state.actions as ListViewSlotActions<DeleteOutcomeRow>
+      collection: (state: CollectionSlotProps<DeleteOutcomeRow> & { actions?: ListViewSlotActions<DeleteOutcomeRow> }) => {
+        currentActions = state.actions
         refreshRows = state.refresh
-        return h('div', (state.records as DeleteOutcomeRow[]).map((record) => h('span', { key: `${record.tenant}-${record.id}` }, record.name)))
+        return h('div', state.records.map((record) => h('span', { key: `${record.tenant}-${record.id}` }, record.name)))
       },
     }),
   })
@@ -1749,7 +1816,317 @@ function mountDeleteOutcomeList(initialRows: DeleteOutcomeRow[], deleteRecord: (
   }
 }
 
+function mountBoundDeleteList(load: (context: { signal: AbortSignal }) => Promise<{ data: DeleteOutcomeRow[] }>, options: { collection?: boolean; run?: (id: string) => Promise<unknown> } = {}) {
+  const rowSchema = z.object({ tenant: z.string(), id: z.string(), name: z.string(), reversed: z.boolean() })
+  const run = vi.fn(options.run ?? (async () => undefined))
+  const resource = defineResource({
+    key: 'bound-delete-recovery',
+    identity: deleteOutcomeIdentity,
+    list: { permission: null, table: { schema: rowSchema, columns: { name: {} }, load } },
+    delete: { permission: null, run },
+  })
+  const resourceOwner = ref(resource.key)
+  let actions: ListViewSlotActions<DeleteOutcomeRow> | undefined
+  let queryClient: ReturnType<typeof useFrameworkQueryClient> | undefined
+  const Host = defineComponent({
+    setup(_, { expose }) {
+      queryClient = useFrameworkQueryClient()
+      expose({
+        setResource: (value: string) => {
+          resourceOwner.value = value
+        },
+      })
+      return () => {
+        const props = {
+          ...resource.list,
+          table: { ...resource.list.table, resource: resourceOwner.value },
+        }
+        const slots = {
+          collection: (state: CollectionSlotProps<DeleteOutcomeRow> & { actions?: ListViewSlotActions<DeleteOutcomeRow> }) => {
+            actions = state.actions
+            return h(
+              'div',
+              state.records.map((record) => h('span', { key: record.id }, record.name))
+            )
+          },
+        }
+        return options.collection === false ? h(ListView as Component, props) : h(ListView as Component, props, slots)
+      }
+    },
+  })
+  const view = mountCore(Host, {})
+  if (!queryClient) throw new Error('The mounted resource query client was not captured.')
+  const mountedQueryClient = queryClient
+  let active = true
+  const unmount = () => {
+    if (!active) return
+    active = false
+    view.unmount()
+    mountedQueryClient.clear()
+    resetResourceRuntimeForTests()
+  }
+  boundDeleteListCleanup.add(unmount)
+  return {
+    view,
+    run,
+    actions: () => {
+      if (!actions) throw new Error('The resource collection slot has no delete actions.')
+      return actions
+    },
+    queryClient: () => mountedQueryClient,
+    unmount,
+    setResource: (value: string) => {
+      const method = view.exposed().setResource
+      if (typeof method !== 'function') throw new Error('The resource setter was not exposed.')
+      method(value)
+    },
+  }
+}
+
 describe('ListView delete outcomes', () => {
+  afterEach(() => {
+    for (const cleanup of boundDeleteListCleanup) cleanup()
+    boundDeleteListCleanup.clear()
+    vi.restoreAllMocks()
+  })
+
+  it('keeps a confirmed delete blocked through failed and canceled recovery, then clears it once', async () => {
+    const row: DeleteOutcomeRow = { tenant: 'north', id: '1', name: 'First', reversed: false }
+    const other: DeleteOutcomeRow = { tenant: 'north', id: '2', name: 'Second', reversed: false }
+    let reads = 0
+    let mode: 'post-write' | 'recovery-failure' | 'pending' | 'success' = 'post-write'
+    let pendingRead = deferred<{ data: DeleteOutcomeRow[] }>()
+    const load = vi.fn(async () => {
+      reads += 1
+      if (reads === 1) return { data: [row] }
+      if (mode === 'post-write' || mode === 'recovery-failure') throw new Error('The list read failed.')
+      if (mode === 'pending') return pendingRead.promise
+      return { data: [row, other] }
+    })
+    const toastWarning = vi.spyOn(toast, 'warning').mockImplementation(() => '')
+    const toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
+    const mounted = mountBoundDeleteList(load)
+
+    try {
+      await vi.waitFor(() => {
+        expect(load).toHaveBeenCalledOnce()
+        expect(mounted.view.text()).toContain('First')
+      })
+      await expect(mounted.actions().deleteRecord!(row)).rejects.toMatchObject({ writeOutcome: 'confirmed' })
+      await vi.waitFor(() => expect(reads).toBe(2))
+      expect(mounted.run).toHaveBeenCalledOnce()
+      expect(mounted.actions().deleteState(row)).toMatchObject({ disabled: true, error: { writeOutcome: 'confirmed' } })
+      expect(mounted.actions().deleteState(other).disabled).toBe(false)
+      expect(mounted.view.text()).toContain('First')
+      expect(toastError).not.toHaveBeenCalled()
+
+      mode = 'recovery-failure'
+      const retryAfterFailure = mounted.actions().deleteState(row).refresh
+      if (!retryAfterFailure) throw new Error('Confirmed delete state has no refresh action.')
+      await retryAfterFailure()
+      expect(reads).toBe(3)
+      expect(mounted.actions().deleteState(row)).toMatchObject({ disabled: true, error: { writeOutcome: 'confirmed' } })
+      expect(toastWarning).toHaveBeenCalledOnce()
+
+      mode = 'pending'
+      const retryAfterCancel = mounted.actions().deleteState(row).refresh
+      if (!retryAfterCancel) throw new Error('Confirmed delete state lost its refresh action.')
+      const pendingRetry = retryAfterCancel()
+      await vi.waitFor(() => expect(reads).toBe(4))
+      const query = mounted
+        .queryClient()
+        .getQueryCache()
+        .findAll({ queryKey: ['resource', 'bound-delete-recovery', 'list'] })[0]
+      if (!query) throw new Error('The resource list query was not found.')
+      await mounted.queryClient().cancelQueries({ queryKey: query.queryKey, exact: true })
+      pendingRead.resolve({ data: [row, other] })
+      await pendingRetry
+
+      expect(mounted.actions().deleteState(row)).toMatchObject({ disabled: true, error: { writeOutcome: 'confirmed' } })
+      expect(toastWarning).toHaveBeenCalledOnce()
+      expect(mounted.run).toHaveBeenCalledOnce()
+
+      mode = 'pending'
+      pendingRead = deferred<{ data: DeleteOutcomeRow[] }>()
+      const retryAfterCancelSettlement = mounted.actions().deleteState(row).refresh
+      if (!retryAfterCancelSettlement) throw new Error('Confirmed delete state lost its retry action.')
+      const firstRetry = retryAfterCancelSettlement()
+      const secondRetry = retryAfterCancelSettlement()
+      await vi.waitFor(() => expect(reads).toBe(5))
+      pendingRead.resolve({ data: [row, other] })
+      await Promise.all([firstRetry, secondRetry])
+
+      expect(mounted.actions().deleteState(row)).toMatchObject({ disabled: false, pending: false })
+      expect(mounted.run).toHaveBeenCalledOnce()
+      expect(toastWarning).toHaveBeenCalledOnce()
+    } finally {
+      mounted.unmount()
+      vi.restoreAllMocks()
+    }
+  })
+
+  it.each(['success', 'rejection'] as const)('settles a stale $0 delete outcome for its original owner', async (settlement) => {
+    const row: DeleteOutcomeRow = { tenant: 'north', id: '1', name: 'First', reversed: false }
+    const request = deferred<unknown>()
+    const load = vi.fn(async () => ({ data: [row] }))
+    const mounted = mountBoundDeleteList(load, { run: () => request.promise })
+
+    try {
+      await vi.waitFor(() => {
+        expect(load).toHaveBeenCalledOnce()
+        expect(mounted.view.text()).toContain('First')
+      })
+      const pending = mounted.actions().deleteRecord!(row)
+      expect(mounted.actions().deleteState(row)).toMatchObject({ disabled: true, pending: true })
+
+      mounted.setResource('replacement-delete-resource')
+      await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+      if (settlement === 'success') request.resolve(undefined)
+      else request.reject(new Error('The delete was rejected.'))
+      await expect(pending).rejects.toMatchObject({ message: 'Delete completed after the list changed.' })
+
+      mounted.setResource('bound-delete-recovery')
+      await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(3))
+      await vi.waitFor(() => expect(mounted.actions().deleteState(row)).toMatchObject({ disabled: false, pending: false }))
+      expect(mounted.run).toHaveBeenCalledOnce()
+    } finally {
+      mounted.unmount()
+      vi.restoreAllMocks()
+    }
+  })
+
+  it('keeps a new confirmation open and silent when an old delete settles after rebind', async () => {
+    const request = deferred<unknown>()
+    const row: DeleteOutcomeRow = { tenant: 'north', id: '1', name: 'First', reversed: false }
+    const load = vi.fn(async () => ({ data: [row] }))
+    const toastSuccess = vi.spyOn(toast, 'success').mockImplementation(() => '')
+    const toastWarning = vi.spyOn(toast, 'warning').mockImplementation(() => '')
+    const toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
+    const mounted = mountBoundDeleteList(load, { collection: false, run: () => request.promise })
+    const dialog = () => document.body.querySelector<HTMLElement>('[role="dialog"]')
+    const dialogButton = (label: string) => [...(dialog()?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find((button) => button.textContent?.trim() === label)
+
+    try {
+      await vi.waitFor(() => {
+        expect(load).toHaveBeenCalledOnce()
+        expect(mounted.view.text()).toContain('First')
+      })
+      const rowDeleteButton = [...mounted.view.host.querySelectorAll<HTMLTableRowElement>('tbody tr')]
+        .find((entry) => entry.textContent?.includes('First'))
+        ?.querySelector<HTMLButtonElement>('button[aria-label="Delete"]')
+      rowDeleteButton?.click()
+      await vi.waitFor(() => expect(dialog()).not.toBeNull())
+      dialogButton('Delete')?.click()
+      await vi.waitFor(() => expect(mounted.run).toHaveBeenCalledOnce())
+
+      mounted.setResource('replacement-delete-resource')
+      await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2))
+      const replacementDeleteButton = [...mounted.view.host.querySelectorAll<HTMLTableRowElement>('tbody tr')]
+        .find((entry) => entry.textContent?.includes('First'))
+        ?.querySelector<HTMLButtonElement>('button[aria-label="Delete"]')
+      replacementDeleteButton?.click()
+      await vi.waitFor(() => expect(dialog()).not.toBeNull())
+      request.resolve(undefined)
+      await flush()
+
+      expect(dialog()).not.toBeNull()
+      expect(toastSuccess).not.toHaveBeenCalled()
+      expect(toastWarning).not.toHaveBeenCalled()
+      expect(toastError).not.toHaveBeenCalled()
+    } finally {
+      mounted.unmount()
+    }
+  })
+
+  it('ignores a late rejected delete after its ListView unmounts', async () => {
+    const request = deferred<unknown>()
+    const load = vi.fn(async () => ({ data: [{ tenant: 'north', id: '1', name: 'First', reversed: false }] }))
+    const toastSuccess = vi.spyOn(toast, 'success').mockImplementation(() => '')
+    const toastWarning = vi.spyOn(toast, 'warning').mockImplementation(() => '')
+    const toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
+    const mounted = mountBoundDeleteList(load, { collection: false, run: () => request.promise })
+    const dialog = () => document.body.querySelector<HTMLElement>('[role="dialog"]')
+    const dialogButton = (label: string) => [...(dialog()?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find((button) => button.textContent?.trim() === label)
+
+    await vi.waitFor(() => expect(mounted.view.text()).toContain('First'))
+    mounted.view.find<HTMLButtonElement>('button[aria-label="Delete"]')?.click()
+    await vi.waitFor(() => expect(dialog()).not.toBeNull())
+    dialogButton('Delete')?.click()
+    await vi.waitFor(() => expect(mounted.run).toHaveBeenCalledOnce())
+    mounted.unmount()
+    request.reject(new Error('The delayed request failed.'))
+    await flush()
+
+    expect(mounted.run).toHaveBeenCalledOnce()
+    expect(toastSuccess).not.toHaveBeenCalled()
+    expect(toastWarning).not.toHaveBeenCalled()
+    expect(toastError).not.toHaveBeenCalled()
+    vi.restoreAllMocks()
+  })
+
+  it('ignores a late successful delete read after the list is rebound', async () => {
+    const row: DeleteOutcomeRow = { tenant: 'north', id: '1', name: 'First', reversed: false }
+    const recoveryRead = deferred<{ data: DeleteOutcomeRow[] }>()
+    let reads = 0
+    let mode: 'post-write' | 'pending' | 'success' = 'post-write'
+    const load = vi.fn(async () => {
+      reads += 1
+      if (reads === 1) return { data: [row] }
+      if (mode === 'post-write') throw new Error('The post-delete read failed.')
+      if (mode === 'pending') return recoveryRead.promise
+      return { data: [row] }
+    })
+    const toastWarning = vi.spyOn(toast, 'warning').mockImplementation(() => '')
+    const mounted = mountBoundDeleteList(load)
+
+    try {
+      await vi.waitFor(() => expect(mounted.view.text()).toContain('First'))
+      await expect(mounted.actions().deleteRecord!(row)).rejects.toMatchObject({ writeOutcome: 'confirmed' })
+      mode = 'pending'
+      const refresh = mounted.actions().deleteState(row).refresh
+      if (!refresh) throw new Error('Confirmed delete state has no refresh action.')
+      const recovery = refresh()
+      await vi.waitFor(() => expect(reads).toBe(3))
+      mode = 'success'
+      mounted.setResource('replacement-delete-resource')
+      await vi.waitFor(() => expect(reads).toBe(4))
+      recoveryRead.resolve({ data: [row] })
+      await recovery
+
+      expect(mounted.actions().deleteState(row).disabled).toBe(false)
+      expect(toastWarning).not.toHaveBeenCalled()
+    } finally {
+      mounted.unmount()
+      vi.restoreAllMocks()
+    }
+  })
+
+  it('ignores a late failed delete read after the list unmounts', async () => {
+    const row: DeleteOutcomeRow = { tenant: 'north', id: '1', name: 'First', reversed: false }
+    const recoveryRead = deferred<{ data: DeleteOutcomeRow[] }>()
+    let reads = 0
+    const load = vi.fn(async () => {
+      reads += 1
+      if (reads === 1) return { data: [row] }
+      if (reads === 2) throw new Error('The post-delete read failed.')
+      return recoveryRead.promise
+    })
+    const toastWarning = vi.spyOn(toast, 'warning').mockImplementation(() => '')
+    const mounted = mountBoundDeleteList(load)
+
+    await vi.waitFor(() => expect(mounted.view.text()).toContain('First'))
+    await expect(mounted.actions().deleteRecord!(row)).rejects.toMatchObject({ writeOutcome: 'confirmed' })
+    const refresh = mounted.actions().deleteState(row).refresh
+    if (!refresh) throw new Error('Confirmed delete state has no refresh action.')
+    const recovery = refresh()
+    await vi.waitFor(() => expect(reads).toBe(3))
+    mounted.unmount()
+    recoveryRead.reject(new Error('The late read failed.'))
+    await recovery
+
+    expect(toastWarning).not.toHaveBeenCalled()
+    vi.restoreAllMocks()
+  })
   it('retains independent post-write outcomes across query and row replacement', async () => {
     const first = { tenant: 'north', id: '1', name: 'First', reversed: false }
     const second = { tenant: 'north', id: '2', name: 'Second', reversed: false }

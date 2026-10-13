@@ -27,4 +27,7 @@ export interface SubmitError {
   operation?: string
   retryable?: boolean
   postWrite?: boolean
+  writeOutcome?: 'uncertain' | 'confirmed'
+  result?: unknown
+  refresh?: () => Promise<void>
 }

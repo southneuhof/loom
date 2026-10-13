@@ -294,7 +294,7 @@ function hasCellSlot(key: string): boolean {
       </slot>
     </div>
 
-    <div v-else-if="props.error" class="flex min-h-40 items-center justify-center rounded-xl px-6 py-10">
+    <div v-else-if="props.error && rows.length === 0" class="flex min-h-40 items-center justify-center rounded-xl px-6 py-10">
       <slot name="error" :error="props.error">
         <p role="alert">{{ props.error?.message }}</p>
       </slot>
@@ -307,13 +307,18 @@ function hasCellSlot(key: string): boolean {
     </div>
 
     <template v-else>
+      <div v-if="props.error" class="rounded-xl bg-error-container px-4 py-3 text-on-error-container">
+        <slot name="error" :error="props.error">
+          <p role="alert">{{ props.error.message }}</p>
+        </slot>
+      </div>
       <slot
         v-if="$slots.collection"
         name="collection"
         :records="props.records"
         :meta="props.meta"
         :loading="false"
-        :error="undefined"
+        :error="props.error"
         :empty="false"
         :query="props.query"
         :refresh="refreshCollection"

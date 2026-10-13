@@ -277,6 +277,144 @@ void resource
 `,
   },
   {
+    name: 'resource-sort-implicit-column',
+    expectedLocation: 'sortable resource column outside loader sort_by values',
+    expectedLineOffset: 6,
+    expectedTerms: ['ResourceSortKeyDiagnostic'],
+    valid: `type SortQuery = { sort_by?: 'name' }
+const load = async (_context: CollectionLoadContext<SortQuery>) => ({ data: [] as Row[] })
+const resource = defineResource({
+  key: 'sort-implicit-control',
+  identity: (record: Row) => record.id,
+  list: { permission: null, table: { schema: rowSchema, columns: { name: { sortable: true } }, load } },
+})
+void resource
+`,
+    invalid: `type SortQuery = { sort_by?: 'name' }
+const load = async (_context: CollectionLoadContext<SortQuery>) => ({ data: [] as Row[] })
+const resource = defineResource({
+  key: 'sort-implicit-control',
+  identity: (record: Row) => record.id,
+  list: { permission: null, table: { schema: rowSchema, columns: { id: { sortable: true } }, load } },
+})
+void resource
+`,
+  },
+  {
+    name: 'resource-sort-explicit-column',
+    expectedLocation: 'explicit sortKey outside loader sort_by values',
+    expectedLineOffset: 6,
+    expectedTerms: ['ResourceSortKeyDiagnostic'],
+    valid: `type SortQuery = { sort_by?: 'name' }
+const load = async (_context: CollectionLoadContext<SortQuery>) => ({ data: [] as Row[] })
+const resource = defineResource({
+  key: 'sort-explicit-control',
+  identity: (record: Row) => record.id,
+  list: { permission: null, table: { schema: rowSchema, columns: { caption: { read: (record: Row) => record.name, sortKey: 'name', sortable: true } }, load } },
+})
+void resource
+`,
+    invalid: `type SortQuery = { sort_by?: 'name' }
+const load = async (_context: CollectionLoadContext<SortQuery>) => ({ data: [] as Row[] })
+const resource = defineResource({
+  key: 'sort-explicit-control',
+  identity: (record: Row) => record.id,
+  list: { permission: null, table: { schema: rowSchema, columns: { caption: { read: (record: Row) => record.name, sortKey: 'id', sortable: true } }, load } },
+})
+void resource
+`,
+  },
+  {
+    name: 'resource-sort-spread-column',
+    expectedLocation: 'spread resource table with unsupported sort key',
+    expectedLineOffset: 6,
+    expectedTerms: ['ResourceSortKeyDiagnostic'],
+    valid: `type SortQuery = { sort_by?: 'name' }
+const load = async (_context: CollectionLoadContext<SortQuery>) => ({ data: [] as Row[] })
+const columns = { name: { sortable: true } }
+const table = { schema: rowSchema, columns: { ...columns }, load }
+const list = { permission: null, table: { ...table } }
+const resource = defineResource({ key: 'sort-spread-control', identity: (record: Row) => record.id, list })
+void resource
+`,
+    invalid: `type SortQuery = { sort_by?: 'name' }
+const load = async (_context: CollectionLoadContext<SortQuery>) => ({ data: [] as Row[] })
+const columns = { name: { sortable: true }, id: { sortable: true } }
+const table = { schema: rowSchema, columns: { ...columns }, load }
+const list = { permission: null, table: { ...table } }
+const resource = defineResource({ key: 'sort-spread-control', identity: (record: Row) => record.id, list })
+void resource
+`,
+  },
+  {
+    name: 'resource-sort-no-query-member',
+    expectedLocation: 'sortable column when loader query has no sort_by',
+    expectedLineOffset: 6,
+    expectedTerms: ['ResourceSortKeyDiagnostic'],
+    valid: `type SortQuery = { page?: number }
+const load = async (_context: CollectionLoadContext<SortQuery>) => ({ data: [] as Row[] })
+const resource = defineResource({
+  key: 'sort-no-query-control',
+  identity: (record: Row) => record.id,
+  list: { permission: null, table: { schema: rowSchema, columns: { name: {} }, load } },
+})
+void resource
+`,
+    invalid: `type SortQuery = { page?: number }
+const load = async (_context: CollectionLoadContext<SortQuery>) => ({ data: [] as Row[] })
+const resource = defineResource({
+  key: 'sort-no-query-control',
+  identity: (record: Row) => record.id,
+  list: { permission: null, table: { schema: rowSchema, columns: { name: { sortable: true } }, load } },
+})
+void resource
+`,
+  },
+  {
+    name: 'resource-sort-boolean-column',
+    expectedLocation: 'possibly sortable column outside loader sort_by values',
+    expectedLineOffset: 7,
+    expectedTerms: ['ResourceSortKeyDiagnostic'],
+    valid: `type SortQuery = { sort_by?: 'name' }
+const load = async (_context: CollectionLoadContext<SortQuery>) => ({ data: [] as Row[] })
+const sortable: boolean = Math.random() > 0.5
+const resource = defineResource({
+  key: 'sort-boolean-control',
+  identity: (record: Row) => record.id,
+  list: { permission: null, table: { schema: rowSchema, columns: { name: { sortable } }, load } },
+})
+void resource
+`,
+    invalid: `type SortQuery = { sort_by?: 'name' }
+const load = async (_context: CollectionLoadContext<SortQuery>) => ({ data: [] as Row[] })
+const sortable: boolean = Math.random() > 0.5
+const resource = defineResource({
+  key: 'sort-boolean-control',
+  identity: (record: Row) => record.id,
+  list: { permission: null, table: { schema: rowSchema, columns: { id: { sortable } }, load } },
+})
+void resource
+`,
+  },
+  {
+    name: 'resource-sort-defined-table-loader-binding',
+    expectedLocation: 'defined Table bound to loader with unsupported sort key',
+    expectedLineOffset: 4,
+    expectedTerms: ['ResourceSortKeyDiagnostic'],
+    valid: `type SortQuery = { sort_by?: 'name' }
+const load = async (_context: CollectionLoadContext<SortQuery>) => ({ data: [] as Row[] })
+const table = defineTable({ schema: rowSchema, columns: { name: { sortable: true } } })
+const resource = defineResource({ key: 'defined-table-sort', identity: (record: Row) => record.id, list: { permission: null, table: { ...table, load } } })
+void resource
+`,
+    invalid: `type SortQuery = { sort_by?: 'name' }
+const load = async (_context: CollectionLoadContext<SortQuery>) => ({ data: [] as Row[] })
+const table = defineTable({ schema: rowSchema, columns: { id: { sortable: true } } })
+const resource = defineResource({ key: 'defined-table-sort', identity: (record: Row) => record.id, list: { permission: null, table: { ...table, load } } })
+void resource
+`,
+  },
+  {
     name: 'create-form-member',
     expectedLocation: 'create.form typo member',
     expectedLineOffset: 7,

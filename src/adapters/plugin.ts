@@ -3,6 +3,7 @@ import type { QueryClient } from '@tanstack/vue-query'
 import { VueQueryPlugin } from '@tanstack/vue-query'
 import { frameworkAdaptersKey, resolveFrameworkAdapters, type FrameworkAdaptersInput } from './projectAdapters'
 import { createFrameworkQueryClient, frameworkQueryClientKey } from '../query/client'
+import { installReadFailureFeedback } from '../query/feedback'
 import { createRendererRegistries, rendererRegistriesKey, type RendererRegistriesInput } from '../renderers/registry'
 import { registerResourceRuntime } from '../resources/runtime'
 import {
@@ -32,6 +33,7 @@ export const FrameworkPlugin: Plugin<[options?: FrameworkPluginOptions]> = {
     const queryClient = options.queryClient ?? createFrameworkQueryClient(adapters.queryDefaults)
     app.provide(frameworkQueryClientKey, queryClient)
     app.use(VueQueryPlugin, { queryClient })
+    installReadFailureFeedback(app, queryClient)
     registerResourceRuntime({ adapters, queryClient })
   },
 }

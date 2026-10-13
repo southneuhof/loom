@@ -8,9 +8,12 @@
  * closure — resource prop factories return a fresh closure per call.
  */
 import { computed, toValue, unref, type MaybeRef, type MaybeRefOrGetter, type Ref } from 'vue'
-import { useQuery } from '@tanstack/vue-query'
+import { CancelledError, useQuery } from '@tanstack/vue-query'
 import type { Load, LoadSignalContext, QueryKey, SubmitError } from '../contracts'
 import { useFrameworkAdapters } from '../adapters/projectAdapters'
+import { useFrameworkQueryClient } from './client'
+import { readFailureFeedbackMetaKey } from './feedback'
+import { isSameKey } from './keys'
 import { registerPageLoader } from './readiness'
 
 export interface LoaderOptions<TContext extends LoadSignalContext, TResult> {
@@ -38,8 +41,10 @@ export function useLoader<TContext extends LoadSignalContext, TResult>(
   options: LoaderOptions<TContext, TResult>,
 ): LoaderState<TResult> {
   const adapters = useFrameworkAdapters()
+  const queryClient = useFrameworkQueryClient()
   const externalData = computed(() => unref(options.data))
   const loader = computed(() => unref(options.load))
+  const queryKey = computed(() => toValue(options.key) as unknown[])
 
   if (externalData.value !== undefined && loader.value) {
     throw new Error('[loom] `data` and `load` are alternatives; supply only one.')
@@ -52,8 +57,9 @@ export function useLoader<TContext extends LoadSignalContext, TResult>(
   })
 
   const query = useQuery<TResult, unknown>({
-    queryKey: computed(() => toValue(options.key) as unknown[]),
+    queryKey,
     enabled,
+    meta: { [readFailureFeedbackMetaKey]: { normalizeError: adapters.data.normalizeError } },
     queryFn: async ({ signal }) => {
       const load = unref(options.load)
       if (!load) throw new Error('[loom] No loader supplied.')
@@ -70,7 +76,7 @@ export function useLoader<TContext extends LoadSignalContext, TResult>(
     return value === missingResult ? undefined : value
   }) as Ref<TResult | undefined>
   const error = computed(() =>
-    query.error.value ? adapters.data.normalizeError(query.error.value) : undefined,
+    enabled.value && query.error.value ? adapters.data.normalizeError(query.error.value) : undefined,
   ) as Ref<SubmitError | undefined>
   const loading = computed(() => enabled.value && query.isPending.value) as Ref<boolean>
   registerPageLoader(loading, error)
@@ -80,7 +86,16 @@ export function useLoader<TContext extends LoadSignalContext, TResult>(
     error,
     loading,
     refresh: async () => {
-      await query.refetch()
+      const key = queryKey.value
+      const activeQuery = queryClient.getQueryCache().find({ queryKey: key, exact: true })
+      const updateCount = activeQuery?.state.dataUpdateCount
+      const result = await query.refetch({ throwOnError: true })
+      if (result.isError) throw result.error
+      if (!isSameKey(queryKey.value, key)) throw new CancelledError()
+      if (activeQuery && (
+        activeQuery.state.dataUpdateCount === updateCount
+        || activeQuery.state.isInvalidated
+      )) throw new CancelledError()
     },
   }
 }

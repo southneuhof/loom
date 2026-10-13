@@ -50,8 +50,15 @@ type TableColumnsGuard<TRecord extends object, TColumns> = TColumns extends obje
       : never
   : never
 
-type CompactTableColumn<TRecord extends object, TKey extends string, TColumn> = CompactDisplayField<TRecord, DisplayFieldValue<TRecord, TKey, TColumn>, TColumn> & {
-  readonly sortable?: boolean
+type CompactSortable<TColumn> = 'sortable' extends keyof TColumn
+  ? TColumn extends { sortable: infer TSortable }
+    ? { readonly sortable: TSortable }
+    : TColumn extends { sortable?: infer TSortable }
+      ? { readonly sortable?: TSortable }
+      : {}
+  : {}
+
+type CompactTableColumn<TRecord extends object, TKey extends string, TColumn> = CompactDisplayField<TRecord, DisplayFieldValue<TRecord, TKey, TColumn>, TColumn> & CompactSortable<TColumn> & {
   readonly sortKey?: TColumn extends { sortKey: infer TSortKey extends Extract<keyof TRecord, string> } ? TSortKey : never
   readonly align?: 'start' | 'center' | 'end'
   readonly class?: string

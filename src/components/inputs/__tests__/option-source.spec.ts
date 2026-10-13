@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import { toast } from 'vue-sonner'
 import CheckboxGroupInput from '../CheckboxGroupInput.vue'
 import RadioGroupInput from '../RadioGroupInput.vue'
 import SelectInput from '../SelectInput.vue'
@@ -7,6 +8,8 @@ import type { SelectModelValue } from '../selectInput.types'
 import { defineResource, type CollectionLoadContext, type CollectionResult } from '../../..'
 import { mountInput } from './harness'
 import { createFrameworkQueryClient, invalidateResourceData } from '../../../query'
+
+afterEach(() => vi.restoreAllMocks())
 
 describe('explicit option sources', () => {
   it('passes standard collection context to a resource list action', async () => {
@@ -46,6 +49,52 @@ describe('explicit option sources', () => {
     expect(context).toMatchObject({ query: {}, searchParameters })
     expect(context?.searchParameters).toStrictEqual(searchParameters)
     expect(context?.signal).toBeInstanceOf(AbortSignal)
+    mounted.cleanup()
+  })
+
+  it('reports a failed option read while the control is disabled', async () => {
+    const load = vi.fn(async () => {
+      throw new Error('Options are unavailable.')
+    })
+    const toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
+    const mounted = mountInput(SelectInput, {
+      model: 'selected',
+      props: { load, disabled: true, searchable: false },
+      queryClient: createFrameworkQueryClient({ retry: 0 }),
+    })
+
+    await vi.waitFor(() => expect(load).toHaveBeenCalledOnce())
+    await vi.waitFor(() => expect(toastError).toHaveBeenCalledOnce())
+
+    expect(toastError).toHaveBeenCalledWith('Options are unavailable.')
+    mounted.cleanup()
+  })
+
+  it('handles a failed source-change refresh without an unhandled rejection', async () => {
+    const initialLoad = vi.fn(async () => [{ id: '1', name: 'Current' }])
+    const replacementLoad = vi.fn(async () => {
+      throw new Error('Replacement options are unavailable.')
+    })
+    const toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
+    const mounted = mountInput(RadioGroupInput, {
+      model: 'selected',
+      props: { load: initialLoad, namespace: 'option-source-change' },
+      queryClient: createFrameworkQueryClient({ retry: 0 }),
+    })
+    await vi.waitFor(() => {
+      expect(initialLoad).toHaveBeenCalledOnce()
+      expect(mounted.host.textContent).toContain('Current')
+    })
+
+    mounted.setProps({ load: replacementLoad })
+    await mounted.flush()
+    await vi.waitFor(() => {
+      expect(replacementLoad).toHaveBeenCalledOnce()
+      expect(toastError).toHaveBeenCalledOnce()
+      expect(mounted.host.textContent).toContain('Replacement options are unavailable.')
+    })
+
+    expect(toastError).toHaveBeenCalledWith('Replacement options are unavailable.')
     mounted.cleanup()
   })
 

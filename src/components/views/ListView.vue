@@ -5,7 +5,8 @@
  * Owns Card, page title, toolbar, filters, and the selected collection
  * presentation. Collection owns the one data lifecycle for the body.
  */
-import { computed, nextTick, reactive, ref, useSlots, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, reactive, ref, toRaw, useSlots, watch } from "vue";
+import { isCancelledError } from "@tanstack/vue-query";
 import { toast } from "vue-sonner";
 import type {
   CollectionSlotProps,
@@ -35,6 +36,7 @@ import SearchBox from "../inputs/SearchBox.vue";
 import Switch from "../inputs/Switch.vue";
 import { exportTableRows } from "../../services";
 import { useTablePreferences } from "../core/useTablePreferences";
+import { isConfirmedWriteRefreshError, normalizeWriteError } from "../../resources/postWriteOutcome";
 
 const props = defineProps<ListViewProps<TRecord, TQuery, TFilterInput>>();
 const adapters = useFrameworkAdapters();
@@ -72,7 +74,7 @@ type DeleteBinding = {
   identity: NonNullable<ListViewActions<TRecord>["recordIdentity"]>;
   deleteRecord: NonNullable<ListViewActions<TRecord>["deleteRecord"]>;
 };
-type DeleteOutcome = { pending: boolean; error?: Readonly<SubmitError> };
+type DeleteOutcome = { pending: boolean; refreshing?: boolean; error?: Readonly<SubmitError> };
 
 const staleDeleteCompletionKey = Symbol();
 const identityOwnerTokens = new WeakMap<NonNullable<ListViewActions<TRecord>["recordIdentity"]>, number>();
@@ -236,6 +238,7 @@ const passthroughSlots = computed(() =>
 
 const deleteOutcomes = reactive(new Map<DeleteOwner, Map<string, DeleteOutcome>>());
 const exporting = ref(false);
+let mounted = true;
 const columnFields = computed(() =>
   resolveDisplayFields({ entries: surface.value.table.columns, labels: surface.value.table.labels, surface: "table" }),
 );
@@ -276,10 +279,11 @@ function resetColumns() {
 }
 
 function deleteBinding(record: TRecord): DeleteBinding | undefined {
-  const identity = surface.value.recordIdentity;
-  const deleteRecord = surface.value.deleteRecord;
+  const currentSurface = surface.value;
+  const identity = currentSurface.recordIdentity;
+  const deleteRecord = currentSurface.deleteRecord;
   if (!identity || !deleteRecord) return undefined;
-  const owner = surface.value.table.resource ?? identity;
+  const owner = currentSurface.table.resource ?? identity;
   const value = identity(record);
   checkIdentityValue(typeof owner === "string" ? owner : "ListView", "delete", value);
   const key = JSON.stringify(stableValue(value));
@@ -315,19 +319,56 @@ function setDeleteOutcome(binding: DeleteBinding, outcome: DeleteOutcome | undef
   nextOwnerOutcomes.set(binding.key, outcome);
 }
 
+function ownsDeleteOutcome(binding: DeleteBinding, outcome: DeleteOutcome): boolean {
+  const current = deleteOutcome(binding);
+  return current !== undefined && toRaw(current) === outcome;
+}
+
 function getDeleteState(record: TRecord): ListViewDeleteState {
   const binding = deleteBinding(record);
   const outcome = binding ? deleteOutcome(binding) : undefined;
+  const error = outcome?.error;
   return {
     disabled: Boolean(outcome?.pending || outcome?.error),
     pending: Boolean(outcome?.pending),
-    ...(outcome?.error ? { error: outcome.error } : {}),
+    ...(error ? { error } : {}),
+    ...(outcome?.refreshing ? { refreshing: true } : {}),
+    ...(binding && error && isConfirmedWriteRefreshError(error) ? { refresh: () => refreshDelete(binding, error) } : {}),
   };
+}
+
+function deleteRecoveryIsCurrent(binding: DeleteBinding, error: Readonly<SubmitError>): boolean {
+  const outcome = deleteOutcome(binding);
+  return mounted && deleteBindingIsCurrent(binding) && outcome?.error === error;
+}
+
+async function refreshDelete(binding: DeleteBinding, error: Readonly<SubmitError>): Promise<void> {
+  if (!isConfirmedWriteRefreshError(error)) return;
+  const outcome = deleteOutcome(binding);
+  if (!deleteRecoveryIsCurrent(binding, error) || outcome?.refreshing || outcome?.pending) return;
+  setDeleteOutcome(binding, { pending: false, refreshing: true, error });
+  try {
+    await error.refresh();
+    if (deleteRecoveryIsCurrent(binding, error)) setDeleteOutcome(binding, undefined);
+    else resetDeleteRecovery(binding, error);
+  } catch (recoveryError) {
+    if (resetDeleteRecovery(binding, error) && deleteBindingIsCurrent(binding) && !isCancelledError(recoveryError)) {
+      toast.warning("Changes saved. Could not refresh the data.");
+    }
+  }
+}
+
+function resetDeleteRecovery(binding: DeleteBinding, error: Readonly<SubmitError>): boolean {
+  const outcome = deleteOutcome(binding);
+  if (!mounted || outcome?.error !== error) return false;
+  setDeleteOutcome(binding, { pending: false, refreshing: false, error });
+  return true;
 }
 
 function deleteBindingIsCurrent(binding: DeleteBinding): boolean {
   const current = surface.value;
-  return current.recordIdentity === binding.identity
+  return mounted
+    && current.recordIdentity === binding.identity
     && current.deleteRecord === binding.deleteRecord
     && (current.table.resource ?? current.recordIdentity) === binding.owner;
 }
@@ -346,20 +387,24 @@ async function performDelete(record: TRecord, binding: DeleteBinding): Promise<u
   const existing = deleteOutcome(binding);
   if (existing?.error) throw existing.error;
   if (existing?.pending) throw new Error("A delete request is already in progress.");
-  setDeleteOutcome(binding, { pending: true });
+  const pendingOutcome: DeleteOutcome = { pending: true };
+  setDeleteOutcome(binding, pendingOutcome);
   try {
     const result = await binding.deleteRecord(record);
+    if (!mounted || !ownsDeleteOutcome(binding, pendingOutcome)) throw staleDeleteCompletion();
     setDeleteOutcome(binding, undefined);
     if (!deleteBindingIsCurrent(binding)) throw staleDeleteCompletion();
     return result;
   } catch (error) {
     if (isStaleDeleteCompletion(error)) throw error;
-    const normalized = adapters.data.normalizeError(error);
-    if (normalized.postWrite) {
-      setDeleteOutcome(binding, { pending: false, error: Object.freeze(normalized) });
-    } else {
-      setDeleteOutcome(binding, undefined);
+    const normalized = normalizeWriteError(error, adapters.data.normalizeError);
+    const ownsPendingOutcome = ownsDeleteOutcome(binding, pendingOutcome);
+    if (mounted && ownsPendingOutcome) {
+      setDeleteOutcome(binding, normalized.postWrite
+        ? { pending: false, error: Object.freeze(normalized) }
+        : undefined);
     }
+    if (!mounted || !deleteBindingIsCurrent(binding) || !ownsPendingOutcome) throw staleDeleteCompletion();
     throw normalized;
   }
 }
@@ -373,16 +418,26 @@ async function guardedDelete(record: TRecord): Promise<unknown> {
 async function remove(record: TRecord, close: (value: boolean) => void) {
   const binding = deleteBinding(record);
   if (!binding) return;
+  const outcome = deleteOutcome(binding);
+  if (outcome?.pending || outcome?.error) return;
   try {
     await performDelete(record, binding);
+    if (!deleteBindingIsCurrent(binding)) return;
     close(false);
     toast.success("Record deleted.");
   } catch (error) {
-    if (isStaleDeleteCompletion(error)) return;
-    const normalized = adapters.data.normalizeError(error);
-    if (!normalized.postWrite) toast.error(normalized.message);
+    if (isStaleDeleteCompletion(error) || !deleteBindingIsCurrent(binding)) return;
+    const normalized = normalizeWriteError(error, adapters.data.normalizeError);
+    if (isConfirmedWriteRefreshError(normalized)) {
+      close(false);
+      toast.warning("Changes saved. Could not refresh the data.");
+    } else if (!normalized.postWrite) toast.error(normalized.message);
   }
 }
+
+onBeforeUnmount(() => {
+  mounted = false;
+});
 
 async function exportRows() {
   if (props.export === false || exporting.value) return;
@@ -633,8 +688,17 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
                         v-bind="{ record, can: surface.can, deleteRecord: customActions.deleteRecord, deleteState: getDeleteState(record) }"
                       >
                         <div v-if="getDeleteState(record).error" role="alert" class="max-w-64 whitespace-normal text-xs text-error">
-                          <p>The delete may have completed. Check the record before trying again.</p>
+                          <p v-if="isConfirmedWriteRefreshError(getDeleteState(record).error)">Changes saved. The record list could not be refreshed.</p>
+                          <p v-else>The delete may have completed. Check the record before trying again.</p>
                           <p>{{ getDeleteState(record).error?.message }}</p>
+                          <Button
+                            v-if="getDeleteState(record).refresh"
+                            type="button"
+                            variant="text"
+                            class="min-w-0 px-2"
+                            :disabled="getDeleteState(record).refreshing"
+                            @click.stop="getDeleteState(record).refresh?.()"
+                          >Retry refresh</Button>
                         </div>
                         <Dialog v-if="surface.deleteRecord" :key="deleteDialogKey(record)">
                           <template #trigger>

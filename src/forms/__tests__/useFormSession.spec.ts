@@ -1,8 +1,13 @@
-import { computed, defineComponent, h, ref, shallowRef } from 'vue'
+import { computed, defineComponent, h, ref, shallowRef, type Component } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import { toast } from 'vue-sonner'
 import Form from '../../components/core/Form.vue'
+import Table from '../../components/core/Table.vue'
+import Detail from '../../components/core/Detail.vue'
 import { deferred, flush, mountCore } from '../../components/core/__tests__/harness'
+import { defineResource } from '../../resources/defineResource'
+import { useFrameworkQueryClient } from '../../query/client'
 
 const mounted: Array<ReturnType<typeof mountCore>> = []
 
@@ -39,6 +44,7 @@ function exposedForm(view: ReturnType<typeof mountCore>): Record<string, unknown
 afterEach(() => {
   for (const view of mounted.splice(0)) view.unmount()
   document.body.innerHTML = ''
+  vi.restoreAllMocks()
 })
 
 describe('useFormSession loading and identity', () => {
@@ -146,6 +152,231 @@ describe('useFormSession loading and identity', () => {
     expect(view.find('[role="alert"]')?.textContent).toContain('Check the record before starting another save.')
   })
 
+  it('forwards one confirmed result and safely handles failed and shared read recovery', async () => {
+    type RecordRow = { id: string; name: string }
+    const rowSchema = z.object({ id: z.string(), name: z.string() })
+    const draftSchema = z.object({ name: z.string() })
+    let readCalls = 0
+    let recoveryMode: 'fail' | 'pending' = 'fail'
+    const recoveryRead = deferred<{ data: RecordRow[] }>()
+    const read = vi.fn(() => {
+      readCalls += 1
+      if (readCalls === 1) return Promise.resolve({ data: [{ id: '1', name: 'Current' }] })
+      return recoveryMode === 'pending'
+        ? recoveryRead.promise
+        : Promise.reject(new Error('The collection could not be refreshed.'))
+    })
+    const serverWrite = deferred<RecordRow>()
+    const submit = vi.fn((_input: { name: string }) => serverWrite.promise)
+    const resource = defineResource({
+      key: 'confirmed-form-recovery',
+      identity: (record: RecordRow) => record.id,
+      list: {
+        permission: null,
+        table: { schema: rowSchema, columns: { name: {} }, load: read },
+      },
+      create: {
+        permission: null,
+        form: { schema: draftSchema, fields: { name: { renderer: 'text' } }, initialData: { name: 'Grace' }, submit },
+      },
+    })
+    const toastWarning = vi.spyOn(toast, 'warning').mockImplementation(() => '')
+    const submitted: Array<[unknown, unknown?]> = []
+    const Host = defineComponent({
+      setup(_, { expose }) {
+        const form = ref<Record<string, unknown> | null>(null)
+        expose({ form })
+        return () => h('div', [
+          h(Table as Component, resource.list.table),
+          h(Form, {
+            ...resource.create.form,
+            ref: form,
+            onSubmitted: (result: unknown, refreshError?: unknown) => submitted.push([result, refreshError]),
+          }),
+        ])
+      },
+    })
+    const view = mount(Host, {})
+    await vi.waitFor(() => expect(read).toHaveBeenCalledOnce())
+    const write = callExposed(view, 'submit')
+    await vi.waitFor(() => expect(submit).toHaveBeenCalledOnce())
+    setText(view, 'name', 'Newer draft')
+    serverWrite.resolve({ id: '2', name: 'Grace' })
+    await write
+    await vi.waitFor(() => expect(submitted).toHaveLength(1))
+
+    expect(submit).toHaveBeenCalledOnce()
+    expect(submitted[0]?.[0]).toEqual({ id: '2', name: 'Grace' })
+    expect(submitted[0]?.[1]).toMatchObject({ writeOutcome: 'confirmed', result: { id: '2', name: 'Grace' } })
+    expect(view.text()).toContain('Changes saved. The data could not be refreshed.')
+    expect(fieldInput(view, 'name').value).toBe('Newer draft')
+    expect(toastWarning).toHaveBeenCalledOnce()
+    expect(toastWarning).toHaveBeenCalledWith('Changes saved. Could not refresh the data.')
+
+    await callExposed(view, 'refresh')
+    expect(read).toHaveBeenCalledTimes(3)
+    expect(exposedForm(view).postWriteError).toBe(submitted[0]?.[1])
+    expect(toastWarning).toHaveBeenCalledTimes(2)
+
+    recoveryMode = 'pending'
+    const firstRecovery = callExposed(view, 'refresh')
+    const secondRecovery = callExposed(view, 'refresh')
+    expect(firstRecovery).toBe(secondRecovery)
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(4))
+    recoveryRead.resolve({ data: [{ id: '1', name: 'Refreshed' }] })
+    await firstRecovery
+
+    expect(exposedForm(view).postWriteError).toBeUndefined()
+    expect(read).toHaveBeenCalledTimes(4)
+    expect(submitted).toHaveLength(1)
+    expect(submit).toHaveBeenCalledOnce()
+    expect(toastWarning).toHaveBeenCalledTimes(2)
+  })
+
+  it('keeps a confirmed Form recovery blocked when its read is canceled', async () => {
+    type RecordRow = { id: string; name: string }
+    const rowSchema = z.object({ id: z.string(), name: z.string() })
+    const draftSchema = z.object({ name: z.string() })
+    let readCalls = 0
+    let recoveryMode: 'fail' | 'pending' = 'fail'
+    const recoveryRead = deferred<{ data: RecordRow[] }>()
+    const read = vi.fn(() => {
+      readCalls += 1
+      if (readCalls === 1) return Promise.resolve({ data: [{ id: '1', name: 'Current' }] })
+      return recoveryMode === 'pending'
+        ? recoveryRead.promise
+        : Promise.reject(new Error('The collection could not be refreshed.'))
+    })
+    const resource = defineResource({
+      key: 'confirmed-form-cancel',
+      identity: (record: RecordRow) => record.id,
+      list: { permission: null, table: { schema: rowSchema, columns: { name: {} }, load: read } },
+      create: {
+        permission: null,
+        form: { schema: draftSchema, fields: { name: { renderer: 'text' } }, initialData: { name: 'Grace' }, submit: async (input: { name: string }) => ({ id: '2', ...input }) },
+      },
+    })
+    const toastWarning = vi.spyOn(toast, 'warning').mockImplementation(() => '')
+    let queryClient: ReturnType<typeof useFrameworkQueryClient> | undefined
+    const Host = defineComponent({
+      setup(_, { expose }) {
+        const form = ref<Record<string, unknown> | null>(null)
+        queryClient = useFrameworkQueryClient()
+        expose({ form })
+        return () => h('div', [
+          h(Table as Component, resource.list.table),
+          h(Form, { ...resource.create.form, ref: form }),
+        ])
+      },
+    })
+    const view = mount(Host, {})
+    await vi.waitFor(() => expect(read).toHaveBeenCalledOnce())
+    await callExposed(view, 'submit')
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2))
+    expect(exposedForm(view).postWriteError).toMatchObject({ writeOutcome: 'confirmed' })
+    recoveryMode = 'pending'
+
+    const recovery = callExposed(view, 'refresh')
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(3))
+    const activeQueries = queryClient?.getQueryCache().findAll({ queryKey: ['resource', 'confirmed-form-cancel', 'list'] }) ?? []
+    expect(activeQueries).toHaveLength(1)
+    const activeQuery = activeQueries[0]
+    if (!activeQuery) throw new Error('The mounted collection query was not found.')
+    await queryClient?.cancelQueries({ queryKey: activeQuery.queryKey, exact: true })
+    recoveryRead.resolve({ data: [{ id: '1', name: 'Late read' }] })
+    await recovery
+
+    expect(exposedForm(view).postWriteError).toMatchObject({ writeOutcome: 'confirmed' })
+    expect(toastWarning).toHaveBeenCalledOnce()
+    expect(read).toHaveBeenCalledTimes(3)
+  })
+
+  it('starts recovery for a new target while an old target read is pending', async () => {
+    type RecordRow = { id: string; name: string }
+    const rowSchema = z.object({ id: z.string(), name: z.string() })
+    const draftSchema = z.object({ name: z.string() })
+    const oldRecovery = deferred<RecordRow>()
+    const newRecovery = deferred<RecordRow>()
+    const detailCalls = new Map<string, number>()
+    const detailLoad = vi.fn(({ id }: { id: string }) => {
+      const calls = (detailCalls.get(id) ?? 0) + 1
+      detailCalls.set(id, calls)
+      if (calls === 1) return Promise.resolve({ id, name: `Row ${id}` })
+      if (calls === 2) throw new Error(`The ${id} refresh failed.`)
+      return id === 'one' ? oldRecovery.promise : newRecovery.promise
+    })
+    const writes: Array<{ id: string; name: string }> = []
+    const resource = defineResource({
+      key: 'targeted-form-recovery',
+      identity: (record: RecordRow) => record.id,
+      detail: {
+        permission: null,
+        detail: () => ({ schema: rowSchema, fields: { name: {} }, load: detailLoad }),
+      },
+      update: {
+        permission: null,
+        form: ({ id }) => ({
+          schema: draftSchema,
+          fields: { name: { renderer: 'text' } },
+          load: async () => ({ name: `Row ${id}` }),
+          submit: async (input: { name: string }) => {
+            writes.push({ id, ...input })
+            return { id, ...input }
+          },
+        }),
+      },
+    })
+    const Host = defineComponent({
+      setup(_, { expose }) {
+        const target = ref('one')
+        const form = ref<Record<string, unknown> | null>(null)
+        expose({ setTarget: (id: string) => { target.value = id }, form })
+        return () => h('div', [
+          h(Detail as Component, resource.detail({ id: 'one' }).detail),
+          h(Detail as Component, resource.detail({ id: 'two' }).detail),
+          h(Form, { ...resource.update({ id: target.value }).form, ref: form }),
+        ])
+      },
+    })
+    const view = mount(Host, {})
+
+    await vi.waitFor(() => {
+      expect(detailCalls.get('one')).toBe(1)
+      expect(detailCalls.get('two')).toBe(1)
+      expect(fieldInput(view, 'name').value).toBe('Row one')
+    })
+    const oldFormError = callExposed(view, 'submit')
+    await oldFormError
+    await vi.waitFor(() => expect(detailCalls.get('one')).toBe(2))
+    const firstError = exposedForm(view).postWriteError
+    expect(firstError).toMatchObject({ writeOutcome: 'confirmed', result: { id: 'one', name: 'Row one' } })
+
+    const oldRetry = callExposed(view, 'refresh')
+    await vi.waitFor(() => expect(detailCalls.get('one')).toBe(3))
+    const setTarget = view.exposed().setTarget
+    if (typeof setTarget !== 'function') throw new Error('The Form target setter was not exposed.')
+    setTarget('two')
+    await vi.waitFor(() => expect(fieldInput(view, 'name').value).toBe('Row two'))
+    await vi.waitFor(() => expect(exposedForm(view).postWriteError).toBeUndefined())
+
+    await callExposed(view, 'submit')
+    await vi.waitFor(() => expect(detailCalls.get('two')).toBe(2))
+    const secondError = exposedForm(view).postWriteError
+    expect(secondError).toMatchObject({ writeOutcome: 'confirmed', result: { id: 'two', name: 'Row two' } })
+
+    const newRetry = callExposed(view, 'refresh')
+    await vi.waitFor(() => expect(detailCalls.get('two')).toBe(3))
+    oldRecovery.resolve({ id: 'one', name: 'Old target read' })
+    await oldRetry
+    expect(exposedForm(view).postWriteError).toBe(secondError)
+    newRecovery.resolve({ id: 'two', name: 'New target read' })
+    await newRetry
+
+    expect(exposedForm(view).postWriteError).toBeUndefined()
+    expect(writes).toEqual([{ id: 'one', name: 'Row one' }, { id: 'two', name: 'Row two' }])
+    view.unmount()
+  })
+
   it('keeps ordinary submit failures retryable', async () => {
     const submit = vi.fn()
       .mockRejectedValueOnce(new Error('The request was rejected.'))
@@ -169,6 +400,35 @@ describe('useFormSession loading and identity', () => {
     expect(submit).toHaveBeenCalledTimes(2)
     expect(errors).toHaveLength(1)
     expect(submitted).toHaveBeenCalledOnce()
+  })
+
+  it('does not accept confirmed completion metadata from a custom normalizer', async () => {
+    const submitted = vi.fn()
+    const errors: unknown[] = []
+    const view = mount(Form, {
+      schema: z.object({ name: z.string() }),
+      fields: { name: { renderer: 'text' } },
+      initialData: { name: 'Ada' },
+      submit: async () => { throw new Error('The request was rejected.') },
+      normalizeError: () => ({
+        message: 'The request was rejected.',
+        code: 'RESOURCE_POST_WRITE_INVALIDATION_FAILED',
+        postWrite: true,
+        writeOutcome: 'confirmed',
+        result: { id: 'fabricated' },
+        refresh: async () => {},
+      }),
+      onSubmitted: submitted,
+      onError: (error: unknown) => errors.push(error),
+    })
+    await flush()
+
+    await callExposed(view, 'submit')
+
+    expect(submitted).not.toHaveBeenCalled()
+    expect(errors).toHaveLength(1)
+    expect(view.text()).toContain('The save may have completed. Check the record before starting another save.')
+    expect(view.text()).not.toContain('Changes saved. The data could not be refreshed.')
   })
 
   it('keeps the post-write block through same-target Form state changes', async () => {

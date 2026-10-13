@@ -1,4 +1,5 @@
 import { defineResource } from '../defineResource'
+import { defineTable } from '../../tables/defineTable'
 import type { CollectionLoadContext, CollectionResult, FormDraft, QueryValues, RawSchema, RecordIdentity, RecordLoadContext } from '../../contracts'
 import type { ListFilters, ListViewProps } from '../../contracts/views'
 import type { ListExportOptions } from '../../services/excel'
@@ -78,6 +79,74 @@ const rows = defineResource({
   },
 })
 
+type ServerSortQuery = { sort_by?: 'name' | 'id' }
+const loadSortedRows = async (_context: CollectionLoadContext<ServerSortQuery>): Promise<CollectionResult<Row>> => ({ data: [] })
+const sharedSortableColumns = {
+  name: { sortable: true },
+  displayName: { read: (record: Row) => record.name, sortKey: 'name', sortable: true },
+  id: { sortable: true },
+} as const
+const sortedRows = defineResource({
+  key: 'sorted-rows',
+  identity: (record: Row) => record.id,
+  list: {
+    permission: null,
+    table: { schema: rowSchema, columns: { ...sharedSortableColumns }, load: loadSortedRows },
+  },
+})
+type SortedQuery = Parameters<typeof sortedRows.list.table.load>[0]['query']
+const sortedQuery: SortedQuery = { sort_by: 'id' }
+type SortQueryPreserved = Assert<Equal<SortedQuery, ServerSortQuery>>
+const dynamicSortable = Math.random() > 0.5
+const booleanSortableRows = defineResource({
+  key: 'boolean-sortable-rows',
+  identity: (record: Row) => record.id,
+  list: {
+    permission: null,
+    table: {
+      schema: rowSchema,
+      columns: { name: { sortable: dynamicSortable } },
+      load: loadSortedRows,
+    },
+  },
+})
+const loadUnboundedRows = async (_context: CollectionLoadContext<Record<string, unknown>>): Promise<CollectionResult<Row>> => ({ data: [] })
+const unboundedSortRows = defineResource({
+  key: 'unbounded-sort-rows',
+  identity: (record: Row) => record.id,
+  list: {
+    permission: null,
+    table: { schema: rowSchema, columns: { name: { sortable: true } }, load: loadUnboundedRows },
+  },
+})
+type NoSortQuery = { page?: number }
+const loadUnsortedRows = async (_context: CollectionLoadContext<NoSortQuery>): Promise<CollectionResult<Row>> => ({ data: [] })
+const unsortedRows = defineResource({
+  key: 'unsorted-rows',
+  identity: (record: Row) => record.id,
+  list: {
+    permission: null,
+    table: { schema: rowSchema, columns: { name: {} }, load: loadUnsortedRows },
+  },
+})
+
+const compactTableWithoutSortable = defineTable({ schema: rowSchema, columns: { name: {} } })
+const compactTableWithLiteralFalse = defineTable({ schema: rowSchema, columns: { name: { sortable: false } } })
+const optionalSortable: { sortable?: boolean } = {}
+const compactTableWithOptionalSortable = defineTable({ schema: rowSchema, columns: { name: optionalSortable } })
+const compactTableWithLiteralTrue = defineTable({ schema: rowSchema, columns: { name: { sortable: true } } })
+type SortableMemberPreservesAbsence = Assert<Equal<'sortable' extends keyof typeof compactTableWithoutSortable.columns.name ? true : false, false>>
+type SortableMemberPreservesFalse = Assert<Equal<typeof compactTableWithLiteralFalse.columns.name.sortable, false>>
+type SortableMemberPreservesOptionalBoolean = Assert<Equal<typeof compactTableWithOptionalSortable.columns.name.sortable, boolean | undefined>>
+type SortableMemberPreservesTrue = Assert<Equal<typeof compactTableWithLiteralTrue.columns.name.sortable, true>>
+const constructorBoundSortedRows = defineResource({
+  key: 'constructor-bound-sorted-rows',
+  identity: (record: Row) => record.id,
+  list: { permission: null, table: { ...compactTableWithLiteralTrue, load: loadSortedRows } },
+})
+type ConstructorBoundQuery = Parameters<typeof constructorBoundSortedRows.list.table.load>[0]['query']
+type ConstructorBoundQueryPreserved = Assert<Equal<ConstructorBoundQuery, ServerSortQuery>>
+
 const updateOnly = defineResource({
   key: 'update-only',
   identity: (record: Row) => record.id,
@@ -119,6 +188,7 @@ const boundListIdentity: (record: Row) => RecordIdentity = rows.list.recordIdent
 const customActionResult: Promise<string> = rows.actions.verify.run('1')
 const listPermission: 'rows.list' = rows.permissions.list
 const createPermission: 'rows.create' = rows.permissions.create
+void [sortedRows, booleanSortableRows, unboundedSortRows, unsortedRows, sortedQuery, compactTableWithoutSortable, compactTableWithLiteralFalse, compactTableWithOptionalSortable, compactTableWithLiteralTrue, constructorBoundSortedRows]
 
 const privateRowSchema = { ...rowSchema, compiler: { node: 'internal' as const } }
 const privateDraftSchema = { ...draftSchema, compiler: { node: 'internal' as const } }

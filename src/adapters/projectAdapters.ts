@@ -16,6 +16,7 @@ import type {
   QueryValues,
   SubmitError,
 } from '../contracts'
+import type { SchemaIssue } from '../contracts/schema'
 import type { AssetAdapter } from '../assets/contracts'
 
 export interface DataAdapter {
@@ -78,13 +79,33 @@ function collectMeta(source: Record<string, unknown>) {
   return Object.values(meta).some((value) => value !== undefined) ? meta : undefined
 }
 
-function submitErrorMetadata(error: unknown): Pick<SubmitError, 'code' | 'operation' | 'retryable' | 'postWrite'> {
+function isSchemaIssue(value: unknown): value is SchemaIssue {
+  if (!isRecord(value) || !Array.isArray(value.path) || typeof value.message !== 'string') return false
+  return value.path.every((part) => typeof part === 'string' || typeof part === 'number')
+    && (value.kind === undefined || value.kind === 'operational')
+}
+
+function readSchemaIssues(value: unknown): SchemaIssue[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const issues = value.filter(isSchemaIssue)
+  return issues.length > 0 ? issues : undefined
+}
+
+function isRefreshCallback(value: unknown): value is () => Promise<void> {
+  return typeof value === 'function'
+}
+
+function submitErrorMetadata(error: unknown): Pick<SubmitError, 'code' | 'operation' | 'retryable' | 'postWrite' | 'writeOutcome' | 'result' | 'refresh'> {
   if (!isRecord(error)) return {}
+  const refresh = error.refresh
   return {
     ...(typeof error.code === 'string' ? { code: error.code } : {}),
     ...(typeof error.operation === 'string' ? { operation: error.operation } : {}),
     ...(typeof error.retryable === 'boolean' ? { retryable: error.retryable } : {}),
     ...(typeof error.postWrite === 'boolean' ? { postWrite: error.postWrite } : {}),
+    ...(error.writeOutcome === 'uncertain' || error.writeOutcome === 'confirmed' ? { writeOutcome: error.writeOutcome } : {}),
+    ...(Object.hasOwn(error, 'result') ? { result: error.result } : {}),
+    ...(isRefreshCallback(refresh) ? { refresh } : {}),
   }
 }
 
@@ -105,8 +126,14 @@ export const defaultDataAdapter: DataAdapter = {
     return payload as TRecord
   },
   normalizeError: (error: unknown): SubmitError => {
-    if (error instanceof Error) return { message: error.message, ...submitErrorMetadata(error) }
-    if (isRecord(error) && typeof error.message === 'string') return { message: error.message, ...submitErrorMetadata(error) }
+    if (error instanceof Error) {
+      const issues = isRecord(error) ? readSchemaIssues(error.issues) : undefined
+      return { message: error.message, ...submitErrorMetadata(error), ...(issues ? { issues } : {}) }
+    }
+    if (isRecord(error) && typeof error.message === 'string') {
+      const issues = readSchemaIssues(error.issues)
+      return { message: error.message, ...submitErrorMetadata(error), ...(issues ? { issues } : {}) }
+    }
     return { message: 'Request failed.' }
   },
 }

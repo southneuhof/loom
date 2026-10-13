@@ -1,4 +1,5 @@
 import { computed, getCurrentInstance, nextTick, onUnmounted, provide, reactive, ref, shallowReactive, shallowRef, useId, watch, type ComputedRef, type WatchStopHandle } from 'vue'
+import { isCancelledError } from '@tanstack/vue-query'
 import { toast } from 'vue-sonner'
 import type { FormDefinition, FormDraft, FormDraftSnapshot } from '../contracts/forms'
 import type { RecordLoadContext } from '../contracts/load'
@@ -15,10 +16,11 @@ import { createSchemaRuntime } from '../schemas/schemaRuntime'
 import { assertFormDefinition } from './assertFormDefinition'
 import { cloneEditable, isPlainRecord, snapshotEditable } from './draftValues'
 import type { FormProps } from './props'
+import { isConfirmedWriteRefreshError, normalizeWriteError } from '../resources/postWriteOutcome'
 
 export interface FormSessionEvents<TInput extends object, TResult> {
   updateModel: (value: FormDraftSnapshot<TInput>) => void
-  submitted: (result: TResult) => void
+  submitted: (result: TResult, refreshError?: SubmitError) => void
   error: (error: SubmitError) => void
   reset: () => void
 }
@@ -271,6 +273,7 @@ export function useFormSession<
   let mounted = true
   let lastEmittedModel: FormDraftSnapshot<TInput> | undefined
   let activeSubmit: Promise<void> | undefined
+  let activeRecovery: { error: SubmitError; target: string; promise: Promise<void> } | undefined
   let mutationSequence = 0
   let activeMutationOwner: number | undefined
 
@@ -551,7 +554,13 @@ export function useFormSession<
       }
     } catch (error) {
       if (!mounted || generation !== sessionGeneration.value || activeMutationOwner !== mutationOwner) return
-      const normalized = (props.normalizeError ?? adapters.data.normalizeError)(error)
+      const normalized = normalizeWriteError(error, props.normalizeError ?? adapters.data.normalizeError)
+      if (isConfirmedWriteRefreshError<TResult>(normalized)) {
+        postWriteErrorState.value = normalized
+        toast.warning('Changes saved. Could not refresh the data.')
+        events.submitted(normalized.result, normalized)
+        return
+      }
       if (normalized.postWrite === true) postWriteErrorState.value = normalized
       if (normalized.issues) issues.value = normalized.issues
       toast.error(normalized.message)
@@ -639,9 +648,34 @@ export function useFormSession<
     events.reset()
   }
 
-  async function refresh(): Promise<void> {
-    if (modelValuePresent || props.load === undefined) return
-    await loader.refresh()
+  function recoveryIsCurrent(error: SubmitError, generation: number, target: string): boolean {
+    return mounted
+      && generation === sessionGeneration.value
+      && target === writeTargetSignature.value
+      && postWriteErrorState.value === error
+  }
+
+  function refresh(): Promise<void> {
+    const confirmedError = postWriteErrorState.value
+    if (confirmedError && isConfirmedWriteRefreshError(confirmedError)) {
+      if (activeRecovery?.error === confirmedError && activeRecovery.target === writeTargetSignature.value) return activeRecovery.promise
+      const generation = sessionGeneration.value
+      const target = writeTargetSignature.value
+      const recovery = Promise.resolve().then(confirmedError.refresh).then(() => {
+        if (recoveryIsCurrent(confirmedError, generation, target)) postWriteErrorState.value = undefined
+      }, (error: unknown) => {
+        if (recoveryIsCurrent(confirmedError, generation, target) && !isCancelledError(error)) {
+          toast.warning('Changes saved. Could not refresh the data.')
+        }
+      })
+      const ownedRecovery = recovery.finally(() => {
+        if (activeRecovery?.promise === ownedRecovery) activeRecovery = undefined
+      })
+      activeRecovery = { error: confirmedError, target, promise: ownedRecovery }
+      return ownedRecovery
+    }
+    if (modelValuePresent || props.load === undefined) return Promise.resolve()
+    return loader.refresh()
   }
 
   function applyLoaded(value: FormDraft<TInput> | undefined): void {

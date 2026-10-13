@@ -71,6 +71,11 @@ the selected component's public props; put loaders such as `load` and
 `namespace` in that object. The schema supplies requiredness but does not infer
 renderers or choices.
 
+A custom input that owns its own data set uses `useLoader` for reads. It shares
+the installed query client's deduplication, cancellation, retry, and terminal
+failure feedback. Keep the loader's `enabled` setting separate from an input's
+interaction `disabled` prop.
+
 With no display renderer, Loom renders scalar values as text and nullish values
 as `-`. Dates need an explicit format. Structured values need a renderer or an
 accessor/formatter that returns displayable text. Do not return raw objects for
@@ -145,8 +150,17 @@ if (command.can(payload)) await command.run(payload)
 
 Binding copies the record used for policy checks. It does not append the record
 to the command arguments. Successful create/update results must identify the
-resource. An invalid result is a non-retryable post-write error, and the
-resource cache is invalidated because the write may have completed.
+resource. An invalid result is an uncertain, non-retryable post-write error.
+When a valid write result is followed by a failed active read, the binder keeps
+the original result and provides a read-only recovery callback. A refresh never
+repeats the write. Canceled or superseded reads do not change the known write
+outcome.
+
+At resource composition, sortable columns are checked against the non-null
+`sort_by` values in the typed table loader query. An implicit sort key uses the
+column key; an explicit `sortKey` uses that key. A typed query with no
+`sort_by` permits no sortable columns. Broad query types retain the current
+record-key checks. The Hono adapter remains the runtime query validator.
 
 The binder owns resource identity, route access registration, permission
 checks, cache namespaces, and invalidation after successful standard writes.
@@ -186,14 +200,15 @@ blocks submission while upload work remains pending. See
 [`assets.form.spec.ts`](../../apps/web/src/framework/adapters/assets.form.spec.ts)
 for the executable boundary example.
 
-If a submit error has `postWrite: true`, the mounted Form keeps the draft and
-blocks another save for the same resource and record identity. Its alert tells
-the user to check the record before starting another save. Edits, reset,
-refresh, schema or field changes, and view-scope changes do not clear the block;
-a resource or record identity change does. A create Form without an id stays
-blocked until it is left or remounted. A new Form mount starts a new local
-session, so this does not provide server idempotency or prove that the earlier
-write succeeded.
+An uncertain or legacy submit error with `postWrite: true` keeps the draft and
+blocks another save for the same resource and record identity. The alert tells
+the user to check the record before starting another save. A confirmed refresh
+failure says the write was saved and offers Retry refresh. That action retries
+reads only and clears the block after a successful read. Edits, reset, ordinary
+refresh, schema or field changes, and view-scope changes do not clear an
+uncertain block; a resource or record identity change does. A new Form mount
+starts a new local session, so mounted guards do not provide server
+idempotency across remounts.
 
 `DialogForm` owns ordinary visibility and completion. Use one keyed dialog for
 each record action. Bind `open` only when another page control must coordinate

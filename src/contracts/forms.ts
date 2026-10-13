@@ -50,6 +50,7 @@ export interface FormInputSlotProps<TInput extends object, TKey extends Extract<
 export interface FormActionSlotProps {
   readonly submit: () => Promise<void>
   readonly reset: () => void
+  readonly refresh: () => Promise<void>
   readonly submitting: boolean
   readonly submitPending: boolean
   readonly postWriteError: SubmitError | undefined
@@ -61,7 +62,6 @@ export interface FormActionSlotProps {
 export interface FormExposed<TInput extends object, TOutput extends object> extends FormActionSlotProps {
   readonly draft: FormDraftSnapshot<TInput>
   readonly validate: () => Promise<SchemaParseResult<TOutput>>
-  readonly refresh: () => Promise<void>
 }
 
 export type FormSlots<TInput extends object, TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>> = {

@@ -1,8 +1,11 @@
 import type { AccessAdapter, CollectionLoadContext, QueryNamespace, RecordIdentity, RecordLoadContext, ResourceOperation } from '../contracts'
 import { invalidateResourceData } from '../query/client'
+import { withWriteRefreshFeedbackSuppressed } from '../query/feedback'
+import { isCancelledError } from '@tanstack/vue-query'
 import { stableValue } from '../query/keys'
 import { checkIdentityValue, isRecordIdentity } from './identity'
 import { useResourceRuntime } from './runtime'
+import { markConfirmedWriteRefreshError } from './postWriteOutcome'
 import { registerResourceRouteRequirement } from './routeAccess'
 import { isStandardRowOperation } from './operations'
 import type {
@@ -271,19 +274,53 @@ type ResourcePostWriteCode = 'RESOURCE_RESULT_INVALID' | 'RESOURCE_POST_WRITE_IN
 class ResourcePostWriteError extends Error {
   readonly retryable = false
   readonly postWrite = true
+  readonly writeOutcome: 'uncertain' | 'confirmed'
+  declare readonly result?: unknown
+  declare readonly refresh?: () => Promise<void>
 
-  constructor(readonly code: ResourcePostWriteCode, readonly operation: string, message: string, readonly cause?: unknown) {
+  constructor(
+    readonly code: ResourcePostWriteCode,
+    readonly operation: string,
+    message: string,
+    readonly cause?: unknown,
+    confirmed?: { result: unknown; refresh: () => Promise<void> },
+  ) {
     super(message)
     this.name = 'ResourcePostWriteError'
+    this.writeOutcome = confirmed ? 'confirmed' : 'uncertain'
+    if (confirmed) {
+      Object.defineProperties(this, {
+        result: { value: confirmed.result, enumerable: true },
+        refresh: { value: confirmed.refresh, enumerable: true },
+      })
+    }
   }
 }
 
-function postWriteError(resourceKey: string, operation: string, code: ResourcePostWriteCode, detail: string, cause?: unknown): ResourcePostWriteError {
-  return new ResourcePostWriteError(
+function postWriteError(
+  resourceKey: string,
+  operation: string,
+  code: ResourcePostWriteCode,
+  detail: string,
+  cause?: unknown,
+  confirmed?: { result: unknown; refresh: () => Promise<void> },
+): ResourcePostWriteError {
+  const message = confirmed
+    ? `[loom][${code}] The ${operation} write for resource "${resourceKey}" completed, but the data could not be refreshed. ${detail}`
+    : `[loom][${code}] The ${operation} write for resource "${resourceKey}" may have completed. ${detail}`
+  const error = new ResourcePostWriteError(
     code,
     operation,
-    `[loom][${code}] The ${operation} write for resource "${resourceKey}" may have completed. ${detail}`,
+    message,
     cause,
+    confirmed,
+  )
+  return confirmed ? markConfirmedWriteRefreshError(error) : error
+}
+
+function refreshResource(runtime: ReturnType<typeof useResourceRuntime>, resourceKey: string, id?: RecordIdentity): Promise<void> {
+  return withWriteRefreshFeedbackSuppressed(runtime.queryClient, resourceKey, id, () =>
+    invalidateResourceData(runtime.queryClient, { resource: resourceKey, ...(id === undefined ? {} : { id }) }),
   )
 }
 
@@ -292,11 +329,21 @@ async function invalidateAfterWrite(
   resourceKey: string,
   operation: string,
   id?: RecordIdentity,
+  result?: unknown,
 ): Promise<void> {
+  const refresh = () => refreshResource(runtime, resourceKey, id)
   try {
-    await invalidateResourceData(runtime.queryClient, { resource: resourceKey, ...(id === undefined ? {} : { id }) })
+    await refresh()
   } catch (error) {
-    throw postWriteError(resourceKey, operation, 'RESOURCE_POST_WRITE_INVALIDATION_FAILED', 'Cache invalidation failed after the server accepted the write.', error)
+    if (isCancelledError(error)) return
+    throw postWriteError(
+      resourceKey,
+      operation,
+      'RESOURCE_POST_WRITE_INVALIDATION_FAILED',
+      'Cache invalidation failed after the server accepted the write.',
+      error,
+      { result, refresh },
+    )
   }
 }
 
@@ -309,9 +356,9 @@ async function invalidateInvalidResult(
 ): Promise<never> {
   let invalidationError: unknown
   try {
-    await invalidateResourceData(runtime.queryClient, { resource: resourceKey, ...(id === undefined ? {} : { id }) })
+    await refreshResource(runtime, resourceKey, id)
   } catch (error) {
-    invalidationError = error
+    if (!isCancelledError(error)) invalidationError = error
   }
   throw postWriteError(
     resourceKey,
@@ -362,7 +409,7 @@ function wrapSubmit<TIdentityFunction extends ResourceIdentityFunction, TRecord 
           : 'The successful result has no valid resource identity.',
       )
     }
-    await invalidateAfterWrite(runtime, resourceKey, operation, operation === 'update' ? id : undefined)
+    await invalidateAfterWrite(runtime, resourceKey, operation, operation === 'update' ? id : undefined, result)
     return result
   }
 }
@@ -425,7 +472,7 @@ function customHandle<
         throw new Error(`[loom] Resource "${resourceKey}" action "${actionName}" is not allowed.`)
       }
       const result = await action.run(...args)
-      await invalidateAfterWrite(runtime, resourceKey, actionName)
+      await invalidateAfterWrite(runtime, resourceKey, actionName, undefined, result)
       return result as Awaited<ReturnType<TRun>>
     },
     ...(route ? { route } : {}),
@@ -576,7 +623,7 @@ export function bindResource<
         const runtime = useResourceRuntime()
         assertAllowed(resourceKey, runtime.adapters.access, 'delete', deleteDeclaration.permission, deleteDeclaration.visible, binding.record)
         const result = await deleteDeclaration.run(binding.id)
-        await invalidateAfterWrite(runtime, resourceKey, 'delete', binding.id)
+        await invalidateAfterWrite(runtime, resourceKey, 'delete', binding.id, result)
         return result
       }
       list.recordIdentity = identity
@@ -668,7 +715,7 @@ export function bindResource<
           const runtime = useResourceRuntime()
           assertAllowed(resourceKey, runtime.adapters.access, 'delete', declaration.permission, declaration.visible, bound.record)
           const result = await declaration.run(bound.id)
-          await invalidateAfterWrite(runtime, resourceKey, 'delete', bound.id)
+          await invalidateAfterWrite(runtime, resourceKey, 'delete', bound.id, result)
           return result
         },
       }

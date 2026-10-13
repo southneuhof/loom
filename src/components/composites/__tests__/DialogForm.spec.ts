@@ -1,10 +1,13 @@
-import { defineComponent, h, ref } from 'vue'
+import { defineComponent, h, ref, type Component } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import type { FormFields } from '../../../contracts/forms'
 import type { DialogFormCloseContext, DialogFormCloseReason } from '../../../forms/props'
 import { defineForm } from '../../../forms/defineForm'
+import { defineResource } from '../../../resources/defineResource'
 import DialogForm from '../DialogForm.vue'
+import Table from '../../core/Table.vue'
+import { toast } from 'vue-sonner'
 import { deferred, flush, mountCore } from '../../core/__tests__/harness'
 
 vi.mock('../../base/Dialog.vue', async () => {
@@ -136,9 +139,76 @@ function mount(options: DialogMountOptions = {}) {
 afterEach(() => {
   for (const view of mounted.splice(0)) view.unmount()
   document.body.innerHTML = ''
+  vi.restoreAllMocks()
 })
 
 describe('DialogForm', () => {
+  it('forwards a confirmed write result and refresh error once before closing', async () => {
+    type RecordRow = { id: string; name: string }
+    const rowSchema = z.object({ id: z.string(), name: z.string() })
+    const draftSchema = z.object({ name: z.string() })
+    let reads = 0
+    const load = vi.fn(async () => {
+      reads += 1
+      if (reads > 1) throw new Error('The collection could not be refreshed.')
+      return { data: [{ id: 'one', name: 'Current' }] }
+    })
+    const result = { id: 'two', name: 'Saved' }
+    const submit = vi.fn(async () => result)
+    const resource = defineResource({
+      key: 'dialog-confirmed-completion',
+      identity: (record: RecordRow) => record.id,
+      list: { permission: null, table: { schema: rowSchema, columns: { name: {} }, load } },
+      create: {
+        permission: null,
+        form: { schema: draftSchema, fields: { name: { renderer: 'text' } }, initialData: { name: 'Saved' }, submit },
+      },
+    })
+    const submitted: Array<[unknown, unknown?]> = []
+    const errors: unknown[] = []
+    const openUpdates: boolean[] = []
+    const open = ref(true)
+    const toastWarning = vi.spyOn(toast, 'warning').mockImplementation(() => '')
+    const Host = defineComponent({
+      setup(_, { expose }) {
+        const dialog = ref<Record<string, unknown> | null>(null)
+        expose({ submit: () => {
+          const method = dialog.value?.submit
+          if (typeof method !== 'function') throw new Error('DialogForm did not expose submit().')
+          return method()
+        } })
+        return () => h('div', [
+          h(Table as Component, resource.list.table),
+          h(DialogForm as Component, {
+            ...resource.create.form,
+            ref: dialog,
+            open: open.value,
+            'onUpdate:open': (value: boolean) => { openUpdates.push(value); open.value = value },
+            onSubmitted: (writeResult: unknown, refreshError?: unknown) => submitted.push([writeResult, refreshError]),
+            onError: (error: unknown) => errors.push(error),
+          }),
+        ])
+      },
+    })
+    const view = mountCore(Host, {})
+    mounted.push(view)
+
+    await vi.waitFor(() => expect(load).toHaveBeenCalledOnce())
+    const submitDialog = view.exposed().submit
+    if (typeof submitDialog !== 'function') throw new Error('The DialogForm submit method was not exposed.')
+    await submitDialog()
+    await vi.waitFor(() => expect(submitted).toHaveLength(1))
+
+    expect(submit).toHaveBeenCalledOnce()
+    expect(submitted[0]?.[0]).toBe(result)
+    expect(submitted[0]?.[1]).toMatchObject({ writeOutcome: 'confirmed', result })
+    expect(errors).toEqual([])
+    expect(openUpdates).toEqual([false])
+    expect(open.value).toBe(false)
+    expect(view.find('[role="dialog"]')).toBeNull()
+    expect(toastWarning).toHaveBeenCalledOnce()
+  })
+
   it('forwards native form attributes and dialog styling, and uses the effective submit once', async () => {
     let transformCalls = 0
     const paritySchema = z.object({
