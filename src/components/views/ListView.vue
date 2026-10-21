@@ -62,6 +62,7 @@ defineSlots<{
   header?: () => unknown;
   empty?: () => unknown;
   filters?: () => unknown;
+  context?: () => unknown;
   body?: (props: { table: TableProps<TRecord, TQuery> }) => unknown;
   footer?: () => unknown;
   "row-actions"?: (props: { record: TRecord }) => unknown;
@@ -613,6 +614,8 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
         <slot name="filters" />
       </div>
     </Card>
+
+    <slot name="context" />
 
     <Card variant="outlined" color="surfaceContainer" class="gap-0 p-0">
       <slot name="body" v-bind="{ table: surface.table }">

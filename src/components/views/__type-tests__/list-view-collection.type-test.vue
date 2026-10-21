@@ -16,6 +16,9 @@ const table: TableProps<Role, RoleQuery> = {
 
 <template>
   <ListView :table="table">
+    <template #context>
+      <span>List context</span>
+    </template>
     <template #empty>
       <span>No roles match.</span>
     </template>

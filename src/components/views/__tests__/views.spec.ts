@@ -71,19 +71,31 @@ function installStorage() {
 }
 
 describe('ListView', () => {
-  it('renders toolbar and table in separate outlined cards', async () => {
-    const view = mountCore(ListView, { title: 'Role', description: 'Manage roles.', table: tableProps })
+  it('renders the context slot between the toolbar and table cards', async () => {
+    const view = mountCore(
+      ListView,
+      { title: 'Role', description: 'Manage roles.', table: tableProps },
+      {
+        slots: {
+          context: () => h('div', { 'data-context-slot': '' }, 'List summary'),
+        },
+      },
+    )
     await flush()
 
     expect(view.find('h1')?.textContent).toBe('Role')
     expect(view.text()).toContain('Manage roles.')
     expect(view.all('th').map((cell) => cell.textContent)).toEqual(['Nama'])
     expect(view.text()).toContain('Admin')
-    const cards = view.all('.is-list-view > div')
-    expect(cards).toHaveLength(2)
-    expect(cards.every((card) => card.classList.contains('bg-surface-container'))).toBe(true)
-    expect(cards[0].contains(view.find('header')!)).toBe(true)
-    expect(cards[1].contains(view.find('table')!)).toBe(true)
+    expect(view.text()).toContain('List summary')
+    const listView = view.find('.is-list-view')!
+    expect(listView.children).toHaveLength(3)
+    const [toolbarCard, context, contentCard] = [...listView.children]
+    expect(toolbarCard.classList.contains('bg-surface-container')).toBe(true)
+    expect(toolbarCard.contains(view.find('header')!)).toBe(true)
+    expect(context).toBe(view.find('[data-context-slot]'))
+    expect(contentCard.classList.contains('bg-surface-container')).toBe(true)
+    expect(contentCard.contains(view.find('table')!)).toBe(true)
     view.unmount()
   })
 
