@@ -67,7 +67,11 @@ const colorMap = {
 </script>
 
 <template>
-  <div v-if="props.color" :class="`${baseClass} ${colorMap[props.color][props.variant]}`">
+  <div
+    v-if="props.color"
+    :class="`${baseClass} ${colorMap[props.color][props.variant]}`"
+    :style="props.variant === 'outline' ? { outlineOffset: '-1px' } : undefined"
+  >
     <slot></slot>
   </div>
   <div v-else class="box-border flex h-fit w-fit items-center justify-center rounded-lg bg-surface-container-highest px-2 py-1 text-center text-sm text-on-surface">
