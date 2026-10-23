@@ -1,4 +1,4 @@
-import type { builtInFormRenderers } from './form'
+import type { Component } from 'vue'
 import type { TableInputProps } from '../components/composites/form-inputs/tableInput.types'
 import type { TextInputDataAttributes } from '../components/inputs/textInput.types'
 
@@ -8,11 +8,38 @@ type PublicFormProps<T> = T extends abstract new (...args: infer _TArgs) => infe
   ? TInstance extends { $props: infer TProps } ? TProps : never
   : never
 
-export type BuiltInFormRendererComponents = typeof builtInFormRenderers
+export interface BuiltInFormRendererComponents {
+  text: typeof import('../components/inputs/TextInput.vue').default
+  textarea: typeof import('../components/inputs/TextareaInput.vue').default
+  password: typeof import('../components/inputs/PasswordInput.vue').default
+  number: typeof import('../components/inputs/NumberInput.vue').default
+  select: typeof import('../components/inputs/SelectInput.vue').default
+  radio: typeof import('../components/inputs/RadioGroupInput.vue').default
+  date: typeof import('../components/inputs/DateInput.vue').default
+  daterange: typeof import('../components/inputs/DateRangeInput.vue').default
+  month: typeof import('../components/inputs/MonthInput.vue').default
+  year: typeof import('../components/inputs/YearInput.vue').default
+  time: typeof import('../components/inputs/TimeInput.vue').default
+  checkbox: typeof import('../components/inputs/CheckboxInput.vue').default
+  'checkbox-group': typeof import('../components/inputs/CheckboxGroupInput.vue').default
+  switch: typeof import('../components/inputs/Switch.vue').default
+  file: typeof import('../components/inputs/FileInput.vue').default
+  image: typeof import('../components/inputs/ImageInput.vue').default
+  tag: typeof import('../components/inputs/TagInput.vue').default
+  color: typeof import('../components/inputs/ColorInput.vue').default
+  lookup: typeof import('../components/composites/form-inputs/LookupInput.vue').default
+  location: typeof import('../components/composites/form-inputs/LocationInput.vue').default
+  'multi-location': typeof import('../components/composites/form-inputs/MultiLocationInput.vue').default
+  'rich-text': typeof import('../components/inputs/RichTextInput.vue').default
+  'icon-select': typeof import('../components/inputs/IconSelectInput.vue').default
+  table: Component
+  separator: typeof import('../components/composites/form-inputs/FormSeparator.vue').default
+  canvas: typeof import('../components/inputs/DrawingCanvas.vue').default
+}
 
 export interface FormRendererComponents extends BuiltInFormRendererComponents {}
 
-export type FormRendererKey = (keyof typeof builtInFormRenderers | keyof FormRendererComponents) & string
+export type FormRendererKey = keyof FormRendererComponents & string
 
 type FormOwnedProp =
   | 'required'

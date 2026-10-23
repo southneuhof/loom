@@ -1,4 +1,5 @@
-import { defineAsyncComponent } from 'vue'
+import { defineAsyncComponent, type Component } from 'vue'
+import type { BuiltInFormRendererComponents } from './formContracts'
 import FileInput from '../components/inputs/FileInput.vue'
 import TextInput from '../components/inputs/TextInput.vue'
 
@@ -26,7 +27,7 @@ export const builtInFormRenderers = {
   'multi-location': defineAsyncComponent(() => import('../components/composites/form-inputs/MultiLocationInput.vue')),
   'rich-text': defineAsyncComponent(() => import('../components/inputs/RichTextInput.vue')),
   'icon-select': defineAsyncComponent(() => import('../components/inputs/IconSelectInput.vue')),
-  table: defineAsyncComponent(() => import('../components/composites/form-inputs/TableInput.vue')),
+  table: defineAsyncComponent(() => import('../components/composites/form-inputs/TableInput.vue')) as Component,
   separator: defineAsyncComponent(() => import('../components/composites/form-inputs/FormSeparator.vue')),
   canvas: defineAsyncComponent(() => import('../components/inputs/DrawingCanvas.vue')),
-}
+} satisfies BuiltInFormRendererComponents
