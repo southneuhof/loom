@@ -51,6 +51,7 @@ const currentExports = [
   'defineResource',
   'Table',
   'TreeTable',
+  'TreeTableContent',
   'Detail',
   'Form',
   'DialogForm',

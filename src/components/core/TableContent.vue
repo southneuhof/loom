@@ -199,7 +199,7 @@ const table = useVueTable<TRecord>({
   getCoreRowModel: getCoreRowModel(),
   manualSorting: true,
   manualPagination: !props.reorderable,
-  getRowId: props.reorderable ? (record) => rowIdentity(record) : undefined,
+  getRowId: props.rowKey ? (record) => rowIdentity(record) : undefined,
   enableMultiSort: false,
   enableSortingRemoval: false,
   onSortingChange: (updater) => {

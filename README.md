@@ -181,6 +181,29 @@ Routes own navigation, dialogs, confirmations, notifications, and workflow
 state. Use `Table`, `Detail`, or `Form` directly when a page does not need a
 standard resource View.
 
+Use `TreeTableContent` when a nonstandard page owns the collection load and
+passes loaded tree records to Loom. It keeps the table slots and query controls.
+Expansion uses local state by default. Set `expandedKeys` to control it:
+
+```vue
+<TreeTableContent
+  :schema="schema"
+  :columns="columns"
+  :records="records"
+  :query="query"
+  :loading="loading"
+  :empty="empty"
+  row-key="key"
+  :children="node => node.children"
+  tree-column="name"
+  v-model:expanded-keys="expandedKeys"
+/>
+```
+
+Use `default-expanded-keys` for initial uncontrolled state. Its exposed
+`expandAll`, `collapseAll`, and `reveal(keys)` methods support page controls.
+`reveal` opens the parent rows needed to show the requested row keys.
+
 ## Forms and assets
 
 Forms keep the editable draft in input shape. The raw form schema parses it to

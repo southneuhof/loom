@@ -102,6 +102,25 @@ export interface TableContentProps<
   updateQuery?: (patch: QueryValues) => void
 }
 
+export interface TreeRowContext {
+  key: string
+  parentKey: string | null
+  depth: number
+  hasChildren: boolean
+  expanded: boolean
+}
+
+export type TreeTableContentProps<
+  TRecord extends object = Record<string, unknown>,
+  TQuery extends object = Record<string, unknown>,
+> = Omit<TableContentProps<TRecord, TQuery>, 'reorderable'> & {
+  rowKey: string | ((record: TRecord) => string | number)
+  children: (record: TRecord) => readonly TRecord[]
+  treeColumn: string
+  expandedKeys?: readonly string[]
+  defaultExpandedKeys?: readonly string[]
+}
+
 export interface RowReorderPayload<TRecord extends object = Record<string, unknown>> {
   rows: TRecord[]
   oldIndex: number
