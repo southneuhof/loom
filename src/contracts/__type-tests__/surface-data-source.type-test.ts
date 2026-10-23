@@ -49,6 +49,7 @@ const controlledTreeTable: TreeTableProps<Row, Query> = {
   data: [],
   children: () => [],
   treeColumn: 'name',
+  rowKey: 'id',
 }
 const loadedTreeTable: TreeTableProps<Row, Query> = {
   schema,
@@ -56,6 +57,7 @@ const loadedTreeTable: TreeTableProps<Row, Query> = {
   load: loadRows,
   children: () => [],
   treeColumn: 'name',
+  rowKey: 'id',
 }
 const controlledDetail: DetailProps<Row> = { schema, fields: { name: {} }, data: row }
 const loadedDetail: DetailProps<Row> = { schema, fields: { name: {} }, load: loadRow }

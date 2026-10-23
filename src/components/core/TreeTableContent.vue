@@ -1,9 +1,7 @@
 <script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>">
-import { computed, onBeforeUpdate, toRaw, useAttrs, useSlots } from 'vue'
-import type { CollectionSlotProps, QueryValues, SubmitError, TreeRowContext, TreeTableContentProps } from '../../contracts'
+import { computed, onBeforeUpdate, useAttrs, useSlots } from 'vue'
+import type { CollectionSlotProps, QueryValues, RowReorderPayload, SubmitError, TreeRowContext, TreeTableContentProps } from '../../contracts'
 import type { ResolvedDisplayField } from '../../display/resolveDisplay'
-import DisplayValue from '../../display/DisplayValue.vue'
-import Icon from '../base/Icon.vue'
 import TableContent from './TableContent.vue'
 import { buildTreeTableIndex, useTreeTableState } from './useTreeTableState'
 
@@ -15,6 +13,7 @@ const props = withDefaults(defineProps<TreeTableContentProps<TRecord, TQuery>>()
   pageSizeOptions: () => [10, 25, 50, 100],
   defaultPageSize: 10,
   minColumnWidth: 96,
+  maxColumnWidth: 360,
 })
 
 const emit = defineEmits<{
@@ -23,6 +22,7 @@ const emit = defineEmits<{
   (event: 'update:visibleColumns', columns: string[]): void
   (event: 'update:columnSizing', sizes: Record<string, number>): void
   (event: 'row-click', record: TRecord, index: number): void
+  (event: 'row-reorder', payload: RowReorderPayload<TRecord>): void
 }>()
 
 type RowScope = { record: TRecord; index: number; tree: TreeRowContext }
@@ -42,8 +42,7 @@ defineSlots<{
 
 const slots = useSlots()
 const attrs = useAttrs()
-const treeSlotName = computed(() => `cell:${props.treeColumn}`)
-const forwardedSlotNames = computed(() => Object.keys(slots).filter((name) => name !== 'collection' && name !== treeSlotName.value))
+const forwardedSlotNames = computed(() => Object.keys(slots).filter((name) => name !== 'collection'))
 const state = useTreeTableState(props)
 
 function optionError(detail: string): never {
@@ -77,57 +76,21 @@ const treeIndex = computed(() => {
   return buildTreeTableIndex(props.records, props.rowKey, props.children)
 })
 
-const visibleRows = computed(() => {
+const hierarchy = computed(() => {
   const index = treeIndex.value
-  const expandedKeys = new Set(state.expandedKeys.value)
-  const rows: { record: TRecord; tree: TreeRowContext }[] = []
-
-  function visit(records: readonly TRecord[], parentKey: string | null, depth: number) {
-    for (const record of records) {
-      const key = index.keyFor(record)
-      const children = index.childrenFor(record)
-      const expanded = expandedKeys.has(key)
-      rows.push({
-        record,
-        tree: { key, parentKey, depth, hasChildren: children.length > 0, expanded },
-      })
-      if (expanded && children.length > 0) visit(children, key, depth + 1)
-    }
+  return {
+    children: index.childrenFor,
+    keyFor: index.keyFor,
+    treeColumn: props.treeColumn,
+    expandedKeys: state.expandedKeys.value,
+    parentKeys: index.parentKeys,
+    onExpandedKeysChange: updateExpandedKeys,
   }
-
-  visit(props.records, null, 0)
-  return rows
 })
-
-const rowContexts = computed(() => new Map(visibleRows.value.map((row) => [toRaw(row.record), row.tree])))
-const tableProps = computed(() => {
-  const { children: _children, treeColumn: _treeColumn, expandedKeys: _expandedKeys, defaultExpandedKeys: _defaultExpandedKeys, ...table } = props
-  return { ...table, records: visibleRows.value.map((row) => row.record), rowKey: treeIndex.value.keyFor }
-})
-
-function treeFor(record: TRecord): TreeRowContext {
-  return rowContexts.value.get(toRaw(record))!
-}
-
-function withTree(scope: Record<string, unknown> | undefined) {
-  if (!scope || !scope.record || typeof scope.record !== 'object') return scope ?? {}
-  return { ...scope, tree: treeFor(scope.record as TRecord) }
-}
-
-function treeActionLabel(value: unknown, tree: TreeRowContext) {
-  const label = typeof value === 'string' || typeof value === 'number' ? String(value) : 'row'
-  return `${tree.expanded ? 'Collapse' : 'Expand'} ${label || 'row'}`
-}
 
 function updateExpandedKeys(keys: string[]) {
-  emit('update:expandedKeys', state.setExpandedKeys(keys))
-}
-
-function toggle(key: string) {
-  const next = new Set(state.expandedKeys.value)
-  if (next.has(key)) next.delete(key)
-  else next.add(key)
-  updateExpandedKeys([...next])
+  const next = state.setExpandedKeys(keys)
+  emit('update:expandedKeys', next)
 }
 
 function expandAll() {
@@ -146,45 +109,57 @@ function reveal(keys: readonly string[]) {
   updateExpandedKeys([...next])
 }
 
+function updateQuery(patch: QueryValues) {
+  emit('update:query', patch)
+}
+
+function rowClick(record: TRecord, index: number) {
+  emit('row-click', record, index)
+}
+
+function rowReorder(payload: RowReorderPayload<TRecord>) {
+  emit('row-reorder', payload)
+}
+
 defineExpose({ expandAll, collapseAll, reveal })
 </script>
 
 <template>
   <TableContent
-    v-bind="tableProps"
-    @update:query="emit('update:query', $event)"
+    :schema="props.schema"
+    :query-schema="props.querySchema"
+    :columns="props.columns"
+    :labels="props.labels"
+    :records="props.records"
+    :meta="props.meta"
+    :loading="props.loading"
+    :error="props.error"
+    :empty="props.empty"
+    :query="props.query"
+    :refresh="props.refresh"
+    :update-query="props.updateQuery"
+    :search-parameters="props.searchParameters"
+    :namespace="props.namespace"
+    :pagination="props.pagination"
+    :page-size-options="props.pageSizeOptions"
+    :default-page-size="props.defaultPageSize"
+    :min-column-width="props.minColumnWidth"
+    :max-column-width="props.maxColumnWidth"
+    :visible-columns="props.visibleColumns"
+    :column-sizing="props.columnSizing"
+    :row-key="treeIndex.keyFor"
+    :hierarchy="hierarchy"
+    @update:query="updateQuery"
     @update:visible-columns="emit('update:visibleColumns', $event)"
     @update:column-sizing="emit('update:columnSizing', $event)"
-    @row-click="(record, index) => emit('row-click', record, index)"
+    @row-click="rowClick"
+    @row-reorder="rowReorder"
   >
     <template v-if="$slots.collection" #collection="scope">
-      <slot name="collection" v-bind="scope" :records="props.records" />
+      <slot name="collection" v-bind="scope" />
     </template>
     <template v-for="name in forwardedSlotNames" :key="name" #[name]="scope">
-      <slot :name="name" v-bind="withTree(scope)" />
-    </template>
-    <template #[treeSlotName]="cell">
-      <span
-        class="is-tree-table-cell inline-flex min-w-0 items-stretch"
-        :style="{ paddingInlineStart: `${treeFor(cell.record).depth * 2.5}rem` }"
-      >
-        <button
-          v-if="treeFor(cell.record).hasChildren"
-          type="button"
-          class="inline-flex size-6 shrink-0 items-center justify-center rounded overlay after:bg-primary-hover focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary focus-visible:after:bg-primary-active active:after:bg-primary-active"
-          :aria-label="treeActionLabel(cell.value, treeFor(cell.record))"
-          :aria-expanded="treeFor(cell.record).expanded"
-          @click.stop="toggle(treeFor(cell.record).key)"
-        >
-          <Icon name="arrow-right-s" :class="{ 'rotate-90': treeFor(cell.record).expanded }" />
-        </button>
-        <span v-else class="inline-block size-6 shrink-0" aria-hidden="true" />
-        <span class="is-tree-table-label min-w-0 truncate">
-          <slot :name="treeSlotName" v-bind="withTree(cell)">
-            <DisplayValue :value="cell.value" :record="cell.record" :field="cell.field" :index="cell.index" />
-          </slot>
-        </span>
-      </span>
+      <slot :name="name" v-bind="scope ?? {}" />
     </template>
   </TableContent>
 </template>

@@ -52,5 +52,5 @@ export type { ResourceOperation, StandardRowOperation, AccessRequest, AccessAdap
 
 export type { QueryNamespace, QueryValues, QueryLocationAdapter, QueryKey } from './query'
 
-export type { CollectionProps, CollectionSlotProps, TableProps, TreeTableProps, TableContentProps, TreeRowContext, TreeTableContentProps, DetailProps, RowReorderPayload } from './components'
+export type { CollectionProps, CollectionSlotProps, TableProps, TreeTableProps, TableContentProps, TreeRowContext, TreePresentationOptions, TreeTableContentProps, DetailProps, RowReorderPayload } from './components'
 export type { AfterSubmitContext, DetailViewProps, FormViewProps, FormViewSlots, ListFilters, ListViewActions, ListViewDeleteState, ListViewProps, ListViewSlotActions } from './views'

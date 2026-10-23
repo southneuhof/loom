@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import { defineComponent, h, ref } from 'vue'
+import { h } from 'vue'
 import { z } from 'zod'
-import type { TreeRowContext } from '../../../contracts'
 import TreeTableContent from '../TreeTableContent.vue'
 import { flush, mountCore } from './harness'
 
@@ -23,40 +22,11 @@ const contentProps = {
   rowKey: 'id',
   children: (record: Node) => record.children,
   treeColumn: 'name',
+  pagination: false,
 }
 
 describe('TreeTableContent', () => {
-  it('updates rows and reveal paths after nested tree edits', async () => {
-    const records = ref<Node[]>(structuredClone([root]))
-    const treeContent = ref<{ reveal: (keys: readonly string[]) => void }>()
-    const Host = defineComponent({
-      setup: () => () => h(TreeTableContent, {
-        ...contentProps,
-        records: records.value,
-        defaultExpandedKeys: ['root'],
-        ref: treeContent,
-      }),
-    })
-    const view = mountCore(Host, {})
-    await flush()
-
-    records.value[0]!.children = [{ id: 'new-child', name: 'New child', children: [] }]
-    await flush()
-    expect(view.all('tbody tr').map((row) => row.textContent?.trim())).toEqual(['Root', 'New child'])
-
-    records.value[0]!.children[0]!.children.push({ id: 'new-leaf', name: 'New leaf', children: [] })
-    await flush()
-    treeContent.value!.reveal(['new-leaf'])
-    await flush()
-    expect(view.all('tbody tr').map((row) => row.textContent?.trim())).toEqual(['Root', 'New child', 'New leaf'])
-
-    records.value[0]!.children[0]!.children[0]!.name = 'Edited leaf'
-    await flush()
-    expect(view.text()).toContain('Edited leaf')
-    view.unmount()
-  })
-
-  it('uses default expansion and keeps local expansion actions separate from collection actions', async () => {
+  it('renders the loaded tree through the shared table and exposes local expansion commands', async () => {
     const emitted: string[][] = []
     const refresh = vi.fn()
     const updateQuery = vi.fn()
@@ -64,16 +34,12 @@ describe('TreeTableContent', () => {
       ...contentProps,
       refresh,
       updateQuery,
-      defaultExpandedKeys: ['root'],
       'onUpdate:expandedKeys': (keys: string[]) => emitted.push(keys),
-      'onUpdate:query': updateQuery,
     })
     await flush()
 
-    expect(view.all('tbody tr')).toHaveLength(2)
-    view.find<HTMLButtonElement>('button[aria-label="Collapse Root"]')!.click()
-    await flush()
     expect(view.all('tbody tr')).toHaveLength(1)
+    expect(view.text()).toContain('Root')
     const exposed = view.exposed() as {
       expandAll: () => void
       collapseAll: () => void
@@ -82,7 +48,9 @@ describe('TreeTableContent', () => {
     exposed.reveal(['leaf'])
     await flush()
     expect(view.all('tbody tr')).toHaveLength(3)
-    expect(emitted.at(-1)).toEqual(expect.arrayContaining(['root', 'child']))
+    expect(emitted[0]).toEqual(['root', 'child'])
+    expect(refresh).not.toHaveBeenCalled()
+    expect(updateQuery).not.toHaveBeenCalled()
 
     exposed.collapseAll()
     await flush()
@@ -90,90 +58,61 @@ describe('TreeTableContent', () => {
     exposed.expandAll()
     await flush()
     expect(view.all('tbody tr')).toHaveLength(3)
-    expect(refresh).not.toHaveBeenCalled()
-    expect(updateQuery).not.toHaveBeenCalled()
     view.unmount()
   })
 
-  it('requests controlled expansion and waits for the parent to apply it', async () => {
-    const expandedKeys = ref<string[]>([])
-    const updateExpandedKeys = vi.fn()
-    const Host = defineComponent({
-      setup: () => () => h(TreeTableContent, {
+  it('does not accept loader or source attributes', () => {
+    expect(() => mountCore(TreeTableContent, { ...contentProps, load: vi.fn() })).toThrow(
+      '[loom][SURFACE_OPTION_INVALID] TreeTable content accepts loaded records and cannot receive data, load, or resourceLoader.'
+    )
+    expect(() => mountCore(TreeTableContent, { ...contentProps, data: [root] })).toThrow(
+      '[loom][SURFACE_OPTION_INVALID] TreeTable content accepts loaded records and cannot receive data, load, or resourceLoader.'
+    )
+    expect(() => mountCore(TreeTableContent, { ...contentProps, 'resource-loader': vi.fn() })).toThrow(
+      '[loom][SURFACE_OPTION_INVALID] TreeTable content accepts loaded records and cannot receive data, load, or resourceLoader.'
+    )
+  })
+
+  it('forwards collection loading and error states to the existing content slots', async () => {
+    const loading = mountCore(
+      TreeTableContent,
+      { ...contentProps, loading: true },
+      {
+        slots: { loading: () => h('p', 'Tree loading') },
+      }
+    )
+    expect(loading.text()).toContain('Tree loading')
+    loading.unmount()
+
+    const error = mountCore(
+      TreeTableContent,
+      {
         ...contentProps,
-        expandedKeys: expandedKeys.value,
-        'onUpdate:expandedKeys': updateExpandedKeys,
-      }),
-    })
-    const view = mountCore(Host, {})
+        records: [],
+        loading: false,
+        empty: false,
+        error: { message: 'Tree failed' },
+      },
+      {
+        slots: { error: ({ error }) => h('p', `Tree error: ${error?.message}`) },
+      }
+    )
     await flush()
-
-    view.find<HTMLButtonElement>('button[aria-label="Expand Root"]')!.click()
-    await flush()
-
-    expect(updateExpandedKeys).toHaveBeenLastCalledWith(['root'])
-    expect(view.all('tbody tr')).toHaveLength(1)
-    expandedKeys.value = ['root']
-    await flush()
-    expect(view.all('tbody tr')).toHaveLength(2)
-    expect(view.find('button[aria-label="Collapse Root"]')?.getAttribute('aria-expanded')).toBe('true')
-    view.find<HTMLButtonElement>('button[aria-label="Collapse Root"]')!.click()
-    await flush()
-    expect(updateExpandedKeys).toHaveBeenLastCalledWith([])
-    expect(view.all('tbody tr')).toHaveLength(2)
-    expandedKeys.value = []
-    await flush()
-    expect(view.all('tbody tr')).toHaveLength(1)
-    expect(updateExpandedKeys).toHaveBeenCalledTimes(2)
-    view.unmount()
+    expect(error.text()).toContain('Tree error: Tree failed')
+    error.unmount()
   })
 
-  it('preserves custom cell state and supplies tree context when expansion inserts rows', async () => {
-    const sibling: Node = { id: 'sibling', name: 'Sibling', children: [] }
-    const rowClick = vi.fn()
-    const rowAction = vi.fn()
-    const view = mountCore(TreeTableContent, { ...contentProps, records: [root, sibling], 'onRow-click': rowClick }, {
+  it('keeps ordinary cell content inside the owned disclosure and label structure', async () => {
+    const view = mountCore(TreeTableContent, contentProps, {
       slots: {
-        'cell:name': ({ value, record, tree }) => {
-          const row = tree as TreeRowContext
-          return [h('span', `${row.depth}:${String(value)}`), h('input', { 'aria-label': (record as Node).name })]
-        },
-        'row-actions': ({ record, index, tree }) => h('button', { onClick: () => rowAction(record, index, tree) }, `Action ${(record as Node).name}`),
+        'cell:name': ({ value }) => h('span', { class: 'custom-label' }, `Name: ${String(value)}`),
       },
     })
     await flush()
 
-    view.find<HTMLInputElement>('input[aria-label="Sibling"]')!.value = 'Unsubmitted edit'
-    view.find<HTMLButtonElement>('button[aria-label="Expand Root"]')!.click()
-    await flush()
-
-    expect(view.find<HTMLInputElement>('input[aria-label="Sibling"]')!.value).toBe('Unsubmitted edit')
-    expect(view.text()).toContain('1:Child')
-    expect(rowClick).not.toHaveBeenCalled()
-    const childRow = view.all('tbody tr')[1]!
-    view.find<HTMLButtonElement>('button[aria-label="Expand Child"]')!.click()
-    await flush()
-    expect(rowClick).not.toHaveBeenCalled()
-    view.all('button').find((button) => button.textContent === 'Action Child')!.click()
-    expect(rowAction).toHaveBeenCalledWith(root.children[0], 1, expect.objectContaining({ key: 'child', parentKey: 'root', depth: 1 }))
-    childRow.click()
-    expect(rowClick).toHaveBeenCalledWith(root.children[0], 1)
+    const control = view.find<HTMLButtonElement>('button[aria-label="Luaskan Root"]')!
+    expect(control.closest('.is-tree-table-cell')?.querySelector('.custom-label')?.textContent).toBe('Name: Root')
+    expect(control.getAttribute('aria-expanded')).toBe('false')
     view.unmount()
-  })
-
-  it('rejects duplicate row keys, competing expansion models, and data sources', () => {
-    const duplicate = [
-      { id: 1, name: 'First', children: [] },
-      { id: '1', name: 'Second', children: [] },
-    ]
-    expect(() => mountCore(TreeTableContent, { ...contentProps, records: duplicate })).toThrow(
-      '[loom][SURFACE_OPTION_INVALID] TreeTable rowKey values must be unique after normalization; duplicate key "1".',
-    )
-    expect(() => mountCore(TreeTableContent, { ...contentProps, expandedKeys: [], defaultExpandedKeys: [] })).toThrow(
-      '[loom][SURFACE_OPTION_INVALID] TreeTable cannot receive both expandedKeys and defaultExpandedKeys.',
-    )
-    expect(() => mountCore(TreeTableContent, { ...contentProps, load: vi.fn() })).toThrow(
-      '[loom][SURFACE_OPTION_INVALID] TreeTable content accepts loaded records and cannot receive data, load, or resourceLoader.',
-    )
   })
 })

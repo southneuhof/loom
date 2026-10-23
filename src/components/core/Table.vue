@@ -12,6 +12,7 @@ const props = withDefaults(defineProps<TableProps<TRecord, TQuery>>(), {
   pageSizeOptions: () => [10, 25, 50, 100],
   defaultPageSize: 10,
   minColumnWidth: 96,
+  maxColumnWidth: 360,
 })
 
 assertSingleDataSource('Table', props.data, props.load)
@@ -129,6 +130,7 @@ function hasQueryProp(): boolean {
         :page-size-options="props.pageSizeOptions"
         :default-page-size="props.defaultPageSize"
         :min-column-width="props.minColumnWidth"
+        :max-column-width="props.maxColumnWidth"
         :visible-columns="props.visibleColumns"
         :column-sizing="props.columnSizing"
         :reorderable="props.reorderable"

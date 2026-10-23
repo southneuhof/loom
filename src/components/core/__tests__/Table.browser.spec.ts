@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { commands } from 'vitest/browser'
+import { commands, userEvent } from 'vitest/browser'
 import { createApp, h, nextTick, ref } from 'vue'
 import { z } from 'zod'
 import Table from '../Table.vue'
@@ -19,16 +19,20 @@ const namespaces = new Set<string>()
 const columns = { name: { label: 'Name' }, status: { label: 'Status' } }
 const data = Array.from({ length: 40 }, (_, index) => ({ name: `User ${index}`, status: 'open' }))
 
-function mount(options: {
-  namespace?: string
-  controlled?: boolean
-  controlledVisibility?: boolean
-  columns?: Record<string, { label: string }>
-  data?: Record<string, unknown>[]
-  rowPrefix?: boolean
-  rowActions?: boolean
-  width?: string
-} = {}) {
+function mount(
+  options: {
+    namespace?: string
+    controlled?: boolean
+    controlledVisibility?: boolean
+    columns?: Record<string, { label: string }>
+    data?: Record<string, unknown>[]
+    rowPrefix?: boolean
+    rowActions?: boolean
+    reorderable?: boolean
+    width?: string
+    maxColumnWidth?: number
+  } = {}
+) {
   const host = document.createElement('div')
   host.style.width = options.width ?? '700px'
   document.body.append(host)
@@ -38,32 +42,31 @@ function mount(options: {
   const sizing = ref<Record<string, number>>({})
   const visibleColumns = ref(Object.keys(options.columns ?? columns))
   const app = createApp({
-    render: () => h(
-      Table,
-      {
-        namespace,
-        schema: z.object(Object.fromEntries(Object.keys(options.columns ?? columns).map((key) => [key, z.unknown()]))),
-        columns: options.columns ?? columns,
-        data: options.data ?? data,
-        ...(options.controlled ? { columnSizing: sizing.value } : {}),
-        ...(options.controlledVisibility ? { visibleColumns: visibleColumns.value } : {}),
-        'onUpdate:columnSizing': (next: Record<string, number>) => {
-          commits.push(next)
-          if (options.controlled) sizing.value = next
+    render: () =>
+      h(
+        Table,
+        {
+          namespace,
+          schema: z.object(Object.fromEntries(Object.keys(options.columns ?? columns).map((key) => [key, z.unknown()]))),
+          columns: options.columns ?? columns,
+          data: options.data ?? data,
+          ...(options.maxColumnWidth === undefined ? {} : { maxColumnWidth: options.maxColumnWidth }),
+          ...(options.reorderable ? { reorderable: true, rowKey: 'name' } : {}),
+          ...(options.controlled ? { columnSizing: sizing.value } : {}),
+          ...(options.controlledVisibility ? { visibleColumns: visibleColumns.value } : {}),
+          'onUpdate:columnSizing': (next: Record<string, number>) => {
+            commits.push(next)
+            if (options.controlled) sizing.value = next
+          },
+          'onUpdate:visibleColumns': (next: string[]) => {
+            if (options.controlledVisibility) visibleColumns.value = next
+          },
         },
-        'onUpdate:visibleColumns': (next: string[]) => {
-          if (options.controlledVisibility) visibleColumns.value = next
-        },
-      },
-      {
-        ...(options.rowPrefix
-          ? { 'row-prefix': ({ record }: { record: Record<string, unknown> }) => h('button', { class: 'row-prefix' }, String(record.name)) }
-          : {}),
-        ...(options.rowActions
-          ? { 'row-actions': ({ record }: { record: Record<string, unknown> }) => h('button', { class: 'row-action' }, String(record.name)) }
-          : {}),
-      },
-    ),
+        {
+          ...(options.rowPrefix ? { 'row-prefix': ({ record }: { record: Record<string, unknown> }) => h('button', { class: 'row-prefix' }, String(record.name)) } : {}),
+          ...(options.rowActions ? { 'row-actions': ({ record }: { record: Record<string, unknown> }) => h('button', { class: 'row-action' }, String(record.name)) } : {}),
+        }
+      ),
   })
   app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
   app.mount(host)
@@ -77,13 +80,15 @@ async function frame() {
 }
 
 function mouse(target: EventTarget, type: 'mousedown' | 'mousemove' | 'mouseup', clientX: number) {
-  target.dispatchEvent(new MouseEvent(type, {
-    bubbles: true,
-    cancelable: true,
-    button: 0,
-    buttons: type === 'mouseup' ? 0 : 1,
-    clientX,
-  }))
+  target.dispatchEvent(
+    new MouseEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      button: 0,
+      buttons: type === 'mouseup' ? 0 : 1,
+      clientX,
+    })
+  )
 }
 
 function headers(host: HTMLElement) {
@@ -107,13 +112,78 @@ afterEach(async () => {
 })
 
 describe('Table browser interactions', () => {
-  it('uses the shared overlay state layer', async () => {
-    const { host } = mount()
+  it('uses native row state without generating a table-column pseudo-element', async () => {
+    const { host } = mount({ rowActions: true })
     await frame()
     const row = host.querySelector('tbody tr')!
-    expect(row.classList.contains('overlay')).toBe(true)
-    expect(row.classList.contains('after:bg-primary-hover')).toBe(true)
-    expect(row.classList.contains('focus-within:after:bg-primary-active')).toBe(true)
+    expect(row.classList.contains('group')).toBe(true)
+    expect(row.classList.contains('hover:bg-primary-hover')).toBe(true)
+    expect(row.classList.contains('focus-within:bg-primary-active')).toBe(true)
+    expect(row.classList.contains('active:bg-primary-active')).toBe(true)
+    expect(getComputedStyle(row, '::after').content).not.toBe('""')
+
+    await userEvent.hover(row)
+    expect(getComputedStyle(row).backgroundColor).toBe('rgb(17, 34, 51)')
+    await userEvent.unhover(row)
+    host.querySelector<HTMLButtonElement>('button.row-action')!.focus()
+    expect(getComputedStyle(row).backgroundColor).toBe('rgb(34, 51, 68)')
+  })
+
+  it('fills wide flat tables through data columns and keeps actions at the right edge', async () => {
+    const { host } = mount({ rowActions: true, width: '1000px', data: [data[0]!] })
+    await frame()
+
+    const table = host.querySelector<HTMLTableElement>('.is-table table')!
+    const scrollport = host.querySelector<HTMLElement>('.is-table .overflow-x-auto')!
+    const headers = [...table.querySelectorAll<HTMLElement>('thead th')]
+    const cells = [...table.querySelectorAll<HTMLElement>('tbody tr:first-child td')]
+    const actionHeader = headers.at(-1)!
+    const actionCell = cells.at(-1)!
+    const firstDataHeader = headers[0]!
+    const firstDataCell = cells[0]!
+
+    expect(table.getBoundingClientRect().width).toBeCloseTo(scrollport.clientWidth, 0)
+    expect(firstDataHeader.getBoundingClientRect().width).toBeGreaterThan(300)
+    expect(firstDataCell.getBoundingClientRect().width).toBeCloseTo(firstDataHeader.getBoundingClientRect().width, 0)
+    expect(actionHeader.getBoundingClientRect().right).toBeCloseTo(table.getBoundingClientRect().right, 0)
+    expect(actionCell.getBoundingClientRect().right).toBeCloseTo(table.getBoundingClientRect().right, 0)
+    expect(getComputedStyle(table.querySelector('tbody tr')!, '::after').content).not.toBe('""')
+  })
+
+  it('caps a very long value at the configured column width and truncates it to one line', async () => {
+    const long = 'Keselamatan kerja lapangan '.repeat(30)
+    const { host } = mount({
+      width: '900px',
+      data: [{ name: long, status: 'open' }],
+      maxColumnWidth: 240,
+    })
+    await frame()
+
+    const content = host.querySelector<HTMLElement>('tbody td .is-table-cell-value')!
+    const cell = content.closest('td')!
+    const short = host.querySelector<HTMLElement>('tbody td:nth-child(2) .is-table-cell-value')!
+    expect(content.getBoundingClientRect().width).toBeLessThanOrEqual(241)
+    expect(cell.getBoundingClientRect().width).toBeGreaterThan(content.getBoundingClientRect().width)
+    const style = getComputedStyle(content)
+    expect(style.whiteSpace).toBe('nowrap')
+    expect(style.overflow).toBe('hidden')
+    expect(style.textOverflow).toBe('ellipsis')
+    // One line: the value is clipped horizontally and the row keeps the height of
+    // an ordinary single-line cell instead of growing.
+    expect(content.scrollWidth).toBeGreaterThan(content.clientWidth)
+    expect(content.getBoundingClientRect().height).toBeCloseTo(short.getBoundingClientRect().height, 0)
+    // The clipped text stays reachable through the cell tooltip.
+    expect(content.getAttribute('title')).toBe(long)
+  })
+
+  it('keeps reorderable rows free of generated table columns', async () => {
+    const { host } = mount({ reorderable: true, rowActions: true, width: '700px', data: [data[0]!] })
+    await frame()
+
+    const row = host.querySelector('tbody tr')!
+    expect(row.classList.contains('group')).toBe(true)
+    expect(row.classList.contains('hover:bg-primary-hover')).toBe(true)
+    expect(getComputedStyle(row, '::after').content).not.toBe('""')
   })
 
   it('keeps blank action header and action cells pinned during horizontal scroll', async () => {
@@ -161,14 +231,18 @@ describe('Table browser interactions', () => {
 
     for (let index = 0; index < 10; index += 1) {
       const key = `field${index % 2}`
-      visibleColumns.value = visibleColumns.value.includes(key)
-        ? visibleColumns.value.filter((column) => column !== key)
-        : [...visibleColumns.value, key]
+      visibleColumns.value = visibleColumns.value.includes(key) ? visibleColumns.value.filter((column) => column !== key) : [...visibleColumns.value, key]
       await frame()
       expect(host.querySelectorAll('thead th').length).toBe(visibleColumns.value.length)
       expect(host.querySelectorAll('tbody td').length).toBe(visibleColumns.value.length * stressData.length)
     }
-  }, 4_000)
+    // The assertions above are the real regression check: they prove every
+    // toggle remounts exactly one column's cells.  The timeout is only a coarse
+    // guard against work accumulating across toggles, so it has to tolerate a
+    // loaded machine (20 columns x 200 rows x 10 toggles = 4 000 data cells per
+    // toggle, each with its own truncation wrapper; measured 2.8 s idle to
+    // 8.5 s while other suites ran).
+  }, 10_000)
 
   it('resizes from physical header geometry and commits once on mouseup', async () => {
     const { host, commits } = mount({ controlled: true })

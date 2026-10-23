@@ -1,6 +1,6 @@
 .is-table table {
   width: 100%;
-  table-layout: fixed;
+  table-layout: auto;
   border-collapse: collapse;
 }
 
@@ -26,4 +26,25 @@
   right: 0;
   width: 12px;
   touch-action: none;
+}
+
+.is-tree-table .is-tree-table-cell {
+  display: flex;
+  gap: 8px;
+}
+
+.is-tree-table .is-tree-table-disclosure,
+.is-tree-table .is-tree-table-disclosure-spacer {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  flex-shrink: 0;
+}
+
+.is-table tbody tr[class~='hover:bg-primary-hover']:hover {
+  background-color: rgb(17 34 51);
+}
+
+.is-table tbody tr[class~='focus-within:bg-primary-active']:focus-within {
+  background-color: rgb(34 51 68);
 }

@@ -1,5 +1,13 @@
 import { computed, getCurrentInstance, onBeforeUpdate, ref, shallowRef, toRaw } from 'vue'
-import type { TreeTableContentProps } from '../../contracts'
+import type { TreePresentationOptions } from '../../contracts'
+
+export interface TreeTableIndex<TRecord extends object> {
+  branchKeys: readonly string[]
+  parentKeys: ReadonlyMap<string, string | null>
+  childrenFor: (record: TRecord) => readonly TRecord[]
+  keyFor: (record: TRecord) => string
+  ancestorsFor: (key: string) => readonly string[]
+}
 
 function optionError(detail: string): never {
   throw new Error(`[loom][SURFACE_OPTION_INVALID] TreeTable ${detail}`)
@@ -12,9 +20,9 @@ function hasVNodeProp(instance: ReturnType<typeof getCurrentInstance>, camel: st
 
 export function buildTreeTableIndex<TRecord extends object>(
   records: readonly TRecord[],
-  rowKey: TreeTableContentProps<TRecord>['rowKey'],
-  getChildren: TreeTableContentProps<TRecord>['children']
-) {
+  rowKey: TreePresentationOptions<TRecord>['rowKey'],
+  getChildren: TreePresentationOptions<TRecord>['children']
+): TreeTableIndex<TRecord> {
   if (!Array.isArray(records)) optionError('records must be an array.')
 
   const seenObjects = new Set<object>()
@@ -36,7 +44,7 @@ export function buildTreeTableIndex<TRecord extends object>(
     if (seenObjects.has(record)) optionError('children contain a cycle or a repeated record reference.')
     seenObjects.add(record)
 
-    const keyValue = typeof rowKey === 'function' ? rowKey(input) : Reflect.get(input, rowKey)
+    const keyValue = typeof rowKey === 'function' ? rowKey(record) : Reflect.get(record, rowKey)
     if (typeof keyValue !== 'string' && typeof keyValue !== 'number') {
       optionError(`rowKey must resolve to a string or number for every record (tree column key ${String(rowKey)}).`)
     }
@@ -47,7 +55,7 @@ export function buildTreeTableIndex<TRecord extends object>(
     keysByRecord.set(record, key)
     parentKeys.set(key, item.parentKey)
 
-    const children = getChildren(input)
+    const children = getChildren(record)
     if (!Array.isArray(children)) optionError(`children for key "${key}" must return an array.`)
     childrenByRecord.set(record, children)
     if (children.length > 0) branchKeys.push(key)
@@ -58,16 +66,19 @@ export function buildTreeTableIndex<TRecord extends object>(
 
   return {
     branchKeys,
-    childrenFor(record: TRecord) {
-      const children = childrenByRecord.get(toRaw(record))
-      return children ?? []
+    parentKeys,
+    childrenFor(record) {
+      const original = toRaw(record)
+      const children = childrenByRecord.get(original)
+      if (!children) return []
+      return children
     },
-    keyFor(record: TRecord) {
+    keyFor(record) {
       const key = keysByRecord.get(toRaw(record))
       if (key === undefined) optionError('rowKey could not be resolved for a rendered record.')
       return key
     },
-    ancestorsFor(key: string) {
+    ancestorsFor(key) {
       const ancestors: string[] = []
       let parent = parentKeys.get(key) ?? null
       while (parent !== null) {
@@ -79,11 +90,11 @@ export function buildTreeTableIndex<TRecord extends object>(
   }
 }
 
-export function useTreeTableState(props: Pick<TreeTableContentProps, 'expandedKeys' | 'defaultExpandedKeys'>) {
+export function useTreeTableState<TRecord extends object>(props: TreePresentationOptions<TRecord>) {
   const instance = getCurrentInstance()
   const hasControlledKeys = ref(hasVNodeProp(instance, 'expandedKeys', 'expanded-keys'))
   const hasDefaultKeys = ref(hasVNodeProp(instance, 'defaultExpandedKeys', 'default-expanded-keys'))
-  const internalKeys = shallowRef<string[]>([...new Set(props.defaultExpandedKeys ?? [])])
+  const internalKeys = shallowRef<string[]>([...(props.defaultExpandedKeys ?? [])])
 
   function validateExpansionProps() {
     if (hasControlledKeys.value && hasDefaultKeys.value) {
@@ -103,10 +114,11 @@ export function useTreeTableState(props: Pick<TreeTableContentProps, 'expandedKe
   })
 
   function setExpandedKeys(next: readonly string[]) {
-    const emitted = [...new Set(next)]
-    if (!hasControlledKeys.value) internalKeys.value = [...emitted]
+    const unique = [...new Set(next)]
+    const emitted = [...unique]
+    if (!hasControlledKeys.value) internalKeys.value = emitted
     return emitted
   }
 
-  return { expandedKeys, setExpandedKeys }
+  return { expandedKeys, setExpandedKeys, internalKeys }
 }

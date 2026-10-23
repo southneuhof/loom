@@ -143,6 +143,7 @@ describe('display surface parity', () => {
       render: () => h('main', [
         h(Table, { schema, columns, data: [record], pagination: false, namespace: 'display-table' }),
         h(TreeTable, {
+          rowKey: 'id',
           schema,
           columns: treeColumns,
           data: [record],
@@ -152,6 +153,7 @@ describe('display surface parity', () => {
           namespace: 'display-tree',
         }),
         h(TreeTable, {
+          rowKey: 'id',
           schema,
           columns,
           data: [record],

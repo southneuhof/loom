@@ -50,8 +50,8 @@ const spreadResourceDetail = { ...resourceDetail }
   <Collection :load="loadRows" />
   <Table :schema="schema" :columns="columns" :data="emptyRows" />
   <Table :schema="schema" :columns="columns" :load="loadRows" />
-  <TreeTable :schema="schema" :columns="columns" :data="emptyRows" :children="children" tree-column="name" />
-  <TreeTable :schema="schema" :columns="columns" :load="loadRows" :children="children" tree-column="name" />
+  <TreeTable row-key="id" :schema="schema" :columns="columns" :data="emptyRows" :children="children" tree-column="name" />
+  <TreeTable row-key="id" :schema="schema" :columns="columns" :load="loadRows" :children="children" tree-column="name" />
   <Detail :schema="schema" :fields="fields" :data="row" />
   <Detail :schema="schema" :fields="fields" :load="loadRow" />
   <Table v-bind="resourceTable" />

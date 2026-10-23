@@ -27,6 +27,7 @@ const cases: { component: Component; name: string; props: Record<string, unknown
       schema: z.object({ name: z.string(), children: z.array(z.unknown()) }),
       columns: { name: { label: 'Name' } },
       treeColumn: 'name',
+      rowKey: 'name',
       children: (record: { children: unknown[] }) => record.children,
       data: [{ name: 'First', children: [] }],
     },
