@@ -967,10 +967,10 @@ void props
     expectedLocation: 'TreeTable both data and load',
     expectedLineOffset: 1,
     expectedTerms: ['load'],
-    valid: `const props: TreeTableProps<Row, Query> = { ...tableOptions, data: [], children, treeColumn: 'name' }
+    valid: `const props: TreeTableProps<Row, Query> = { ...tableOptions, data: [], children, treeColumn: 'name', rowKey: 'id' }
 void props
 `,
-    invalid: `const props: TreeTableProps<Row, Query> = { ...tableOptions, data: [], load: loadRows, children, treeColumn: 'name' }
+    invalid: `const props: TreeTableProps<Row, Query> = { ...tableOptions, data: [], load: loadRows, children, treeColumn: 'name', rowKey: 'id' }
 void props
 `,
   },
@@ -979,10 +979,10 @@ void props
     expectedLocation: 'TreeTable without data or load',
     expectedLineOffset: 1,
     expectedTerms: [],
-    valid: `const props: TreeTableProps<Row, Query> = { ...tableOptions, load: loadRows, children, treeColumn: 'name' }
+    valid: `const props: TreeTableProps<Row, Query> = { ...tableOptions, load: loadRows, children, treeColumn: 'name', rowKey: 'id' }
 void props
 `,
-    invalid: `const props: TreeTableProps<Row, Query> = { ...tableOptions, children, treeColumn: 'name' }
+    invalid: `const props: TreeTableProps<Row, Query> = { ...tableOptions, children, treeColumn: 'name', rowKey: 'id' }
 void props
 `,
   },
@@ -1050,12 +1050,12 @@ const vueSurfaceCases = [
   },
   {
     name: 'TreeTable both data and load',
-    template: '<TreeTable :schema="rowSchema" :columns="columns" :data="rows" :load="loadRows" :children="children" tree-column="name" />',
+    template: '<TreeTable :schema="rowSchema" :columns="columns" :data="rows" :load="loadRows" :children="children" tree-column="name" row-key="id" />',
     terms: ['load'],
   },
   {
     name: 'TreeTable without data or load',
-    template: '<TreeTable :schema="rowSchema" :columns="columns" :children="children" tree-column="name" />',
+    template: '<TreeTable :schema="rowSchema" :columns="columns" :children="children" tree-column="name" row-key="id" />',
     terms: [],
   },
   {
@@ -1100,8 +1100,8 @@ const recordIdentity = (record: Row) => record.id
 <Collection :load="loadRows" />
 <Table :schema="rowSchema" :columns="columns" :data="rows" />
 <Table :schema="rowSchema" :columns="columns" :load="loadRows" />
-<TreeTable :schema="rowSchema" :columns="columns" :data="rows" :children="children" tree-column="name" />
-<TreeTable :schema="rowSchema" :columns="columns" :load="loadRows" :children="children" tree-column="name" />
+<TreeTable :schema="rowSchema" :columns="columns" :data="rows" :children="children" tree-column="name" row-key="id" />
+<TreeTable :schema="rowSchema" :columns="columns" :load="loadRows" :children="children" tree-column="name" row-key="id" />
 <Detail :schema="rowSchema" :fields="fields" :data="row" />
 <Detail :schema="rowSchema" :fields="fields" :load="loadRow" />
 <TableContent :schema="rowSchema" :columns="columns" :records="rows" :loading="false" :empty="false" :query="{ page: 1 }" />
