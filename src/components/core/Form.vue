@@ -1,6 +1,6 @@
-<script setup lang="ts" generic="TInput extends object, TOutput extends object, TResult, TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>">
+<script setup lang="ts" generic="TInput extends object, TOutput extends object, TResult, TKeys extends string = Extract<keyof TInput, string>">
 import { computed, getCurrentInstance, onBeforeUpdate, reactive, ref, useAttrs, type WritableComputedRef } from 'vue'
-import type { FormDraft, FormDraftSnapshot, FormInputSlotProps, FormSlots } from '../../contracts/forms'
+import type { FormDraftSnapshot, FormInputSlotProps, FormSlots } from '../../contracts/forms'
 import type { SubmitError } from '../../contracts/results'
 import type { FormProps } from '../../forms/props'
 import { isConfirmedWriteRefreshError } from '../../resources/postWriteOutcome'
@@ -98,8 +98,8 @@ function fieldLabel(key: string): string {
   return fieldState(key).label
 }
 
-function fieldValue<TKey extends TKeys>(key: TKey): FormDraftSnapshot<TInput>[TKey] {
-  return draft.value[key]
+function fieldValue<TKey extends TKeys>(key: TKey): FormInputSlotProps<TInput, TKey>['value'] {
+  return session.controlValue(key) as FormInputSlotProps<TInput, TKey>['value']
 }
 
 function fieldModel(key: string): WritableComputedRef<unknown> {
@@ -111,10 +111,6 @@ function fieldModel(key: string): WritableComputedRef<unknown> {
   })
   fieldModels.set(key, model)
   return model
-}
-
-function setSlotValue<TKey extends TKeys>(key: TKey, value: FormDraft<TInput>[TKey]): void {
-  session.setValue(key, value)
 }
 
 function issueFor(key: string): string | undefined {
@@ -157,7 +153,7 @@ function inputSlotProps<TKey extends TKeys>(key: TKey, controlBindings: BaseInpu
       props: { ...(field.input.props ?? {}) },
       span: field.input.span,
     },
-    setValue: (value) => setSlotValue(key, value),
+    setValue: (value) => session.setControlValue(key, value),
     error: issueFor(key),
     controlBindings,
     touched: session.touchedField(key),

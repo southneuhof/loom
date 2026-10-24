@@ -68,7 +68,7 @@ vi.mock('../../base/Icon.vue', async () => {
 
 const apps: App[] = []
 
-function mountLocation(operations: LocationOperations, initialValue?: Coordinate) {
+function mountLocation(operations: LocationOperations, initialValue?: Coordinate | null) {
   const model = ref(initialValue)
   const host = document.createElement('div')
   document.body.append(host)
@@ -76,7 +76,7 @@ function mountLocation(operations: LocationOperations, initialValue?: Coordinate
     setup: () => () => h(LocationInput, {
       operations,
       modelValue: model.value,
-      'onUpdate:modelValue': (value: Coordinate | undefined) => { model.value = value },
+      'onUpdate:modelValue': (value: Coordinate | null | undefined) => { model.value = value },
     }),
   }))
   app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
@@ -90,10 +90,6 @@ async function flush() {
   await nextTick()
   await Promise.resolve()
   await nextTick()
-}
-
-function input(host: HTMLElement, id: string) {
-  return host.querySelector<HTMLInputElement>(`#${id}`)!
 }
 
 function searchInput(host: HTMLElement) {
@@ -175,7 +171,7 @@ describe('LocationInput model form', () => {
     expect(view.host.textContent).toContain('Map configuration failed.')
   })
 
-  it('loads map config, selects a prediction, and edits location data through Form', async () => {
+  it('selects coordinates without exposing provider metadata and clears the position', async () => {
     const predictions: LocationPrediction[] = [{ id: 'harbor', primaryText: 'Harbor' }]
     const selected = { lat: -6, lng: 111, name: 'Harbor', formatted_address: 'Harbor road' }
     const operations: LocationOperations = {
@@ -192,7 +188,7 @@ describe('LocationInput model form', () => {
     view.host.querySelector<HTMLElement>('.location-map')!.click()
     await flush()
     expect(view.model.value).toEqual({ lat: -5, lng: 110 })
-    expect(view.host.querySelector('label')?.textContent).toContain('Nama Lokasi')
+    expect(view.host.querySelectorAll('input')).toHaveLength(1)
 
     enter(searchInput(view.host), 'harbor')
     await flush()
@@ -204,13 +200,15 @@ describe('LocationInput model form', () => {
     suggestion.click()
     await flush()
     expect(operations.detail).toHaveBeenCalledWith({ id: 'harbor', signal: expect.any(AbortSignal) })
-    expect(view.model.value).toEqual(selected)
+    expect(view.model.value).toEqual({ lat: -6, lng: 111 })
 
-    const nameLabel = [...view.host.querySelectorAll<HTMLLabelElement>('label')].find((label) => label.textContent?.includes('Nama Lokasi'))
-    expect(nameLabel).not.toBeUndefined()
-    enter(input(view.host, nameLabel!.htmlFor), 'Harbor office')
+    expect(view.host.querySelectorAll('input')).toHaveLength(1)
+    const clear = [...view.host.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === 'Clear location')
+    if (!clear) throw new Error('Clear location did not render.')
+    clear.click()
     await flush()
-    expect(view.model.value).toEqual({ ...selected, name: 'Harbor office' })
+    expect(view.model.value).toBeNull()
+
   })
 
   it('aborts an older autocomplete request and keeps the latest prediction', async () => {
@@ -300,7 +298,7 @@ describe('LocationInput model form', () => {
 
     detail.resolve(selected)
     await flush()
-    expect(view.model.value).toEqual(selected)
+    expect(view.model.value).toEqual({ lat: -6, lng: 111 })
   })
 
   it('ignores a geolocation result after unmount', async () => {

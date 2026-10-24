@@ -60,7 +60,7 @@ export type FormProps<
   TInput extends object = Record<string, unknown>,
   TOutput extends object = Record<string, unknown>,
   TResult = unknown,
-  TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>,
+  TKeys extends string = Extract<keyof TInput, string>,
 > = Omit<FormDefinition<TInput, TOutput, TResult, TKeys>, 'submit'>
   & FormRuntimeProps<TInput>
   & FormBindingProps<TInput, TOutput, TResult>
@@ -88,12 +88,12 @@ export type DialogFormProps<
   TInput extends object = Record<string, unknown>,
   TOutput extends object = Record<string, unknown>,
   TResult = unknown,
-  TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>,
+  TKeys extends string = Extract<keyof TInput, string>,
 > = FormProps<TInput, TOutput, TResult, TKeys> & DialogFormPresentationProps
 
 export type DialogFormSlots<
   TInput extends object,
-  TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>,
+  TKeys extends string = Extract<keyof TInput, string>,
 > = Omit<FormSlots<TInput, TKeys>, 'actions'> & {
   actions?: (props: Omit<FormActionSlotProps, 'submit'> & {
     submit: () => Promise<void> | undefined
@@ -106,7 +106,7 @@ export type DialogFormSlots<
   footer?: (props: { readonly requestClose: (reason: DialogFormCloseReason) => Promise<boolean> }) => unknown
 }
 
-const formInputMembers = new Set(['label', 'renderer', 'props', 'span', 'initialValue', 'behavior'])
+const formInputMembers = new Set(['label', 'renderer', 'props', 'span', 'initialValue', 'behavior', 'binding'])
 const unsafeKeys = new Set(['__proto__', 'prototype', 'constructor'])
 
 interface FormInputRuntime {

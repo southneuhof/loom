@@ -5,7 +5,7 @@
     TInput extends object = Record<string, unknown>,
     TOutput extends object = Record<string, unknown>,
     TResult = unknown,
-    TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>
+    TKeys extends string = Extract<keyof TInput, string>
   "
 >
 import { computed, onBeforeUnmount, onMounted, ref, useSlots, watch } from 'vue'

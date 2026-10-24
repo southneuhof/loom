@@ -39,6 +39,7 @@ function rawSchema<TInput extends object, TOutput extends object>(): RawSchema<T
 
 const rowSchema = rawSchema<Row, Row>()
 const draftSchema = rawSchema<Draft, Draft>()
+const bindingSchema = rawSchema<{ first: string; second: string; other: string }, { first: string; second: string; other: string }>()
 const textValueSchema = rawSchema<{ value: string }, { value: string }>()
 const numberValueSchema = rawSchema<{ value: number }, { value: number }>()
 const textOrNumberValueSchema = rawSchema<{ value: string | number }, { value: string | number }>()
@@ -158,7 +159,24 @@ void actions.create({ name: 'One' })
   },
 ]
 
+const bindingCases = [
+  ['missing-write-key', "{ joined: { renderer: 'text', binding: { keys: ['first', 'second'], read: () => '', write: () => ({ first: 'a' }) } } }"],
+  ['missing-write-key-with-submit', "{ joined: { renderer: 'text', binding: { keys: ['first', 'second'], read: () => '', write: () => ({ first: 'a' }) } } }", ', submit: values => values'],
+  ['extra-write-key', "{ joined: { renderer: 'text', binding: { keys: ['first', 'second'], read: () => '', write: () => ({ first: 'a', second: 'b', other: 'c' }) } } }"],
+  ['optional-write-key', "{ joined: { renderer: 'text', binding: { keys: ['first', 'second'], read: () => '', write: (): { first: string; second?: string } => ({ first: 'a' }) } } }"],
+  ['overlapping-direct-field', "{ first: { renderer: 'text' }, joined: { renderer: 'text', binding: { keys: ['first', 'second'], read: () => '', write: () => ({ first: 'a', second: 'b' }) } } }"],
+  ['overlapping-bound-fields', "{ joined: { renderer: 'text', binding: { keys: ['first', 'second'], read: () => '', write: () => ({ first: 'a', second: 'b' }) } }, otherJoined: { renderer: 'text', binding: { keys: ['second'], read: () => '', write: () => ({ second: 'c' }) } } }"],
+].map(([name, fields, submit = '']) => ({
+  name: `binding-${name}`,
+  expectedLocation: 'bound form field',
+  expectedLineOffset: 1,
+  expectedTerms: [name.includes('overlapping') ? '__bindingKeysAlreadyWritten' : name.includes('extra') ? '__bindingWriteExtraKeys' : '__bindingWriteMissingKeys'],
+  valid: `defineForm({ schema: bindingSchema, fields: { other: { renderer: 'text' }, joined: { renderer: 'text', binding: { keys: ['first', 'second'], read: ({ first }) => first ?? '', write: value => ({ first: String(value), second: String(value) }) } } } })\n`,
+  invalid: `defineForm({ schema: bindingSchema, fields: ${fields}${submit} })\n`,
+}))
+
 const cases = [
+  ...bindingCases,
   {
     name: 'file-manager-rejects-string-output',
     expectedLocation: 'FileManagerValueAdapter string output',
@@ -1129,6 +1147,9 @@ function runCompiler(projectPath, compilerPath = compiler) {
         code: Number(match[4]),
         message: match[5],
       })
+    else if (diagnostics.length > 0 && /^\s+\S/.test(line)) {
+      diagnostics[diagnostics.length - 1].message += `\n${line}`
+    }
   }
 
   return { ok: result.status === 0, output, diagnostics }
@@ -1154,18 +1175,18 @@ function writeProject(runDirectory, name, files, extendsPath = join(packageDirec
   return { configPath, fixturePaths }
 }
 
-function mainLoom() {
+function mainLoom(bindingsOnly = false) {
   mkdirSync(cacheDirectory, { recursive: true })
   const runDirectory = mkdtempSync(join(cacheDirectory, 'run-'))
 
   try {
     const prelude = common(runDirectory)
-    const allCases = [...cases, ...surfaceCases]
+    const allCases = bindingsOnly ? bindingCases : [...cases, ...surfaceCases]
     const validSource = prelude + allCases.map((testCase) => `\n{\n${testCase.valid}}\n`).join('')
-    const validSurface = surfaceVueSource(runDirectory, false)
+    const validSurface = bindingsOnly ? undefined : surfaceVueSource(runDirectory, false)
     const valid = writeProject(runDirectory, 'valid', {
       'valid.ts': validSource,
-      'valid-surface.vue': validSurface.source,
+      ...(validSurface ? { 'valid-surface.vue': validSurface.source } : {}),
     })
     const validRun = runCompiler(valid.configPath)
     if (!validRun.ok || validRun.diagnostics.length > 0 || validRun.output.trim().length > 0) {
@@ -1188,11 +1209,11 @@ function mainLoom() {
       })
     }
 
-    const invalidSurface = surfaceVueSource(runDirectory, true)
-    expected.push(...invalidSurface.expected)
+    const invalidSurface = bindingsOnly ? undefined : surfaceVueSource(runDirectory, true)
+    if (invalidSurface) expected.push(...invalidSurface.expected)
     const invalid = writeProject(runDirectory, 'invalid', {
       'invalid.ts': invalidSource,
-      'invalid-surface.vue': invalidSurface.source,
+      ...(invalidSurface ? { 'invalid-surface.vue': invalidSurface.source } : {}),
     })
     const invalidRun = runCompiler(invalid.configPath)
     const harnessDiagnostics = invalidRun.diagnostics.filter((diagnostic) => [2307, 2688, 5083, 6053].includes(diagnostic.code))
@@ -1225,6 +1246,10 @@ function mainLoom() {
       return 1
     }
 
+    if (bindingsOnly) {
+      process.stdout.write(`Binding diagnostics passed for ${bindingCases.length} cases.\n`)
+      return 0
+    }
     process.stdout.write(`Contract diagnostics passed for ${cases.length} Loom contract cases, ${surfaceCases.length} TypeScript surface cases, and ${vueSurfaceCases.length} Vue surface cases.\n`)
     return 0
   } finally {
@@ -1302,8 +1327,9 @@ function mainApp() {
 function main() {
   const args = process.argv.slice(2)
   if (args.length === 0) return mainLoom()
+  if (args.length === 1 && args[0] === '--bindings') return mainLoom(true)
   if (args.length === 2 && args[0] === '--project' && args[1] === 'app') return mainApp()
-  process.stderr.write('Usage: check-contract-diagnostics.mjs [--project app]\n')
+  process.stderr.write('Usage: check-contract-diagnostics.mjs [--project app | --bindings]\n')
   return 2
 }
 

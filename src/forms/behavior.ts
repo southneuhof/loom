@@ -1,7 +1,8 @@
 import { computed, watch, type ComputedRef, type WatchStopHandle } from 'vue'
-import type { FormBehaviorContext, FormFields } from '../contracts/forms'
+import type { FormBehaviorContext, FormInput } from '../contracts/forms'
 import type { Label } from '../contracts/labels'
 import { resolveLabel } from '../labels/resolveLabel'
+import { formFieldValue } from './fieldBinding'
 import { isPlainRecord, snapshotEditable } from './draftValues'
 
 const behaviorMembers = new Set(['visible', 'disabled', 'props', 'presentation', 'derived'])
@@ -27,7 +28,7 @@ export interface FormBehaviorRuntime {
 
 export interface FormBehaviorRuntimeOptions<
   TInput extends object,
-  TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>,
+  TKeys extends string = Extract<keyof TInput, string>,
 > {
   fields: readonly RuntimeFormField<TInput, TKeys>[]
   draft: object
@@ -38,10 +39,10 @@ export interface FormBehaviorRuntimeOptions<
 
 export type RuntimeFormField<
   TInput extends object,
-  TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>,
+  TKeys extends string = Extract<keyof TInput, string>,
 > = {
   key: Extract<TKeys, string>
-  input: NonNullable<FormFields<TInput, TKeys>[Extract<TKeys, string>]>
+  input: FormInput<TInput>
   required: boolean
 }
 
@@ -100,7 +101,7 @@ function equalRecord(left: Readonly<Record<string, unknown>>, right: Readonly<Re
   return keys.length === Object.keys(right).length && keys.every((key) => Object.is(left[key], right[key]))
 }
 
-function callbackResult<TInput extends object, TKeys extends Extract<keyof TInput, string>>(
+function callbackResult<TInput extends object, TKeys extends string>(
   field: RuntimeFormField<TInput, TKeys>,
   member: string,
   draft: object,
@@ -131,13 +132,13 @@ function callbackResult<TInput extends object, TKeys extends Extract<keyof TInpu
   })
   const behaviorContext: FormBehaviorContext<object, unknown> = {
     draft: proxy,
-    value: snapshotEditable(Reflect.get(draft, field.key)) as unknown,
+    value: formFieldValue(field.key, field.input, draft),
     context,
   }
   return callback(behaviorContext)
 }
 
-function assertPresentation<TInput extends object, TKeys extends Extract<keyof TInput, string>>(field: RuntimeFormField<TInput, TKeys>, value: unknown): FormPresentationRuntime | undefined {
+function assertPresentation<TInput extends object, TKeys extends string>(field: RuntimeFormField<TInput, TKeys>, value: unknown): FormPresentationRuntime | undefined {
   if (value === undefined) return undefined
   if (!isRecord(value)) invalidBehavior(field.key, 'behavior.presentation', 'an object')
   for (const member of Object.keys(value)) {
@@ -171,11 +172,11 @@ function assertPresentation<TInput extends object, TKeys extends Extract<keyof T
   return result
 }
 
-function assertProps<TInput extends object, TKeys extends Extract<keyof TInput, string>>(field: RuntimeFormField<TInput, TKeys>, props: Readonly<Record<string, unknown>>, member: string): void {
+function assertProps<TInput extends object, TKeys extends string>(field: RuntimeFormField<TInput, TKeys>, props: Readonly<Record<string, unknown>>, member: string): void {
   if (Object.hasOwn(props, 'required')) invalidBehavior(field.key, `${member}.required`, 'controlled by the input schema')
 }
 
-export function createFormBehaviorRuntime<TInput extends object, TKeys extends Extract<keyof TInput, string>>(
+export function createFormBehaviorRuntime<TInput extends object, TKeys extends string>(
   options: FormBehaviorRuntimeOptions<TInput, TKeys>,
 ): FormBehaviorRuntime {
   const effectKeys = new Set<string>(options.fields.filter((field) => field.input.behavior?.derived).map((field) => field.key))
@@ -251,7 +252,7 @@ export function createFormBehaviorRuntime<TInput extends object, TKeys extends E
     for (const field of options.fields) {
       if (typeof field.input.behavior?.derived !== 'function') continue
       const value = state(field.key).value.derived
-      if (!Object.is(Reflect.get(options.draft, field.key), value)) write(field.key, value)
+      if (!Object.is(formFieldValue(field.key, field.input, options.draft), value)) write(field.key, value)
     }
   }
   const connect = (nextWrite: (key: string, value: unknown) => void): WatchStopHandle => {
@@ -260,7 +261,7 @@ export function createFormBehaviorRuntime<TInput extends object, TKeys extends E
     for (const field of options.fields) {
       if (typeof field.input.behavior?.derived === 'function') {
         stops.push(watch(() => state(field.key).value.derived, (value) => {
-          if (!Object.is(Reflect.get(options.draft, field.key), value)) nextWrite(field.key, value)
+          if (!Object.is(formFieldValue(field.key, field.input, options.draft), value)) nextWrite(field.key, value)
         }, { immediate: true, flush: 'sync' }))
       }
     }

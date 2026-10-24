@@ -40,11 +40,7 @@ const tempLocation = ref()
               <template #trigger>
                 <Card color="surfaceContainerHigh" class="flex h-full max-w-fit flex-row items-center">
                   <Icon name="map-pin" />
-                  <div v-if="item.name" class="flex flex-col">
-                    <div>{{ item.name }}</div>
-                    <div class="text-sm text-muted">{{ item.lat }}, {{ item.lng }}</div>
-                  </div>
-                  <div v-else>{{ item.lat }}, {{ item.lng }}</div>
+                  <div>{{ item.lat }}, {{ item.lng }}</div>
                 </Card>
               </template>
               <template #content="{ setOpen }">

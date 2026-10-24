@@ -19,7 +19,7 @@ export type FormViewProps<
   TInput extends object = Record<string, unknown>,
   TOutput extends object = Record<string, unknown>,
   TResult = unknown,
-  TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>,
+  TKeys extends string = Extract<keyof TInput, string>,
 > = {
   form: FormProps<TInput, TOutput, TResult, TKeys>
   title?: string
@@ -30,7 +30,7 @@ export type FormViewProps<
   successMessage?: string | false
 }
 
-export type FormViewSlots<TInput extends object, TOutput extends object, TResult, TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>> = FormSlots<TInput, TKeys> & {
+export type FormViewSlots<TInput extends object, TOutput extends object, TResult, TKeys extends string = Extract<keyof TInput, string>> = FormSlots<TInput, TKeys> & {
   header?: () => unknown
   controls?: () => unknown
   body?: (props: { readonly form: FormProps<TInput, TOutput, TResult, TKeys> }) => unknown

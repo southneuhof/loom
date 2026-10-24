@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { GoogleMap, Marker } from "vue3-google-map";
 import {
-  computed,
   onBeforeUnmount,
   onMounted,
   ref,
@@ -9,19 +8,15 @@ import {
   useAttrs,
   type PropType,
 } from "vue";
-import { z } from "zod/v4";
 import type {
   Coordinate,
   LocationOperations,
   LocationPrediction,
 } from "../../../contracts";
-import type { FormDraftSnapshot, FormFields } from "../../../contracts/forms";
 import { commonProps } from "../../inputs/commonprops";
 import Popover from "../../base/Popover.vue";
 import SearchBox from "../../inputs/SearchBox.vue";
 import BaseInput from "../../inputs/BaseInput.vue";
-import Form from "../../core/Form.vue";
-import { defineForm } from "../../../forms/defineForm";
 import Button from "../../base/Button.vue";
 import Card from "../../base/Card.vue";
 import Icon from "../../base/Icon.vue";
@@ -33,7 +28,7 @@ const props = defineProps({
   operations: { type: Object as PropType<LocationOperations>, required: true },
 });
 const attrs = useAttrs();
-const modelValue = defineModel<Coordinate>();
+const modelValue = defineModel<Coordinate | null>();
 const emit = defineEmits<{ (event: "validation:touch"): void }>();
 const query = ref("");
 const zoom = ref(5);
@@ -52,38 +47,8 @@ let autocompleteGeneration = 0;
 let detailGeneration = 0;
 let geolocationGeneration = 0;
 
-const locationSchema = z.object({
-  name: z.string().optional(),
-  lat: z.number(),
-  lng: z.number(),
-  formatted_address: z.string().optional(),
-});
-type LocationInput = z.input<typeof locationSchema>;
-const locationFields = {
-  name: {
-    label: "Nama Lokasi",
-    renderer: "text",
-  },
-} satisfies FormFields<LocationInput>;
-const locationForm = defineForm({ schema: locationSchema, fields: locationFields });
-
-const formModel = computed<Coordinate>(
-  () => modelValue.value ?? { lat: center.value.lat, lng: center.value.lng },
-);
-
 function inputId(): string | undefined {
   return typeof attrs.id === "string" ? attrs.id : undefined;
-}
-
-function updateFormModel(value: FormDraftSnapshot<LocationInput>) {
-  geolocationGeneration += 1;
-  modelValue.value = {
-    lat: Number(value.lat ?? modelValue.value?.lat ?? center.value.lat),
-    lng: Number(value.lng ?? modelValue.value?.lng ?? center.value.lng),
-    name: value.name ?? modelValue.value?.name,
-    formatted_address:
-      value.formatted_address ?? modelValue.value?.formatted_address,
-  };
 }
 
 watch(modelValue, (value) => {
@@ -147,7 +112,7 @@ async function selectPrediction(prediction: LocationPrediction) {
     });
     if (generation !== detailGeneration || controller.signal.aborted)
       return;
-    modelValue.value = result;
+    modelValue.value = { lat: result.lat, lng: result.lng };
     emit("validation:touch");
   } catch (reason) {
     if (generation === detailGeneration && !controller.signal.aborted)
@@ -258,13 +223,10 @@ onBeforeUnmount(() => {
           ></Tooltip>
           <div v-if="modelValue">
             {{ modelValue.lat }}, {{ modelValue.lng }}
-            <div v-if="modelValue.formatted_address">
-              {{ modelValue.formatted_address }}
-            </div>
           </div>
           <p v-else class="text-muted">Pilih lokasi</p>
         </Card>
-        <Form v-if="modelValue" v-bind="locationForm" :model-value="formModel" @update:model-value="updateFormModel" />
+        <Button v-if="modelValue" type="button" variant="text" :disabled="props.disabled" @click="modelValue = null">Clear location</Button>
         <p v-if="error" role="alert" class="text-error">{{ error }}</p>
         <div v-if="loading" class="flex items-center gap-4">
           <Spinner />Memuat...

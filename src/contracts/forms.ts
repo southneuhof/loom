@@ -1,4 +1,4 @@
-import type { FormRendererKey, FormRendererNeedsProps, FormRendererPropPatch, FormRendererProps } from '../renderers/formContracts'
+import type { FormRendererKey, FormRendererModelValue, FormRendererNeedsProps, FormRendererPropPatch, FormRendererProps } from '../renderers/formContracts'
 import type { Label, LabelDictionary } from './labels'
 import type { MaybePromise } from './load'
 import type { RawSchema, SchemaIssue, SchemaParseResult } from './schema'
@@ -25,7 +25,7 @@ export type FormDraftSnapshot<TInput extends object> = Readonly<{
   [TKey in keyof FormDraft<TInput>]: SnapshotValue<FormDraft<TInput>[TKey]>
 }>
 
-export type FormInputSlotField<TInput extends object, TKey extends Extract<keyof TInput, string>> = {
+export type FormInputSlotField<_TInput extends object, TKey extends string> = {
   readonly key: TKey
   readonly renderer: string
   readonly label: string
@@ -34,11 +34,11 @@ export type FormInputSlotField<TInput extends object, TKey extends Extract<keyof
   readonly span?: number
 }
 
-export interface FormInputSlotProps<TInput extends object, TKey extends Extract<keyof TInput, string>> {
-  readonly value: FormDraftSnapshot<TInput>[TKey]
+export interface FormInputSlotProps<TInput extends object, TKey extends string> {
+  readonly value: TKey extends keyof TInput ? FormDraftSnapshot<TInput>[TKey] : unknown
   readonly draft: FormDraftSnapshot<TInput>
   readonly field: FormInputSlotField<TInput, TKey>
-  readonly setValue: (value: FormDraft<TInput>[TKey]) => void
+  readonly setValue: (value: TKey extends keyof TInput ? FormDraft<TInput>[TKey] : unknown) => void
   readonly error?: string
   readonly controlBindings: BaseInputControlBindings
   readonly touched: boolean
@@ -64,7 +64,7 @@ export interface FormExposed<TInput extends object, TOutput extends object> exte
   readonly validate: () => Promise<SchemaParseResult<TOutput>>
 }
 
-export type FormSlots<TInput extends object, TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>> = {
+export type FormSlots<TInput extends object, TKeys extends string = Extract<keyof TInput, string>> = {
   [TKey in TKeys as `input:${TKey}`]?: (props: FormInputSlotProps<TInput, TKey>) => unknown
 } & {
   loading?: () => unknown
@@ -90,8 +90,22 @@ export type FormInput<TInput extends object = Record<string, unknown>, TValue = 
   ? FormInputForRenderer<TInput, TValue, TRenderer>
   : never
 
-export type FormFields<TInput extends object, TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>> = {
-  readonly [TKey in TKeys]?: FormInput<TInput, TInput[TKey]>
+export interface FormFieldBinding<TInput extends object, TValue, TKey extends Extract<keyof TInput, string> = Extract<keyof TInput, string>> {
+  readonly keys: readonly TKey[]
+  readonly read: (values: FormDraftSnapshot<Pick<TInput, TKey>>) => TValue | null | undefined
+  readonly write: (value: NonNullable<TValue>) => Partial<Pick<TInput, TKey>>
+}
+
+export type BoundFormInput<TInput extends object, TRenderer extends FormRendererKey = FormRendererKey> = TRenderer extends FormRendererKey
+  ? FormInput<TInput, FormRendererModelValue<TRenderer>, TRenderer> & {
+      readonly binding: FormFieldBinding<TInput, FormRendererModelValue<TRenderer>>
+    }
+  : never
+
+export type FormFields<TInput extends object, TKeys extends string = Extract<keyof TInput, string>> = keyof TInput extends never ? object : {
+  readonly [TKey in TKeys]?: TKey extends keyof TInput
+    ? FormInput<TInput, TInput[TKey]>
+    : BoundFormInput<TInput>
 }
 
 export interface FormBehaviorContext<TInput extends object, TValue> {
@@ -139,7 +153,7 @@ export interface FormDefinition<
   TInput extends object = Record<string, unknown>,
   TOutput extends object = Record<string, unknown>,
   TResult = unknown,
-  TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>,
+  TKeys extends string = Extract<keyof TInput, string>,
 > {
   readonly schema: RawSchema<TInput, TOutput>
   readonly fields: FormFields<TInput, TKeys>

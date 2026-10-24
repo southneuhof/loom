@@ -20,6 +20,8 @@ export type {
   FormInputPresentation,
   FormBehavior,
   FormInput,
+  FormFieldBinding,
+  BoundFormInput,
   FormFields,
   FormDraft,
   FormInputSlotField,

@@ -8,11 +8,13 @@ export type FormFieldRenderers<TFields extends object> = {
 }
 
 export type CompactFormFields<TInput extends object, TFields extends object> = {
-  readonly [TKey in keyof FormFieldRenderers<TFields>]: TKey extends Extract<keyof TInput, string>
-    ? FormFieldRenderers<TFields>[TKey] extends infer TRenderer extends FormRendererKey
-      ? FormInput<TInput, TInput[TKey], TRenderer>
+  readonly [TKey in keyof FormFieldRenderers<TFields>]: TFields[TKey] extends { binding: unknown }
+    ? TFields[TKey]
+    : TKey extends Extract<keyof TInput, string>
+      ? FormFieldRenderers<TFields>[TKey] extends infer TRenderer extends FormRendererKey
+        ? FormInput<TInput, TInput[TKey], TRenderer>
+        : never
       : never
-    : never
 }
 
 export type CompactFormDefinition<TInput extends object, TOutput extends object, TFields extends object> = {

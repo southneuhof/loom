@@ -1,3 +1,4 @@
+import { bindingFor, fieldKeys } from './fieldBinding'
 import type { FormDefinition } from '../contracts/forms'
 import { createSchemaRuntime, type SchemaRuntime } from '../schemas/schemaRuntime'
 import { assertFormInput, assertSafeFieldKey, isFormInputRecord } from './props'
@@ -47,7 +48,7 @@ export function assertFormDefinition<
   TInput extends object,
   TOutput extends object,
   TResult,
-  TKeys extends Extract<keyof TInput, string>,
+  TKeys extends string,
 >(definition: FormDefinition<TInput, TOutput, TResult, TKeys>, schemaRuntime?: SchemaRuntime<TOutput>): void {
   if (!isRecord(definition)) invalidOption('definition', 'an object')
   if (!Object.hasOwn(definition, 'schema') || definition.schema == null) {
@@ -63,17 +64,31 @@ export function assertFormDefinition<
   assertLabels(definition.labels)
   assertValidators(definition.validators)
 
+  const owners = new Map<string, string>()
   for (const key of Reflect.ownKeys(definition.fields)) {
     if (typeof key !== 'string') {
       throw new Error('[loom][SURFACE_OPTION_INVALID] Form field keys must be strings.')
     }
     assertSafeFieldKey(key)
-    if (!runtime.inputKeys.includes(key)) {
-      throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" is not in the schema input.`)
-    }
-
-    const input = definition.fields[key as TKeys]
+    const input: unknown = Reflect.get(definition.fields, key)
     if (!isFormInputRecord(input)) invalidOption(`fields.${key}`, 'a FormInput object')
+    const binding = bindingFor(input)
+    if (binding !== undefined) {
+      if (!isRecord(binding) || Object.keys(binding).some((member) => !['keys', 'read', 'write'].includes(member))
+        || !Array.isArray(binding.keys) || binding.keys.length === 0
+        || typeof binding.read !== 'function' || typeof binding.write !== 'function') {
+        invalidOption(`fields.${key}.binding`, 'an object with nonempty keys, read, and write')
+      }
+    }
+    for (const name of fieldKeys(key, input)) {
+      if (typeof name !== 'string' || !runtime.inputKeys.includes(name)) {
+        throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" targets "${String(name)}", which is not in the schema input.`)
+      }
+      assertSafeFieldKey(name)
+      const owner = owners.get(name)
+      if (owner !== undefined) throw new Error(`[loom][FORM_BINDING_OVERLAP] Form fields "${owner}" and "${key}" both write "${name}".`)
+      owners.set(name, key)
+    }
     assertFormInput(key, input)
   }
 }

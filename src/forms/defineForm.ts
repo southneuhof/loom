@@ -1,4 +1,4 @@
-import type { FormFields, FormInput, FormValidatorEntry } from '../contracts/forms'
+import type { FormDraftSnapshot, FormFields, FormInput, FormValidatorEntry } from '../contracts/forms'
 import type { LabelDictionary } from '../contracts/labels'
 import type { MaybePromise } from '../contracts/load'
 import type { RawSchema, RawSchemaInput, RawSchemaOutput } from '../contracts/schema'
@@ -160,13 +160,42 @@ type FormInputEntryGuard<TInput extends object, TKey extends keyof TInput, TEntr
     ? unknown
     : never
 
+type BoundInputGuard<TInput extends object, TEntry> = TEntry extends { renderer: infer TRenderer extends FormRendererKey }
+  ? FormInputEntryMemberGuard<TInput & { __boundValue: RendererControlValue<TRenderer, TEntry> }, '__boundValue', Omit<TEntry, 'binding'>>
+  : never
+
+type BindingKeys<TEntry> = TEntry extends { binding: { keys: infer TKeys extends readonly PropertyKey[] } }
+  ? number extends TKeys['length'] ? never : TKeys[number]
+  : never
+
+type WrittenKeys<TKey, TEntry> = TEntry extends { binding: unknown } ? BindingKeys<TEntry> : TKey
+
+type OtherWrittenKeys<TFields, TKey extends keyof TFields> = {
+  [TOther in Exclude<keyof TFields, TKey>]: WrittenKeys<TOther, TFields[TOther]>
+}[Exclude<keyof TFields, TKey>]
+
+type MissingWriteKeys<TKeys, TResult> = TResult extends unknown ? Exclude<TKeys, RequiredKeys<TResult>> : never
+
+type ExtraWriteKeys<TKeys, TResult> = TResult extends unknown ? Exclude<keyof TResult, TKeys> : never
+
+type BindingWriteGuard<TEntry> = TEntry extends { binding: { keys: infer TKeys extends readonly PropertyKey[]; write: (...args: never[]) => infer TResult } }
+  ? number extends TKeys['length'] ? unknown
+    : ([MissingWriteKeys<TKeys[number], TResult>] extends [never] ? unknown : { readonly __bindingWriteMissingKeys: MissingWriteKeys<TKeys[number], TResult> })
+      & ([ExtraWriteKeys<TKeys[number], TResult>] extends [never] ? unknown : { readonly __bindingWriteExtraKeys: ExtraWriteKeys<TKeys[number], TResult> })
+  : unknown
+
+type BindingContractGuard<TFields, TKey extends keyof TFields> = BindingWriteGuard<TFields[TKey]>
+  & ([Extract<WrittenKeys<TKey, TFields[TKey]>, OtherWrittenKeys<TFields, TKey>>] extends [never]
+    ? unknown
+    : { readonly __bindingKeysAlreadyWritten: Extract<WrittenKeys<TKey, TFields[TKey]>, OtherWrittenKeys<TFields, TKey>> })
+
 type FormFieldsGuard<TInput extends object, TFields> = TFields extends object
   ? TFields extends readonly unknown[]
     ? never
     : Extract<keyof TFields, UnsafeKey> extends never
-      ? Exclude<keyof TFields, Extract<keyof TInput, string>> extends never
-        ? { [TKey in keyof TFields]: TKey extends keyof TInput ? FormInputEntryGuard<NoInfer<TInput>, TKey, TFields[TKey]> : never }
-        : never
+      ? { [TKey in keyof TFields]: BindingContractGuard<TFields, TKey> & (TFields[TKey] extends { binding: unknown }
+          ? BoundInputGuard<TInput, TFields[TKey]>
+          : TKey extends keyof TInput ? FormInputEntryGuard<NoInfer<TInput>, TKey, TFields[TKey]> : never) }
       : never
   : never
 
@@ -211,6 +240,8 @@ function snapshotInput(value: unknown): unknown {
   const input = { ...value }
   const props = Reflect.get(value, 'props')
   const behavior = Reflect.get(value, 'behavior')
+  const binding = Reflect.get(value, 'binding')
+  if (binding && typeof binding === 'object') Object.assign(input, { binding: { ...binding, keys: [...Reflect.get(binding, 'keys')] } })
   if (props && typeof props === 'object' && !Array.isArray(props)) Object.assign(input, { props: { ...props } })
   if (behavior && typeof behavior === 'object' && !Array.isArray(behavior)) Object.assign(input, { behavior: { ...behavior } })
   return input
@@ -227,6 +258,44 @@ function snapshotValidators<TInput extends object, TOutput extends object>(valid
   })
 }
 
+type BoundFields<TInput extends object, TRenderers extends Record<string, FormRendererKey>> = {
+  [K in keyof TRenderers]: K extends keyof TInput
+    ? FormInput<TInput, TInput[K], TRenderers[K]>
+    : FormInput<TInput, FormRendererModelValue<TRenderers[K]>, TRenderers[K]> & {
+        binding: {
+          keys: readonly Extract<keyof TInput, string>[]
+          read: (values: FormDraftSnapshot<TInput>) => FormRendererModelValue<TRenderers[K]> | null | undefined
+          write: (value: NonNullable<FormRendererModelValue<TRenderers[K]>>) => Partial<TInput>
+        }
+      }
+}
+
+type BoundFormDefinition<TSchema extends RawSchema<object, object>, TFields extends object> = {
+  schema: RawSchema<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>>
+  fields: TFields
+  labels?: LabelDictionary
+  validators?: readonly FormValidatorEntry<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>>[]
+}
+
+type BoundFormArgument<TSchema extends RawSchema<object, object>, TRenderers extends Record<string, FormRendererKey>, TFields extends object> =
+  Omit<BoundFormDefinition<TSchema, TFields>, 'schema' | 'fields'> & {
+    schema: TSchema & FormSchemaGuard<TSchema>
+    fields: TFields & BoundFields<RawSchemaInput<TSchema>, TRenderers> & NoInfer<FormFieldsGuard<RawSchemaInput<TSchema>, TFields>>
+  } & ([Exclude<keyof TRenderers, keyof RawSchemaInput<TSchema>>] extends [never] ? never : unknown)
+
+export function defineForm<
+  TSchema extends RawSchema<object, object>,
+  const TRenderers extends Record<string, FormRendererKey>,
+  const TFields extends object,
+>(definition: BoundFormArgument<TSchema, TRenderers, TFields> & { submit?: never }):
+  BoundFormDefinition<TSchema, TFields> & { submit?: never }
+export function defineForm<
+  TSchema extends RawSchema<object, object>,
+  const TRenderers extends Record<string, FormRendererKey>,
+  const TFields extends object,
+  TResult,
+>(definition: BoundFormArgument<TSchema, TRenderers, TFields> & { submit: (output: RawSchemaOutput<TSchema>) => MaybePromise<TResult> }):
+  BoundFormDefinition<TSchema, TFields> & { submit: (output: RawSchemaOutput<TSchema>) => MaybePromise<TResult> }
 export function defineForm<
   TSchema extends RawSchema<object, object>,
   const TFields extends object,

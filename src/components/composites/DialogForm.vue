@@ -1,4 +1,4 @@
-<script setup lang="ts" generic="TInput extends object, TOutput extends object, TResult, TKeys extends Extract<keyof TInput, string> = Extract<keyof TInput, string>">
+<script setup lang="ts" generic="TInput extends object, TOutput extends object, TResult, TKeys extends string = Extract<keyof TInput, string>">
 import { computed, getCurrentInstance, onBeforeUnmount, onBeforeUpdate, ref, useAttrs, useSlots, watch } from 'vue'
 import type { FormDraftSnapshot, FormExposed } from '../../contracts/forms'
 import type { SchemaParseResult } from '../../contracts/schema'
