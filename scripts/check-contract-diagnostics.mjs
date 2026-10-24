@@ -175,7 +175,74 @@ const bindingCases = [
   invalid: `defineForm({ schema: bindingSchema, fields: ${fields}${submit} })\n`,
 }))
 
+const formCases = [
+  ...['renamed', 'added', 'removed'].map((change) => {
+    const outputs = { renamed: '{ title: string }', added: '{ name: string; extra: string }', removed: '{}' }
+    const schema = `rawSchema<Draft, ${outputs[change]}>()`
+    return {
+      name: `form-schema-${change}-keys`,
+      expectedLocation: 'schema that changes field keys without custom-draft mode',
+      expectedLineOffset: 1,
+      expectedTerms: ['__formSchemaChangesKeys'],
+      valid: `const form = defineForm({ mode: 'custom-draft', schema: ${schema}, fields: { name: { renderer: 'text' } } })\ndefineForm({ ...form })\n`,
+      invalid: `defineForm({ schema: ${schema}, fields: { name: { renderer: 'text' } } })\n`,
+    }
+  }),
+  {
+    name: 'form-default-error-preserves-resource-operations',
+    expectedLocation: 'invalid field default',
+    expectedLineOffset: 5,
+    expectedTerms: ['initialValue'],
+    valid: `const form = defineForm({ schema: draftSchema, fields: { name: { renderer: 'text', initialValue: '' } }, submit: async (output) => ({ id: '1', ...output }) })
+const resource = defineResource({ key: 'defaults', identity: (record: Row) => record.id, create: { permission: null, form }, list: { permission: null, table: { ...tableOptions, load: loadRows } } })
+void resource.create.form.submit({ name: 'One' })
+void resource.list.table
+`,
+    invalid: `const resource = defineResource({
+  key: 'defaults',
+  identity: (record: Row) => record.id,
+  create: { permission: null, form: defineForm({ schema: draftSchema,
+    fields: { name: { renderer: 'text', initialValue: 123 } },
+    submit: async (output) => ({ id: '1', ...output }),
+  }) },
+  list: { permission: null, table: { ...tableOptions, load: loadRows } },
+})
+void resource.create.form.submit({ name: 'One' })
+void resource.list.table
+`,
+  },
+  {
+    name: 'form-default-error-preserves-update-operation',
+    expectedLocation: 'invalid field default in update factory',
+    expectedLineOffset: 6,
+    expectedTerms: ['initialValue'],
+    valid: `const resource = defineResource({
+  key: 'update-defaults',
+  identity: (record: Row) => record.id,
+  update: { permission: null, form: ({ id }) => ({
+    ...defineForm({ schema: draftSchema, fields: { name: { renderer: 'text', initialValue: '' } }, submit: async (output) => ({ id, ...output }) }),
+    load: () => ({ name: 'One' }),
+  }) },
+})
+void resource.update({ id: '1' }).form.submit({ name: 'One' })
+`,
+    invalid: `const resource = defineResource({
+  key: 'update-defaults',
+  identity: (record: Row) => record.id,
+  update: { permission: null,
+    form: ({ id }) => ({ ...defineForm({ schema: draftSchema,
+      fields: { name: { renderer: 'text', initialValue: 123 } },
+      submit: async (output) => ({ id, ...output }),
+    }), load: () => ({ name: 'One' }) }),
+  },
+})
+void resource.update({ id: '1' }).form.submit({ name: 'One' })
+`,
+  },
+]
+
 const cases = [
+  ...formCases,
   ...bindingCases,
   {
     name: 'file-manager-rejects-string-output',

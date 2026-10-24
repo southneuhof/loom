@@ -39,6 +39,7 @@ const schema3 = z3.object({ name: z3.string() }).transform(({ name }) => ({ leng
 const input3: RawSchemaInput<typeof schema3> = { name: 'Ada' }
 const output3: RawSchemaOutput<typeof schema3> = { length: 3 }
 const form3 = defineForm({
+  mode: 'custom-draft',
   schema: schema3,
   fields: { name: { renderer: 'text' } },
   submit: (output) => String(output.length),

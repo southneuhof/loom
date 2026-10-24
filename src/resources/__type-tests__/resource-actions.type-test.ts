@@ -169,7 +169,7 @@ const identityOnlyResult: Promise<{ id: string }> = identityOnlyResource.create.
 
 const malformedResultForm = defineForm({
   schema: mutationSchema,
-  fields: { name: { renderer: 'text' } },
+  fields: { name: { renderer: 'text', initialValue: '' } },
   submit: async (output) => (Math.random() > 0.5 ? { id: output.name } : { label: output.name }),
 })
 

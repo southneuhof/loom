@@ -75,7 +75,7 @@ export type FormSlots<TInput extends object, TKeys extends string = Extract<keyo
 type FormInputBase<TInput extends object, TValue, TRenderer extends FormRendererKey> = {
   readonly label?: Label
   readonly span?: number
-  readonly initialValue?: () => TValue | null | undefined
+  readonly initialValue?: TValue | null | (() => TValue | null | undefined)
   readonly behavior?: FormBehavior<TInput, TValue, TRenderer>
 }
 
@@ -155,6 +155,7 @@ export interface FormDefinition<
   TResult = unknown,
   TKeys extends string = Extract<keyof TInput, string>,
 > {
+  readonly mode?: 'custom-draft'
   readonly schema: RawSchema<TInput, TOutput>
   readonly fields: FormFields<TInput, TKeys>
   readonly labels?: LabelDictionary

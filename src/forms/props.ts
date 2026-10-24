@@ -150,9 +150,6 @@ export function assertFormInput(key: string, value: unknown): asserts value is F
   if ('span' in value && (typeof value.span !== 'number' || !Number.isInteger(value.span) || value.span < 1)) {
     invalidOption(key, 'span', 'a positive integer')
   }
-  if ('initialValue' in value && typeof value.initialValue !== 'function') {
-    invalidOption(key, 'initialValue', 'a zero-argument function')
-  }
   if ('behavior' in value) assertFormBehavior(value.behavior, key)
 
   if (typeof value.renderer !== 'string') throw new Error(`[loom][INPUT_RENDERER_REQUIRED] Form field "${key}" needs an explicit renderer.`)

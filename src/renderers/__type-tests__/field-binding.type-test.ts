@@ -16,6 +16,7 @@ export const pinDraft = defineForm({
     name: { renderer: 'text' },
     location: {
       renderer: 'location',
+      initialValue: null,
       props: { operations },
       binding: {
         keys: ['latitude', 'longitude'],

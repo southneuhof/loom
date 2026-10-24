@@ -146,6 +146,7 @@ function definitionFromProps<
   props: FormProps<TInput, TOutput, TResult, TKeys>,
 ): FormDefinition<TInput, TOutput, TResult, TKeys> {
   return {
+    ...(props.mode !== undefined ? { mode: props.mode } : {}),
     schema: props.schema,
     fields: props.fields,
     ...(props.labels !== undefined ? { labels: props.labels } : {}),
@@ -160,8 +161,8 @@ function formDefaults<TInput extends object, TKeys extends string>(
 ): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   for (const field of fields) {
-    if (field.input.initialValue && !overrides.some((value) => value !== undefined && fieldKeys(field.key, field.input).some((key) => hasOwn(value, key)))) {
-      Object.assign(values, fieldPatch(field.key, field.input, field.input.initialValue()))
+    if (hasOwn(field.input, 'initialValue') && !overrides.some((value) => value !== undefined && fieldKeys(field.key, field.input).some((key) => hasOwn(value, key)))) {
+      Object.assign(values, fieldPatch(field.key, field.input, typeof field.input.initialValue === 'function' ? field.input.initialValue() : field.input.initialValue))
     }
   }
   return values

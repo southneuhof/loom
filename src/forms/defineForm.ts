@@ -1,4 +1,4 @@
-import type { FormDraftSnapshot, FormFields, FormInput, FormValidatorEntry } from '../contracts/forms'
+import type { FormDraftSnapshot, FormInput, FormValidatorEntry } from '../contracts/forms'
 import type { LabelDictionary } from '../contracts/labels'
 import type { MaybePromise } from '../contracts/load'
 import type { RawSchema, RawSchemaInput, RawSchemaOutput } from '../contracts/schema'
@@ -8,11 +8,21 @@ import type { TextareaInputConstraint, TextareaInputModelValue } from '../compon
 import type { CheckboxGroupInputModelValue, RadioInputModelValue, SelectInputModelValue } from '../components/inputs/selectInput.types'
 import type { FormRendererKey, FormRendererModelValue, FormRendererPropBag, FormRendererProps } from '../renderers/formContracts'
 import { assertFormDefinition } from './assertFormDefinition'
-import type { CompactFormDefinition } from './definitionTypes'
+import type { CompactFormDefinition, FormDefinitionError } from './definitionTypes'
 
 type UnsafeKey = '__proto__' | 'prototype' | 'constructor' | `${number}`
 type FiniteObjectGuard<TValue extends object> = string extends Extract<keyof TValue, string> ? never : unknown
 type FormSchemaGuard<TSchema extends RawSchema<object, object>> = FiniteObjectGuard<RawSchemaInput<TSchema>> & FiniteObjectGuard<RawSchemaOutput<TSchema>>
+
+type ChangedSchemaKeys<TInput, TOutput> = TOutput extends unknown
+  ? Exclude<keyof TInput, keyof TOutput> | Exclude<keyof TOutput, keyof TInput>
+  : never
+
+type FormDraftMode<TSchema extends RawSchema<object, object>> =
+  | { mode: 'custom-draft' }
+  | { mode?: never; schema: [ChangedSchemaKeys<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>>] extends [never]
+      ? unknown
+      : { readonly __formSchemaChangesKeys: 'Use field bindings, or declare mode: custom-draft.' } }
 
 type RequiredKeys<TObject> = {
   [TKey in keyof TObject]-?: {} extends Pick<TObject, TKey> ? never : TKey
@@ -138,7 +148,7 @@ type InvalidRequiredPropPatch<TEntry> = TEntry extends { behavior: infer TBehavi
 
 type RequiredPropPatchGuard<TEntry> = [InvalidRequiredPropPatch<TEntry>] extends [never] ? unknown : never
 
-type FormInputEntryMemberGuard<TInput extends object, TKey extends keyof TInput, TEntry> = TEntry extends FormInput<TInput, TInput[TKey]>
+type FormInputEntryMemberGuard<TInput extends object, TKey extends keyof TInput, TEntry> = Omit<TEntry, 'initialValue'> extends FormInput<TInput, TInput[TKey]>
     ? Exclude<keyof TEntry, keyof FormInput<TInput, TInput[TKey]>> extends never
       ? RequiredPropGuard<TEntry> &
           RequiredPropPatchGuard<TEntry> &
@@ -193,43 +203,25 @@ type FormFieldsGuard<TInput extends object, TFields> = TFields extends object
   ? TFields extends readonly unknown[]
     ? never
     : Extract<keyof TFields, UnsafeKey> extends never
-      ? { [TKey in keyof TFields]: BindingContractGuard<TFields, TKey> & (TFields[TKey] extends { binding: unknown }
+      ? { [TKey in keyof TFields]: BindingContractGuard<TFields, TKey> & ('initialValue' extends keyof TFields[TKey] ? {
+          initialValue?: TFields[TKey] extends { renderer: infer TRenderer extends FormRendererKey; binding: unknown }
+            ? FormInput<TInput, RendererControlValue<TRenderer, TFields[TKey]>, TRenderer>['initialValue']
+            : TKey extends keyof TInput ? FormInput<TInput, TInput[TKey]>['initialValue'] : never
+        } : unknown) & (TFields[TKey] extends { binding: unknown }
           ? BoundInputGuard<TInput, TFields[TKey]>
           : TKey extends keyof TInput ? FormInputEntryGuard<NoInfer<TInput>, TKey, TFields[TKey]> : never) }
       : never
   : never
 
 type SubmitFunction<TOutput extends object> = (output: TOutput) => MaybePromise<unknown>
-type SubmitInputGuard<TSubmit, TOutput extends object> = TSubmit extends (...args: infer TArguments) => unknown
-  ? TArguments extends []
-    ? unknown
-    : TArguments extends [infer TInput, ...infer TRest]
-      ? Required<TRest> extends []
-        ? [TOutput] extends [TInput]
-          ? unknown
-          : never
-        : never
-      : never
-  : never
 type SubmitResult<TSubmit> = [TSubmit] extends [never] ? unknown : TSubmit extends (...args: never[]) => infer TResult ? Awaited<TResult> : unknown
 
 type DefinedForm<TInput extends object, TOutput extends object, TResult, TFields extends object, THasSubmit extends boolean> = CompactFormDefinition<
   TInput,
   TOutput,
   TFields
-> & ([THasSubmit] extends [true] ? { readonly submit: (output: TOutput) => MaybePromise<TResult> } : { readonly submit?: never })
-
-type FormDefinitionInput<
-  TSchema extends RawSchema<object, object>,
-  TFields extends object,
-  TLabels extends LabelDictionary | undefined,
-  TValidators extends readonly FormValidatorEntry<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>>[] | undefined,
-> = {
-  schema: TSchema & FormSchemaGuard<TSchema>
-  fields: TFields & FormFields<RawSchemaInput<TSchema>> & NoInfer<FormFieldsGuard<RawSchemaInput<TSchema>, TFields>>
-  labels?: TLabels
-  validators?: TValidators
-}
+> & ([ChangedSchemaKeys<TInput, TOutput>] extends [never] ? unknown : { readonly mode: 'custom-draft' })
+  & ([THasSubmit] extends [true] ? { readonly submit: ((output: TOutput) => MaybePromise<TResult>) & (TFields extends FormFieldsGuard<TInput, TFields> ? unknown : FormDefinitionError) } : { readonly submit?: never })
 
 function snapshotMap<T extends object>(value: T, clone: (entry: unknown) => unknown): T {
   return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, clone(entry)])) as T
@@ -270,61 +262,36 @@ type BoundFields<TInput extends object, TRenderers extends Record<string, FormRe
       }
 }
 
-type BoundFormDefinition<TSchema extends RawSchema<object, object>, TFields extends object> = {
-  schema: RawSchema<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>>
-  fields: TFields
+type FormArgument<TSchema extends RawSchema<object, object>, TFields extends object, TRenderers extends Record<string, FormRendererKey>> = {
+  schema: TSchema & FormSchemaGuard<TSchema>
+  fields: TFields & BoundFields<RawSchemaInput<TSchema>, TRenderers> & NoInfer<FormFieldsGuard<RawSchemaInput<TSchema>, TFields>>
   labels?: LabelDictionary
   validators?: readonly FormValidatorEntry<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>>[]
-}
-
-type BoundFormArgument<TSchema extends RawSchema<object, object>, TRenderers extends Record<string, FormRendererKey>, TFields extends object> =
-  Omit<BoundFormDefinition<TSchema, TFields>, 'schema' | 'fields'> & {
-    schema: TSchema & FormSchemaGuard<TSchema>
-    fields: TFields & BoundFields<RawSchemaInput<TSchema>, TRenderers> & NoInfer<FormFieldsGuard<RawSchemaInput<TSchema>, TFields>>
-  } & ([Exclude<keyof TRenderers, keyof RawSchemaInput<TSchema>>] extends [never] ? never : unknown)
+} & FormDraftMode<NoInfer<TSchema>>
 
 export function defineForm<
   TSchema extends RawSchema<object, object>,
+  const TFields extends object,
   const TRenderers extends Record<string, FormRendererKey>,
-  const TFields extends object,
->(definition: BoundFormArgument<TSchema, TRenderers, TFields> & { submit?: never }):
-  BoundFormDefinition<TSchema, TFields> & { submit?: never }
-export function defineForm<
-  TSchema extends RawSchema<object, object>,
-  const TRenderers extends Record<string, FormRendererKey>,
-  const TFields extends object,
-  TResult,
->(definition: BoundFormArgument<TSchema, TRenderers, TFields> & { submit: (output: RawSchemaOutput<TSchema>) => MaybePromise<TResult> }):
-  BoundFormDefinition<TSchema, TFields> & { submit: (output: RawSchemaOutput<TSchema>) => MaybePromise<TResult> }
-export function defineForm<
-  TSchema extends RawSchema<object, object>,
-  const TFields extends object,
-  const TLabels extends LabelDictionary | undefined,
-  const TValidators extends readonly FormValidatorEntry<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>>[] | undefined,
   TSubmit extends SubmitFunction<NoInfer<RawSchemaOutput<TSchema>>>,
->(
-  definition: FormDefinitionInput<TSchema, TFields, TLabels, TValidators> & { submit: TSubmit & SubmitInputGuard<TSubmit, RawSchemaOutput<TSchema>> }
-): DefinedForm<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>, SubmitResult<TSubmit>, TFields, true>
+>(definition: FormArgument<TSchema, TFields, TRenderers> & { submit: TSubmit }): DefinedForm<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>, SubmitResult<TSubmit>, TFields, true>
 export function defineForm<
   TSchema extends RawSchema<object, object>,
   const TFields extends object,
-  const TLabels extends LabelDictionary | undefined = undefined,
-  const TValidators extends readonly FormValidatorEntry<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>>[] | undefined = undefined,
->(
-  definition: FormDefinitionInput<TSchema, TFields, TLabels, TValidators> & { submit?: never }
-): DefinedForm<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>, unknown, TFields, false>
+  const TRenderers extends Record<string, FormRendererKey> = Record<string, FormRendererKey>,
+>(definition: FormArgument<TSchema, TFields, TRenderers> & { submit?: never }): DefinedForm<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>, unknown, TFields, false>
 export function defineForm<
   TSchema extends RawSchema<object, object>,
   const TFields extends object,
-  const TLabels extends LabelDictionary | undefined = undefined,
-  const TValidators extends readonly FormValidatorEntry<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>>[] | undefined = undefined,
->(definition: FormDefinitionInput<TSchema, TFields, TLabels, TValidators> & { submit?: SubmitFunction<RawSchemaOutput<TSchema>> }): unknown {
+  const TRenderers extends Record<string, FormRendererKey>,
+>(definition: FormArgument<TSchema, TFields, TRenderers> & { submit?: SubmitFunction<RawSchemaOutput<TSchema>> }): unknown {
   assertFormDefinition(definition)
 
   const result: Record<string, unknown> = {
     schema: definition.schema,
     fields: snapshotMap(definition.fields, snapshotInput),
   }
+  if (definition.mode !== undefined) result.mode = definition.mode
   if (definition.labels !== undefined) result.labels = { ...definition.labels }
   if (definition.validators !== undefined) result.validators = snapshotValidators(definition.validators)
   if (definition.submit !== undefined) result.submit = definition.submit

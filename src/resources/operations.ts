@@ -15,7 +15,7 @@ import type {
 import type { DetailViewProps, FormViewProps, ListFilters, ListViewActions, ListViewProps } from '../contracts/views'
 import type { RawSchema, RawSchemaOutput } from '../contracts/schema'
 import type { RouteLocationRaw, RouteMap } from 'vue-router'
-import type { CompactFormDefinition } from '../forms/definitionTypes'
+import type { CompactFormDefinition, FormDefinitionError } from '../forms/definitionTypes'
 
 type RouteRawParams<TName extends keyof RouteMap> = RouteMap[TName]['paramsRaw']
 type RouteParamKeys<TName extends keyof RouteMap> = keyof RouteRawParams<TName>
@@ -590,11 +590,11 @@ type UpdateSubmitIdentityDiagnostic = {
   readonly __updateSubmitResultMustIncludeResourceIdentity: never
 }
 
-type CreateSubmitContractDiagnostic<TForm, TIdentityRecord extends object> =
+type CreateSubmitContractDiagnostic<TForm, TIdentityRecord extends object> = TForm extends { submit: FormDefinitionError } ? {} :
   ([FormOutputGuard<TForm>] extends [never] ? { submit: CreateSubmitInputDiagnostic } : {}) &
   ([IdentityResultGuard<SubmitFunctionResult<TForm>, TIdentityRecord>] extends [never] ? { submit: CreateSubmitIdentityDiagnostic } : {})
 
-type UpdateSubmitContractDiagnostic<TForm, TIdentityRecord extends object> =
+type UpdateSubmitContractDiagnostic<TForm, TIdentityRecord extends object> = TForm extends { submit: FormDefinitionError } ? {} :
   ([FormOutputGuard<TForm>] extends [never] ? { submit: UpdateSubmitInputDiagnostic } : {}) &
   ([IdentityResultGuard<SubmitFunctionResult<TForm>, TIdentityRecord>] extends [never] ? { submit: UpdateSubmitIdentityDiagnostic } : {})
 

@@ -10,7 +10,7 @@ const inputSchema = z.object({ id: z.string(), label: z.string() }).transform(({
 type RowInput = z.input<typeof inputSchema>
 
 const table = defineTable({ schema: rowSchema, columns: { name: {} } })
-const form = defineForm({ schema: inputSchema, fields: { label: { renderer: 'text' } } })
+const form = defineForm({ mode: 'custom-draft', schema: inputSchema, fields: { label: { renderer: 'text' } } })
 const toDraft = (row: Row): Partial<RowInput> => ({ id: row.id, label: row.name })
 
 const editableTable: TableInputProps<RowInput, Row> = {
@@ -31,6 +31,7 @@ const missingEditorMapper: TableInputProps<RowInput, Row> = {
 }
 
 const editorWithSubmit = defineForm({
+  mode: 'custom-draft',
   schema: inputSchema,
   fields: { label: { renderer: 'text' } },
   submit: async () => 'saved',
