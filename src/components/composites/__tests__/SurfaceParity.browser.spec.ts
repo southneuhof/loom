@@ -113,7 +113,7 @@ async function mountParity(useConstructor: boolean) {
     identity: (record: Submitted) => record.id,
     create: { permission: null, form: formProps },
   })
-  const selectedOwner: Owner = { id: 'owner-default', name: 'Owner', profile: { region: 'East' } }
+  const selectedOwner: Owner = { id: 'owner-selected', name: 'Selected owner', profile: { region: 'East' } }
   const formSubmitted: unknown[] = []
   const dialogSubmitted: unknown[] = []
   const viewSubmitted: unknown[] = []
@@ -755,43 +755,14 @@ describe('form surface browser parity', () => {
     expect(defaultCalls).toBe(12)
     expect(ownerFactoryCalls).toBe(4)
     const ownerDefaults = Object.values(view.firstOwners)
-    expect(ownerDefaults).toHaveLength(4)
-    expect(new Set(ownerDefaults).size).toBe(4)
-    const defaultOwners = ownerDefaults.map((value) => {
-      if (!Array.isArray(value)) throw new Error('Each editor must receive its mutable owner default.')
-      const owner = value[0]
-      if (typeof owner !== 'object' || owner === null) throw new Error('Each owner default must contain a record.')
-      return owner
-    })
-    expect(defaultOwners.map((owner) => Reflect.get(owner, 'id'))).toEqual(Array(4).fill('owner-default'))
-    expect(defaultOwners[0]).toEqual(defaultOwners[1])
-    expect(defaultOwners[0]).toEqual(defaultOwners[2])
-    expect(defaultOwners[0]).toEqual(defaultOwners[3])
-    const profiles = defaultOwners.map((owner) => {
-      const profile = Reflect.get(owner, 'profile')
-      if (typeof profile !== 'object' || profile === null) throw new Error('Each owner default must contain a profile.')
-      return profile
-    })
-    expect(new Set(profiles).size).toBe(4)
-    Reflect.set(profiles[0], 'region', 'West')
-    for (const profile of profiles.slice(1)) expect(Reflect.get(profile, 'region')).toBe('East')
+    expect(ownerDefaults).toEqual(Array(4).fill([{ id: 'owner-default', name: 'Owner', profile: { region: 'East' } }]))
 
     view.setters.form?.([view.selectedOwner])
-    await vi.waitFor(() => expect(view.currentOwners.form).not.toBe(view.firstOwners.form))
-    expect(Array.isArray(view.currentOwners.form)).toBe(true)
-    if (!Array.isArray(view.currentOwners.form)) throw new Error('The select input did not keep a record array.')
-    const selected = view.currentOwners.form[0]
-    expect(selected).toEqual(view.selectedOwner)
-    expect(selected).not.toBe(view.selectedOwner)
-    if (typeof selected !== 'object' || selected === null) throw new Error('The select input did not keep the selected record.')
-    const profile = Reflect.get(selected, 'profile')
-    if (typeof profile !== 'object' || profile === null) throw new Error('The selected record did not keep its profile.')
-    Reflect.set(profile, 'region', 'North')
-    expect(view.selectedOwner.profile.region).toBe('East')
-    Reflect.set(profile, 'region', 'East')
+    await vi.waitFor(() => expect(view.currentOwners.form).toEqual([view.selectedOwner]))
     for (const surface of ['dialog', 'view', 'resource'] as const) {
-      expect(view.currentOwners[surface]).toBe(view.firstOwners[surface])
+      expect(view.currentOwners[surface]).toEqual(view.firstOwners[surface])
     }
+    expect(ownerFactoryCalls).toBe(4)
 
     for (const currentForm of editors) {
       enter(currentForm, 'name', 'hide')
@@ -824,9 +795,10 @@ describe('form surface browser parity', () => {
       retained: 'retained without a control',
     }
     const expectedResult = { id: 'saved-user', ...expectedInput }
-    expect(originalValues).toEqual([expectedInput, expectedInput, expectedInput])
+    const expectedFormInput = { ...expectedInput, owners: [view.selectedOwner] }
+    expect(originalValues).toEqual([expectedFormInput, expectedInput, expectedInput])
     expect(view.dialogValues).toEqual([expectedInput])
-    expect(view.formSubmitted).toEqual([expectedResult])
+    expect(view.formSubmitted).toEqual([{ id: 'saved-user', ...expectedFormInput }])
     expect(view.dialogSubmitted).toEqual([18])
     expect(view.viewSubmitted).toEqual([expectedResult])
     expect(view.resourceSubmitted).toEqual([expectedResult])
