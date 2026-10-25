@@ -12,7 +12,7 @@ type Row = z.output<typeof rowSchema>
 type Input = z.input<typeof inputSchema>
 
 const table: TableInputTable<Row> = defineTable({ schema: rowSchema, columns: { name: {} } })
-const form: TableInputForm<Input, Row> = defineForm({ mode: 'custom-draft', schema: inputSchema, fields: { label: { renderer: 'text' } } })
+const form: TableInputForm<Input, Row> = defineForm({ schema: inputSchema, fields: { label: { renderer: 'text' } } })
 const rows = ref<Row[]>([])
 const toDraft = (row: Row): Partial<Input> => ({ id: row.id, label: row.name })
 </script>

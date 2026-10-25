@@ -11,7 +11,7 @@ const second = { id: 'two', name: 'Second' }
 const rowSchema = z.object({ id: z.string(), name: z.string() })
 const inputSchema = z.object({ id: z.string().default('generated'), label: z.string() }).transform(({ id, label }) => ({ id, name: label }))
 const table = defineTable({ schema: rowSchema, columns: { name: {} } })
-const form = defineForm({ mode: 'custom-draft', schema: inputSchema, fields: { label: { renderer: 'text', initialValue: () => 'Draft row' } } })
+const form = defineForm({ schema: inputSchema, fields: { label: { renderer: 'text', initialValue: () => 'Draft row' } } })
 const toDraft = (row: typeof first) => ({ id: row.id, label: row.name })
 
 describe('TableInput surface', () => {

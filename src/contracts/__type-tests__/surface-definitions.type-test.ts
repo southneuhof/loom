@@ -38,25 +38,28 @@ type DetailArgument<TSchema extends RawSchema<object, object>, TFields extends R
 const schema3 = z3.object({ name: z3.string() }).transform(({ name }) => ({ length: name.length }))
 const input3: RawSchemaInput<typeof schema3> = { name: 'Ada' }
 const output3: RawSchemaOutput<typeof schema3> = { length: 3 }
-const form3 = defineForm({
-  mode: 'custom-draft',
+const form3Definition = {
   schema: schema3,
   fields: { name: { renderer: 'text' } },
-  submit: (output) => String(output.length),
-})
-const submitted3: Promise<string> = Promise.resolve(form3.submit(output3))
+} as const
+const form3 = defineForm({ ...form3Definition, fields: { ...form3Definition.fields }, submit: (output) => String(output.length) })
+const reconstructedForm3 = defineForm({ ...form3, fields: { ...form3.fields } })
+const submitted3: Promise<string> = Promise.resolve(reconstructedForm3.submit(output3))
 
-const schema4 = z4.object({ amount: z4.string().transform(Number) })
+const schema4 = z4.object({ amount: z4.string() }).transform(({ amount }) => ({ amount: Number(amount), amountText: amount }))
 const input4: RawSchemaInput<typeof schema4> = { amount: '4' }
-const output4: RawSchemaOutput<typeof schema4> = { amount: 4 }
+const output4: RawSchemaOutput<typeof schema4> = { amount: 4, amountText: '4' }
 const nullableDraft: FormDraft<{ name: string; age: number }> = { name: null, age: undefined }
 const form4 = defineForm({
   schema: schema4,
   fields: { amount: { renderer: 'text', props: { placeholder: 'Amount' } } },
-  submit: async (output) => output.amount.toFixed(2),
+  submit: async (output) => `${output.amount.toFixed(2)} ${output.amountText}`,
 })
 const submitted4: Promise<string> = Promise.resolve(form4.submit(output4))
-const formWithoutSubmit = defineForm({ schema: z4.object({ name: z4.string() }), fields: { name: { renderer: 'text' } } })
+const formWithoutSubmit = defineForm({
+  schema: z4.object({ name: z4.string(), ignored: z4.string() }).transform(({ name }) => ({ displayName: name })),
+  fields: { name: { renderer: 'text' }, ignored: { renderer: 'text' } },
+})
 type NoSubmitRemainsAbsent = Assert<Equal<typeof formWithoutSubmit.submit, undefined>>
 type SubmitResultIsAwaited = Assert<Equal<Awaited<ReturnType<typeof form4.submit>>, string>>
 

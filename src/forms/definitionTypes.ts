@@ -18,7 +18,6 @@ export type CompactFormFields<TInput extends object, TFields extends object> = {
 }
 
 export type CompactFormDefinition<TInput extends object, TOutput extends object, TFields extends object> = {
-  readonly mode?: 'custom-draft'
   readonly schema: RawSchema<TInput, TOutput>
   readonly fields: CompactFormFields<TInput, TFields>
   readonly labels?: LabelDictionary

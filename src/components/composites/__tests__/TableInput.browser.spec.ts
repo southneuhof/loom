@@ -13,7 +13,7 @@ const apps: App[] = []
 const rowSchema = z.object({ id: z.string(), name: z.string() })
 const inputSchema = z.object({ id: z.string(), label: z.string() }).transform(({ id, label }) => ({ id, name: label }))
 const table = defineTable({ schema: rowSchema, columns: { name: { label: 'Name' } } })
-const form = defineForm({ mode: 'custom-draft', schema: inputSchema, fields: { label: { renderer: 'text', label: 'Row name' } } })
+const form = defineForm({ schema: inputSchema, fields: { label: { renderer: 'text', label: 'Row name' } } })
 const toDraft = (row: Row) => ({ id: row.id, label: row.name })
 
 async function frame(times = 4) {

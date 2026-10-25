@@ -113,6 +113,7 @@ describe('defineForm', () => {
     const invalidProps = { schema, fields: { name: { renderer: 'text', props: { required: true } } } }
     const invalidBehavior = { schema, fields: { name: { renderer: 'text', behavior: { resetWhen: () => undefined } } } }
     const invalidValidator = { schema, fields: { name: { renderer: 'text' } }, validators: [() => undefined] }
+    const invalidDraftMode = { schema, fields: { name: { renderer: 'text' } }, mode: 'custom-draft' }
     const unsafeFields = Object.create(null) as Record<string, unknown>
     unsafeFields.constructor = { renderer: 'text' }
 
@@ -133,6 +134,9 @@ describe('defineForm', () => {
     )
     expect(() => Reflect.apply(defineForm, undefined, [invalidValidator])).toThrow(
       '[loom][SURFACE_OPTION_INVALID] Form member "validators[0]" must be a validator descriptor.',
+    )
+    expect(() => Reflect.apply(defineForm, undefined, [invalidDraftMode])).toThrow(
+      '[loom][SURFACE_OPTION_INVALID] Form member "mode" must be a FormDefinition member.',
     )
     expect(() => Reflect.apply(defineForm, undefined, [{ schema, fields: unsafeFields }])).toThrow(
       '[loom][SURFACE_OPTION_INVALID] Form field key "constructor"',

@@ -155,7 +155,6 @@ export interface FormDefinition<
   TResult = unknown,
   TKeys extends string = Extract<keyof TInput, string>,
 > {
-  readonly mode?: 'custom-draft'
   readonly schema: RawSchema<TInput, TOutput>
   readonly fields: FormFields<TInput, TKeys>
   readonly labels?: LabelDictionary

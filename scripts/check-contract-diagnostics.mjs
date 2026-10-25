@@ -176,18 +176,42 @@ const bindingCases = [
 }))
 
 const formCases = [
-  ...['renamed', 'added', 'removed'].map((change) => {
-    const outputs = { renamed: '{ title: string }', added: '{ name: string; extra: string }', removed: '{}' }
-    const schema = `rawSchema<Draft, ${outputs[change]}>()`
-    return {
-      name: `form-schema-${change}-keys`,
-      expectedLocation: 'schema that changes field keys without custom-draft mode',
-      expectedLineOffset: 1,
-      expectedTerms: ['__formSchemaChangesKeys'],
-      valid: `const form = defineForm({ mode: 'custom-draft', schema: ${schema}, fields: { name: { renderer: 'text' } } })\ndefineForm({ ...form })\n`,
-      invalid: `defineForm({ schema: ${schema}, fields: { name: { renderer: 'text' } } })\n`,
-    }
-  }),
+  {
+    name: 'form-schema-renamed-output-keys',
+    expectedLocation: 'form field absent from schema input',
+    expectedLineOffset: 1,
+    expectedTerms: ['never'],
+    valid: `const formBase = { schema: rawSchema<Draft, { title: string }>(), fields: { name: { renderer: 'text' as const } }, submit: async (output: { title: string }) => output.title }
+const form = defineForm({ ...formBase, fields: { ...formBase.fields } })
+const reconstructedForm = defineForm({ ...form, fields: { ...form.fields } })
+void reconstructedForm.submit({ title: 'One' })
+`,
+    invalid: `defineForm({ schema: rawSchema<Draft, { title: string }>(), fields: { title: { renderer: 'text' } }, submit: output => output.title })
+`,
+  },
+  {
+    name: 'form-schema-added-output-key',
+    expectedLocation: 'invalid input default with added output key',
+    expectedLineOffset: 1,
+    expectedTerms: ['initialValue'],
+    valid: `const form = defineForm({ schema: rawSchema<Draft, { name: string; normalized: string }>(), fields: { name: { renderer: 'text', initialValue: 'One' } }, submit: output => output.normalized })
+void form.submit({ name: 'One', normalized: 'ONE' })
+`,
+    invalid: `defineForm({ schema: rawSchema<Draft, { name: string; normalized: string }>(), fields: { name: { renderer: 'text', initialValue: 123 } }, submit: output => output.normalized })
+`,
+  },
+  {
+    name: 'form-schema-removed-output-key',
+    expectedLocation: 'submit argument uses parsed output after key removal',
+    expectedLineOffset: 2,
+    expectedTerms: ['obsolete'],
+    valid: `const form = defineForm({ schema: rawSchema<{ name: string; obsolete: string }, { name: string }>(), fields: { name: { renderer: 'text' }, obsolete: { renderer: 'text' } }, submit: output => output.name })
+void form.submit({ name: 'One' })
+`,
+    invalid: `const form = defineForm({ schema: rawSchema<{ name: string; obsolete: string }, { name: string }>(), fields: { name: { renderer: 'text' }, obsolete: { renderer: 'text' } }, submit: output => output.name })
+form.submit({ name: 'One', obsolete: 'old' })
+`,
+  },
   {
     name: 'form-default-error-preserves-resource-operations',
     expectedLocation: 'invalid field default',

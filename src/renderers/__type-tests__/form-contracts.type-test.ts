@@ -39,7 +39,6 @@ type NumericTextCanBeUnset = Assert<Equal<TextInputModelValue<readonly ['number'
 const compactFormSchema = z.object({ name: z.string(), ignored: z.string() }).transform(({ name }) => ({ displayName: name.trim() }))
 const compactFormFields = { name: { renderer: 'text', props: { placeholder: 'Name' } } } as const
 const compactFormDeclaration = {
-  mode: 'custom-draft' as const,
   schema: compactFormSchema,
   fields: compactFormFields,
 }
@@ -56,7 +55,6 @@ const compactTextProps: FormRendererProps<'text'> | undefined = compactForm.fiel
 const standaloneSubmitIsUnavailable: undefined = compactForm.submit
 
 const submittedCompactForm = defineForm({
-  mode: 'custom-draft' as const,
   schema: compactFormSchema,
   fields: compactFormFields,
   submit: async (output) => ({ saved: output.displayName, revision: 1 as const }),

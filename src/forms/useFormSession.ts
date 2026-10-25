@@ -146,7 +146,6 @@ function definitionFromProps<
   props: FormProps<TInput, TOutput, TResult, TKeys>,
 ): FormDefinition<TInput, TOutput, TResult, TKeys> {
   return {
-    ...(props.mode !== undefined ? { mode: props.mode } : {}),
     schema: props.schema,
     fields: props.fields,
     ...(props.labels !== undefined ? { labels: props.labels } : {}),

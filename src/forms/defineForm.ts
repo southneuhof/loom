@@ -14,16 +14,6 @@ type UnsafeKey = '__proto__' | 'prototype' | 'constructor' | `${number}`
 type FiniteObjectGuard<TValue extends object> = string extends Extract<keyof TValue, string> ? never : unknown
 type FormSchemaGuard<TSchema extends RawSchema<object, object>> = FiniteObjectGuard<RawSchemaInput<TSchema>> & FiniteObjectGuard<RawSchemaOutput<TSchema>>
 
-type ChangedSchemaKeys<TInput, TOutput> = TOutput extends unknown
-  ? Exclude<keyof TInput, keyof TOutput> | Exclude<keyof TOutput, keyof TInput>
-  : never
-
-type FormDraftMode<TSchema extends RawSchema<object, object>> =
-  | { mode: 'custom-draft' }
-  | { mode?: never; schema: [ChangedSchemaKeys<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>>] extends [never]
-      ? unknown
-      : { readonly __formSchemaChangesKeys: 'Use field bindings, or declare mode: custom-draft.' } }
-
 type RequiredKeys<TObject> = {
   [TKey in keyof TObject]-?: {} extends Pick<TObject, TKey> ? never : TKey
 }[keyof TObject]
@@ -220,7 +210,7 @@ type DefinedForm<TInput extends object, TOutput extends object, TResult, TFields
   TInput,
   TOutput,
   TFields
-> & ([ChangedSchemaKeys<TInput, TOutput>] extends [never] ? unknown : { readonly mode: 'custom-draft' })
+>
   & ([THasSubmit] extends [true] ? { readonly submit: ((output: TOutput) => MaybePromise<TResult>) & (TFields extends FormFieldsGuard<TInput, TFields> ? unknown : FormDefinitionError) } : { readonly submit?: never })
 
 function snapshotMap<T extends object>(value: T, clone: (entry: unknown) => unknown): T {
@@ -267,7 +257,7 @@ type FormArgument<TSchema extends RawSchema<object, object>, TFields extends obj
   fields: TFields & BoundFields<RawSchemaInput<TSchema>, TRenderers> & NoInfer<FormFieldsGuard<RawSchemaInput<TSchema>, TFields>>
   labels?: LabelDictionary
   validators?: readonly FormValidatorEntry<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>>[]
-} & FormDraftMode<NoInfer<TSchema>>
+}
 
 export function defineForm<
   TSchema extends RawSchema<object, object>,
@@ -291,7 +281,6 @@ export function defineForm<
     schema: definition.schema,
     fields: snapshotMap(definition.fields, snapshotInput),
   }
-  if (definition.mode !== undefined) result.mode = definition.mode
   if (definition.labels !== undefined) result.labels = { ...definition.labels }
   if (definition.validators !== undefined) result.validators = snapshotValidators(definition.validators)
   if (definition.submit !== undefined) result.submit = definition.submit

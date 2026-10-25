@@ -3,7 +3,7 @@ import type { FormDefinition } from '../contracts/forms'
 import { createSchemaRuntime, type SchemaRuntime } from '../schemas/schemaRuntime'
 import { assertFormInput, assertSafeFieldKey, isFormInputRecord } from './props'
 
-const definitionMembers = new Set(['mode', 'schema', 'fields', 'labels', 'validators', 'submit'])
+const definitionMembers = new Set(['schema', 'fields', 'labels', 'validators', 'submit'])
 const validatorMembers = new Set(['validate', 'triggers', 'path'])
 const validationTriggers = new Set(['blur', 'submit'])
 
@@ -60,8 +60,6 @@ export function assertFormDefinition<
   }
   if (!isRecord(definition.fields)) invalidOption('fields', 'an ordered field map')
   if (definition.submit !== undefined && typeof definition.submit !== 'function') invalidOption('submit', 'a function')
-
-  if (definition.mode !== undefined && definition.mode !== 'custom-draft') invalidOption('mode', 'custom-draft')
 
   assertLabels(definition.labels)
   assertValidators(definition.validators)
