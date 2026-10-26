@@ -1,6 +1,7 @@
 import type { Component } from 'vue'
 import type { TableInputProps } from '../components/composites/form-inputs/tableInput.types'
 import type { TextInputDataAttributes } from '../components/inputs/textInput.types'
+import type { DrawingCanvasProps, FileInputMode, FileInputModelValue, FileInputProps, ImageInputProps } from '../components/inputs/fileInput.types'
 
 export type RichTextFormInput = typeof import('../components/inputs/RichTextInput.vue').default
 
@@ -63,7 +64,13 @@ type FormOwnedProp =
 
 export type FormRendererPropBag<TRenderer extends keyof FormRendererComponents> = TRenderer extends 'table'
   ? TableInputProps<object, object>
-  : PublicFormProps<FormRendererComponents[TRenderer]>
+  : TRenderer extends 'file'
+    ? FileInputProps<FileInputMode, boolean>
+    : TRenderer extends 'image'
+      ? ImageInputProps<FileInputMode, boolean>
+      : TRenderer extends 'canvas'
+        ? DrawingCanvasProps<FileInputMode>
+        : PublicFormProps<FormRendererComponents[TRenderer]>
 
 export type FormRendererProps<TRenderer extends keyof FormRendererComponents> = Omit<
   FormRendererPropBag<TRenderer>,
@@ -102,4 +109,8 @@ type MatchingModelValue<TComponent> =
 
 export type FormRendererModelValue<TRenderer extends keyof FormRendererComponents> = TRenderer extends 'table'
   ? TableInputProps<object, object>['modelValue']
-  : MatchingModelValue<FormRendererComponents[TRenderer]>
+  : TRenderer extends 'file' | 'image'
+    ? FileInputModelValue<FileInputMode, boolean>
+    : TRenderer extends 'canvas'
+      ? FileInputModelValue<FileInputMode, false>
+      : MatchingModelValue<FormRendererComponents[TRenderer]>

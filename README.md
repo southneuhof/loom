@@ -219,9 +219,67 @@ second error or nest another message-bearing BaseInput in a custom slot.
 
 Built-in file and image inputs keep the same stored asset objects through load,
 edit, and submit. Do not add client identity conversion. Shared form readiness
-blocks submission while upload work remains pending. See
+blocks submission while transform or upload work remains pending. Set
+`mode: 'file'` on FileInput or ImageInput when the draft needs a local `File`.
+The same `mode` applies to camera capture and drawing export. File mode does
+not upload files and does not require `adapters.assets`. Read file text or
+send bytes in the application's submit action, then build the wire payload
+there. The JSON import example reads `File.text()` and sends `{ fileText }`;
+the file byte limit and endpoint text length limit are separate checks. See
 [`assets.form.spec.ts`](../../apps/web/src/framework/adapters/assets.form.spec.ts)
 for the executable boundary example.
+
+### File hooks
+
+`mode` selects the model shape. A `transform` runs before local commit in file
+mode and before the default `adapters.assets.upload` in asset mode. It returns
+a `File` in either mode. The same transform can serve both:
+
+```ts
+const preparePhoto = async (
+  file: File,
+  { signal }: { signal: AbortSignal },
+): Promise<File> =>
+  imageActions.addTimestamp(file, { signal })
+
+const fields = {
+  uploadedPhoto: {
+    renderer: 'image',
+    props: { transform: preparePhoto, destination: 'profile-photos' },
+  },
+  localPhoto: {
+    renderer: 'image',
+    props: { mode: 'file', transform: preparePhoto },
+  },
+}
+```
+
+Set `upload` only to replace asset transport. It uses the same context shape as
+the asset service, including `destination`, `signal`, and `onProgress`, and
+returns `AssetValue`:
+
+```ts
+import type { UploadOperation } from '@southneuhof/loom'
+import type { AssetValue } from '@southneuhof/loom/assets'
+
+const uploadReceipt: UploadOperation<AssetValue> = async (
+  file,
+  { destination, signal, onProgress },
+) => {
+  const stored = await receiptActions.upload(file, { destination, signal, onProgress })
+  return { kind: 'file', id: stored.id, url: stored.url, name: stored.name }
+}
+
+const receiptField = {
+  renderer: 'file',
+  props: { destination: 'receipts', upload: uploadReceipt },
+}
+```
+
+Asset mode still needs `adapters.assets` for canonical `read` and `preview`.
+File mode does not upload and does not need that adapter. Keep arbitrary
+responses and wire payloads in the application's action that reads the local
+`File`.
 
 An uncertain or legacy submit error with `postWrite: true` keeps the draft and
 blocks another save for the same resource and record identity. The alert tells
@@ -249,6 +307,7 @@ application source.
 | One numeric SelectInput prop bag in standalone, Form, and DialogForm | [SelectForm.browser.spec.ts](src/components/composites/__tests__/SelectForm.browser.spec.ts) |
 | DateInput string model, submit override, and managed input slots | [SurfaceParity.browser.spec.ts](src/components/composites/__tests__/SurfaceParity.browser.spec.ts), [date-input-model.type-test.ts](src/components/composites/__type-tests__/date-input-model.type-test.ts), [plan067-form-contracts.type-test.vue](src/components/composites/__type-tests__/plan067-form-contracts.type-test.vue) |
 | App-scoped assets for direct and managed inputs and previews | [AssetParity.browser.spec.ts](src/assets/__tests__/AssetParity.browser.spec.ts) |
+| Local File draft reset and text submit without an asset adapter | [FileInput.browser.spec.ts](src/components/inputs/__tests__/FileInput.browser.spec.ts), [file input mode types](src/components/inputs/__type-tests__/input-model-modes.type-test.vue) |
 | Shared relation display in Table, TreeTable, Detail, and extraction | [DisplayParity.browser.spec.ts](src/components/core/__tests__/DisplayParity.browser.spec.ts) |
 | Shared relation accessor and format in exports | [export.spec.ts](src/services/__tests__/export.spec.ts) |
 | Editable row mapping and submit-free row form | [TableInput.browser.spec.ts](src/components/composites/__tests__/TableInput.browser.spec.ts), [table-input.type-test.ts](src/components/composites/__type-tests__/table-input.type-test.ts) |

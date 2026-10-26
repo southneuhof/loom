@@ -1,213 +1,163 @@
-<script setup lang="ts">
-import { computed, ref, watch, onBeforeUnmount } from 'vue'
-import { toast } from 'vue-sonner'
-import type { AssetValue } from '../../assets/contracts'
-import { useAssetAdapter } from '../../assets/provider'
-import { useUploadMutation } from './useUploadMutation'
-import { useFormInputPending } from '../core/useFormInputState'
+<script setup lang="ts" generic="TMode extends FileInputMode = 'asset'">
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import type { CameraInputProps, FileInputMode, FileInputModelValue } from './fileInput.types'
+import { useFileInputController } from './useFileInputController'
+import { useFileObjectUrls } from './useFileObjectUrls'
 import Dialog from '../base/Dialog.vue'
 import Button from '@southneuhof/loom/components/base/Button.vue'
 import Icon from '@southneuhof/loom/components/base/Icon.vue'
 import Spinner from '@southneuhof/loom/components/base/Spinner.vue'
 import BaseInput from './BaseInput.vue'
-import { commonProps } from './commonprops'
 
-const props = defineProps({
-  uploadPath: { type: String, default: '' },
-  ...commonProps,
+const props = defineProps<CameraInputProps<TMode>>()
+const modelValue = defineModel<FileInputModelValue<TMode, false>>()
+const emit = defineEmits<{
+  (event: 'validation:touch'): void
+  (event: 'validation:error', message: string | undefined): void
+}>()
+const mode = computed<FileInputMode>(() => props.mode ?? 'asset')
+const controller = useFileInputController({
+  mode: () => mode.value,
+  multi: () => false,
+  accept: () => ['image/*'],
+  maxSize: () => props.maxSize ?? 10,
+  limit: () => 1,
+  disabled: () => props.disabled ?? false,
+  imageOnly: true,
+  destination: () => props.destination,
+  transform: () => props.transform,
+  upload: () => props.upload,
+  modelValue: () => modelValue.value,
+  setModelValue: (value) => { modelValue.value = value as FileInputModelValue<TMode, false> },
+  error: () => props.error,
+  validationError: (message) => emit('validation:error', message),
+  validationTouch: () => emit('validation:touch'),
 })
-const assets = useAssetAdapter()
-const modelValue = defineModel<AssetValue | null>()
-const mutation = useUploadMutation(() => assets.upload)
-const inputPending = useFormInputPending()
 
 const isCameraOpen = ref(false)
 const isPhotoTaken = ref(false)
-const isShotPhoto = ref(false)
 const cameraLoading = ref(false)
 const camera = ref<HTMLVideoElement>()
 const canvas = ref<HTMLCanvasElement>()
-const canvasProperties = ref({
-  width: 450,
-  height: 338,
-})
-const invalidAsset = ref(false)
+const canvasSize = ref({ width: 450, height: 338 })
+const localFiles = computed(() => controller.values.value.flatMap((value) => value.kind === 'file' ? [value.file] : []))
+const objectUrl = useFileObjectUrls(() => localFiles.value)
+const pending = controller.pending
+const pendingRows = computed(() => controller.rows.value.filter((row) => row.kind === 'pending'))
+const invalidModel = controller.invalidModel
+const inputError = controller.inputError
 const image = computed(() => {
-  if (modelValue.value === undefined || modelValue.value === null) return undefined
-  const asset = assets.read(modelValue.value)
-  return asset ? assets.preview(asset).imageURL : undefined
+  const value = controller.values.value[0]
+  if (!value) return undefined
+  if (value.kind === 'file') return objectUrl(value.file)
+  return controller.assetPreview(value.asset)?.imageURL
 })
-const emit = defineEmits<{
-  (event: 'validation:error', message: string | undefined): void
-  (event: 'validation:touch'): void
-}>()
 let disposed = false
-let valueGeneration = 0
 let cameraGeneration = 0
-let disabledGeneration = 0
-let modelInitialized = false
-let pendingOperation: { release: () => void; released: () => boolean } | undefined
-let activeCameraStream: MediaStream | undefined
-let activeCameraElement: HTMLVideoElement | undefined
+let activeStream: MediaStream | undefined
+let activeVideo: HTMLVideoElement | undefined
 
-const createCameraElement = async () => {
-  if (props.disabled || invalidAsset.value) return
+function stopStream(): void {
+  const stream = activeStream
+  const video = activeVideo
+  activeStream = undefined
+  activeVideo = undefined
+  stream?.getTracks().forEach((track) => track.stop())
+  if (video && video.srcObject === stream) video.srcObject = null
+}
+
+function closeCamera(): void {
+  cameraGeneration += 1
+  isCameraOpen.value = false
+  cameraLoading.value = false
+  isPhotoTaken.value = false
+  stopStream()
+}
+
+async function openCamera(): Promise<void> {
+  if (props.disabled || controller.invalidModel.value || controller.pending.value) return
+  isCameraOpen.value = true
   cameraGeneration += 1
   const generation = cameraGeneration
   cameraLoading.value = true
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
-    const element = camera.value
-    if (disposed || props.disabled || generation !== cameraGeneration || !isCameraOpen.value || !element) {
+    const video = camera.value
+    if (disposed || props.disabled || generation !== cameraGeneration || !isCameraOpen.value || !video) {
       stream.getTracks().forEach((track) => track.stop())
       return
     }
-    activeCameraStream = stream
-    activeCameraElement = element
-    element.srcObject = stream
-    canvasProperties.value = {
-      width: stream.getVideoTracks()[0].getSettings().width || 450,
-      height: stream.getVideoTracks()[0].getSettings().height || 338,
-    }
+    activeStream = stream
+    activeVideo = video
+    video.srcObject = stream
+    const settings = stream.getVideoTracks()[0]?.getSettings()
+    canvasSize.value = { width: settings?.width || 450, height: settings?.height || 338 }
     cameraLoading.value = false
-  } catch (error) {
+  } catch (reason) {
     if (disposed || generation !== cameraGeneration) return
     cameraLoading.value = false
-    if (props.disabled || !isCameraOpen.value) return
-    toast.error(error instanceof Error ? error.message : String(error))
+    controller.reportError(reason)
   }
 }
 
-const stopCameraStream = () => {
-  const stream = activeCameraStream
-  const element = activeCameraElement
-  activeCameraStream = undefined
-  activeCameraElement = undefined
-  stream?.getTracks().forEach((track) => track.stop())
-  if (element && element.srcObject === stream) element.srcObject = null
-}
-
-const activateCamera = () => {
-  if (props.disabled || invalidAsset.value || mutation.pending.value) return
-  isCameraOpen.value = true
-  void createCameraElement()
-}
-
-const deactivateCamera = () => {
-  cameraGeneration += 1
-  isCameraOpen.value = false
-  cameraLoading.value = false
-  isPhotoTaken.value = false
-  isShotPhoto.value = false
-  stopCameraStream()
-}
-
-watch(modelValue, (value) => {
-  valueGeneration += 1
-  if (modelInitialized) {
-    deactivateCamera()
-    pendingOperation?.release()
-    pendingOperation = undefined
+function takePhoto(): void {
+  if (props.disabled || controller.invalidModel.value || controller.pending.value) return
+  const target = canvas.value
+  const source = camera.value
+  const context = target?.getContext('2d')
+  if (!target || !source || !context) {
+    controller.reportError('The camera image could not be captured.')
+    return
   }
-  modelInitialized = true
-  const invalid = value !== undefined && value !== null && assets.read(value) === null
-  invalidAsset.value = invalid
-  emit('validation:error', invalid ? 'Invalid asset value.' : undefined)
-}, { immediate: true, flush: 'sync' })
-
-const takePhoto = () => {
-  if (props.disabled || invalidAsset.value || mutation.pending.value) return
-  if (!isPhotoTaken.value) {
-    isShotPhoto.value = true
-    const FLASH_TIMEOUT = 50
-    setTimeout(() => {
-      isShotPhoto.value = false
-    }, FLASH_TIMEOUT)
-  }
-  isPhotoTaken.value = !isPhotoTaken.value
-  const context = canvas.value?.getContext('2d')
-  const video = camera.value
-  if (!context || !video) return
-  context.drawImage(video, 0, 0, canvasProperties.value.width, canvasProperties.value.height)
+  context.drawImage(source, 0, 0, canvasSize.value.width, canvasSize.value.height)
+  isPhotoTaken.value = true
 }
 
-const resetCameraState = () => {
+function retakePhoto(): void {
+  if (props.disabled || controller.pending.value) return
+  closeCamera()
+  void openCamera()
+}
+
+function toCaptureFile(target: HTMLCanvasElement): Promise<File> {
+  return new Promise((resolve, reject) => {
+    target.toBlob((blob) => {
+      if (!blob) {
+        reject(new Error('The camera image could not be exported.'))
+        return
+      }
+      resolve(new File([blob], 'capture.png', { type: 'image/png' }))
+    }, 'image/png')
+  })
+}
+
+async function commitPhoto(): Promise<void> {
+  if (props.disabled || controller.invalidModel.value || controller.pending.value) return
+  const target = canvas.value
+  if (!target) {
+    controller.reportError('The camera image could not be captured.')
+    return
+  }
+  const completion = controller.acquireFile(() => toCaptureFile(target))
+  closeCamera()
+  await completion
+}
+
+function clearValue(): void {
   if (props.disabled) return
-  cameraGeneration += 1
-  stopCameraStream()
-  isPhotoTaken.value = false
-  isShotPhoto.value = false
-  if (isCameraOpen.value) void createCameraElement()
+  closeCamera()
+  controller.clear()
 }
 
-const resetComponentState = () => {
-  if (props.disabled) return
-  deactivateCamera()
-  valueGeneration += 1
-  invalidAsset.value = false
-  modelValue.value = null
-  emit('validation:error', undefined)
-  emit('validation:touch')
-}
-
-const handleFileUpload = async (file: File) => {
-  if (props.disabled || invalidAsset.value || mutation.pending.value) return
-  const disabledAtStart = disabledGeneration
-  valueGeneration += 1
-  const generation = valueGeneration
-  const operation = inputPending.begin()
-  pendingOperation = operation
-  try {
-    const result = await mutation.execute(file, props.uploadPath)
-    if (disposed || operation.released() || generation !== valueGeneration) return
-    const asset = assets.read(result)
-    if (!asset || (asset.mimeType && !asset.mimeType.startsWith('image/'))) throw new Error('Upload returned an invalid image asset.')
-    modelValue.value = asset
-    valueGeneration += 1
-    emit('validation:error', undefined)
-    emit('validation:touch')
-  } catch (error) {
-    if (disposed || operation.released() || props.disabled || disabledAtStart !== disabledGeneration || generation !== valueGeneration) return
-    toast.error(mutation.error.value?.message ?? (error instanceof Error ? error.message : String(error)))
-  } finally {
-    operation.release()
-    if (pendingOperation === operation) pendingOperation = undefined
-  }
-}
-
-const dataURItoFile = (dataURI: string) => {
-  const [header, body] = dataURI.split(',')
-  if (!header || !body) throw new Error('Invalid data URI')
-
-  const byteString = atob(body)
-  const mimeString = header.split(':')[1]?.split(';')[0] || 'image/png'
-  const ab = new ArrayBuffer(byteString.length)
-  const ia = new Uint8Array(ab)
-  for (let i = 0; i < byteString.length; i++) {
-    ia[i] = byteString.charCodeAt(i)
-  }
-  return new File([ab], `camera-${Date.now()}.png`, { type: mimeString })
-}
-
-const commitPhoto = () => {
-  if (props.disabled || invalidAsset.value || mutation.pending.value) return
-  const canvasElement = canvas.value
-  if (!canvasElement) return
-  const imageData = canvasElement.toDataURL('image/png')
-  if (imageData) handleFileUpload(dataURItoFile(imageData))
-  else toast.error('Gagal menyimpan foto')
-}
-
+watch(modelValue, closeCamera, { flush: 'sync' })
+watch(mode, closeCamera, { flush: 'sync' })
 watch(() => props.disabled, (disabled) => {
-  disabledGeneration += 1
-  if (disabled) deactivateCamera()
+  if (disabled) closeCamera()
 }, { flush: 'sync' })
+
 onBeforeUnmount(() => {
   disposed = true
-  valueGeneration += 1
-  cameraGeneration += 1
-  pendingOperation?.release()
-  stopCameraStream()
+  closeCamera()
 })
 </script>
 
@@ -216,35 +166,44 @@ onBeforeUnmount(() => {
     :field="props.field"
     :label="props.label"
     :helper-message="props.helperMessage"
-    :error="props.error || (invalidAsset ? 'Invalid asset value.' : '')"
+    :error="props.error || inputError || ''"
     :disabled="props.disabled"
     :required="props.required"
-    v-slot="{ controlBindings }">
+    v-slot="{ controlBindings }"
+  >
     <div class="flex flex-row gap-4">
       <img v-if="image" :src="image" class="h-36 w-36 rounded-xl bg-surface-container-highest object-scale-down" />
       <div class="flex flex-col items-center justify-center gap-2">
-        <Dialog @close="deactivateCamera">
-          <template #title>Kamera</template>
+        <Dialog v-model="isCameraOpen" @close="closeCamera">
+          <template #title>Camera</template>
           <template #trigger>
-            <Button v-if="!image" v-bind="controlBindings" :disabled="props.disabled || invalidAsset || mutation.pending.value" @click="activateCamera()">Buka Kamera <Icon name="camera" /></Button>
-            <Button v-else v-bind="controlBindings" :disabled="props.disabled || invalidAsset || mutation.pending.value" @click="activateCamera()">Ambil Ulang Foto <Icon class="h-5 w-5" name="refresh" /></Button>
+            <Button v-bind="controlBindings" type="button" :disabled="props.disabled || invalidModel || pending" @click="openCamera">
+              {{ image ? 'Ambil Ulang Foto' : 'Buka Kamera' }} <Icon :name="image ? 'refresh' : 'camera'" />
+            </Button>
           </template>
           <template #content="{ setOpen }">
             <div class="flex h-full w-full flex-col items-center gap-4">
-              <div v-if="cameraLoading || mutation.pending.value" class="flex items-center justify-center" :style="{ width: canvasProperties.width, height: canvasProperties.height }">
+              <div v-if="cameraLoading || pending" class="flex items-center justify-center" :style="{ width: `${canvasSize.width}px`, height: `${canvasSize.height}px` }">
                 <Spinner />
               </div>
-              <video v-show="!isPhotoTaken" ref="camera" class="max-w-full" :width="canvasProperties.width" :height="canvasProperties.height" autoplay></video>
-              <canvas v-show="isPhotoTaken" ref="canvas" class="max-w-full" :width="canvasProperties.width" :height="canvasProperties.height"></canvas>
+              <video v-show="!isPhotoTaken" ref="camera" class="max-w-full" :width="canvasSize.width" :height="canvasSize.height" autoplay />
+              <canvas v-show="isPhotoTaken" ref="canvas" class="max-w-full" :width="canvasSize.width" :height="canvasSize.height" />
               <div class="flex w-full flex-row justify-center gap-2">
-                <Button v-if="!isPhotoTaken" :disabled="props.disabled || mutation.pending.value" @click="takePhoto()" variant="tonal" class="aspect-square h-12 w-12"><Icon name="camera" /></Button>
-                <Button v-else :disabled="props.disabled || mutation.pending.value" @click="resetCameraState()" variant="tonal" class="aspect-square h-12 w-12"><Icon class="h-5 w-5" name="refresh" /></Button>
-                <Button v-if="isPhotoTaken" :disabled="props.disabled || mutation.pending.value" @click=";[commitPhoto(), setOpen(false)]" class="aspect-square h-12 w-12" variant="tonal" color="success"><Icon name="check" /></Button>
+                <Button v-if="!isPhotoTaken" type="button" kind="icon" ariaLabel="Take photo" :disabled="props.disabled || pending" @click="takePhoto" variant="tonal" class="aspect-square h-12 w-12"><Icon name="camera" /></Button>
+                <Button v-else type="button" kind="icon" ariaLabel="Retake photo" :disabled="props.disabled || pending" @click="retakePhoto" variant="tonal" class="aspect-square h-12 w-12"><Icon name="refresh" /></Button>
+                <Button v-if="isPhotoTaken" type="button" kind="icon" ariaLabel="Save photo" :disabled="props.disabled || pending" @click=";[commitPhoto(), setOpen(false)]" class="aspect-square h-12 w-12" variant="tonal" color="success"><Icon name="check" /></Button>
               </div>
             </div>
           </template>
         </Dialog>
-        <Button v-if="image || invalidAsset" :disabled="props.disabled" @click="resetComponentState()" class="w-full" variant="tonal">Hapus Foto <Icon name="delete-bin" /></Button>
+        <Button v-if="image || inputError || invalidModel" type="button" :disabled="props.disabled" @click="clearValue" class="w-full" variant="tonal">
+          Hapus Foto <Icon name="delete-bin" />
+        </Button>
+      </div>
+      <div v-if="pending" class="flex flex-col items-center justify-center gap-2">
+        <Spinner />
+        <p role="status">Processing photo</p>
+        <Button v-for="row in pendingRows" :key="row.id" type="button" variant="text" :disabled="props.disabled" @click="controller.remove(row.id)">Cancel</Button>
       </div>
     </div>
   </BaseInput>

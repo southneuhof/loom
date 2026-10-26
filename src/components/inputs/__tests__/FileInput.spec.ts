@@ -42,6 +42,298 @@ function adaptersForUpload(upload: AssetAdapter['upload']) {
 }
 
 describe('FileInput upload surface', () => {
+  it('commits the transformed local File without registering asset or data adapters', async () => {
+    const source = new File(['source'], 'record.txt', { type: 'text/plain' })
+    const transformed = new File(['normalized'], 'record.txt', { type: 'text/plain' })
+    const transform = vi.fn(async (file: File, { signal }: { signal: AbortSignal }) => {
+      expect(signal.aborted).toBe(false)
+      expect(file).toBe(source)
+      return transformed
+    })
+    const view = mountInput<File | null>(FileInput, {
+      model: null,
+      props: { mode: 'file', accept: ['.txt'], transform },
+      framework: false,
+    })
+    await view.flush()
+
+    selectFiles(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, [source])
+    await view.flush()
+
+    expect(transform).toHaveBeenCalledOnce()
+    expect(view.model.value).toBe(transformed)
+    expect(view.model.value?.name).toBe('record.txt')
+    expect(view.host.textContent).toContain('record.txt')
+    view.cleanup()
+  })
+
+  it('validates the source before transform and keeps the old File when transformed output is rejected', async () => {
+    const current = new File(['current'], 'current.txt', { type: 'text/plain' })
+    const transform = vi.fn(async () => new File(['wrong type'], 'wrong.csv', { type: 'text/csv' }))
+    const view = mountInput<File | null>(FileInput, {
+      model: current,
+      props: { mode: 'file', accept: ['.txt'], transform },
+      framework: false,
+    })
+    await view.flush()
+
+    selectFiles(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, [new File(['source'], 'source.csv', { type: 'text/csv' })])
+    await view.flush()
+    expect(transform).not.toHaveBeenCalled()
+    expect(view.model.value).toBe(current)
+
+    selectFiles(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, [new File(['source'], 'source.txt', { type: 'text/plain' })])
+    await view.flush()
+    expect(transform).toHaveBeenCalledOnce()
+    expect(view.model.value).toBe(current)
+    expect(view.host.textContent).toContain('current.txt')
+    expect(view.host.textContent).toContain('not accepted')
+    view.cleanup()
+  })
+
+  it('transforms a File before the default asset upload and commits the canonical asset', async () => {
+    const transformed = new File(['watermarked'], 'photo.png', { type: 'image/png' })
+    const transform = vi.fn(async () => transformed)
+    const upload = vi.fn(async (file: Blob) => {
+      expect(file).toBe(transformed)
+      return asset('photo.png')
+    })
+    const view = mountInput<Asset | null>(FileInput, {
+      model: null,
+      props: { transform },
+      adapters: adaptersForUpload(upload),
+    })
+    await view.flush()
+
+    selectFiles(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, [new File(['source'], 'photo.png', { type: 'image/png' })])
+    await view.flush()
+
+    expect(transform).toHaveBeenCalledOnce()
+    expect(upload).toHaveBeenCalledOnce()
+    expect(view.model.value).toEqual(asset('photo.png'))
+    view.cleanup()
+  })
+
+  it('uses an asset upload override for destination, progress, and canonical output', async () => {
+    const result = deferred<Asset>()
+    let reportProgress: ((value: { loaded: number; total?: number }) => void) | undefined
+    let signal: AbortSignal | undefined
+    const serviceUpload = vi.fn(async () => asset('unused.pdf'))
+    const upload = vi.fn((_file: Blob, context: { destination?: string; signal?: AbortSignal; onProgress?: (value: { loaded: number; total?: number }) => void }) => {
+      signal = context.signal
+      reportProgress = context.onProgress
+      return result.promise
+    })
+    const view = mountInput<Asset | null>(FileInput, {
+      model: null,
+      props: { destination: 'receipts', upload },
+      adapters: adaptersForUpload(serviceUpload),
+    })
+    await view.flush()
+
+    const source = new File(['receipt'], 'receipt.pdf', { type: 'application/pdf' })
+    selectFiles(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, [source])
+    await view.flush()
+    expect(upload).toHaveBeenCalledOnce()
+    expect(upload.mock.calls[0]?.[0]).toBe(source)
+    expect(upload.mock.calls[0]?.[1].destination).toBe('receipts')
+    expect(signal?.aborted).toBe(false)
+    expect(serviceUpload).not.toHaveBeenCalled()
+
+    reportProgress?.({ loaded: 50, total: 100 })
+    await view.flush()
+    expect(view.host.querySelector('[role="status"]')?.textContent).toContain('50%')
+    result.resolve(asset('receipt.pdf'))
+    await view.flush()
+    expect(view.model.value).toEqual(asset('receipt.pdf'))
+    view.cleanup()
+  })
+
+  it('aborts an asset upload when its pending selection is removed', async () => {
+    const result = deferred<Asset>()
+    let signal: AbortSignal | undefined
+    const upload = vi.fn((_file: Blob, context: { signal?: AbortSignal }) => {
+      signal = context.signal
+      return result.promise
+    })
+    const view = mountInput<Asset | null>(FileInput, {
+      model: null,
+      props: { upload },
+      adapters: adaptersForUpload(vi.fn(async () => asset('unused.pdf'))),
+    })
+    await view.flush()
+
+    selectFiles(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, [new File(['receipt'], 'receipt.pdf', { type: 'application/pdf' })])
+    await view.flush()
+    expect(signal?.aborted).toBe(false)
+    view.host.querySelector<HTMLButtonElement>('[aria-label="Remove pending upload"]')!.click()
+    await view.flush()
+    expect(signal?.aborted).toBe(true)
+
+    result.resolve(asset('late.pdf'))
+    await view.flush()
+
+    expect(view.model.value).toBeNull()
+    expect(view.host.textContent).not.toContain('late.pdf')
+    view.cleanup()
+  })
+
+  it('accepts the same local File again after resetting the native input', async () => {
+    const source = new File(['source'], 'record.txt', { type: 'text/plain' })
+    const transform = vi.fn((file: File) => file)
+    const view = mountInput<File | null>(FileInput, {
+      model: null,
+      props: { mode: 'file', accept: ['.txt'], transform },
+      framework: false,
+    })
+    await view.flush()
+    const input = view.host.querySelector<HTMLInputElement>('input[type="file"]')!
+
+    selectFiles(input, [source])
+    expect(input.value).toBe('')
+    await view.flush()
+    selectFiles(input, [source])
+    expect(input.value).toBe('')
+    await view.flush()
+
+    expect(transform).toHaveBeenCalledTimes(2)
+    expect(view.model.value).toBe(source)
+    view.cleanup()
+  })
+
+  it('rejects an invalid or over-capacity local batch without changing the model', async () => {
+    const current = new File(['current'], 'current.txt', { type: 'text/plain' })
+    const firstCandidate = new File(['first'], 'first.txt', { type: 'text/plain' })
+    const secondCandidate = new File(['second'], 'second.txt', { type: 'text/plain' })
+    const thirdCandidate = new File(['third'], 'third.txt', { type: 'text/plain' })
+    const transform = vi.fn((file: File) => file)
+    const view = mountInput<File[]>(FileInput, {
+      model: [current],
+      props: { mode: 'file', multi: true, limit: 3, accept: ['.txt'], transform },
+      framework: false,
+    })
+    await view.flush()
+    const input = view.host.querySelector<HTMLInputElement>('input[type="file"]')!
+
+    selectFiles(input, [firstCandidate, new File(['invalid'], 'invalid.csv', { type: 'text/csv' })])
+    await view.flush()
+    expect(view.model.value).toEqual([current])
+    expect(transform).not.toHaveBeenCalled()
+    expect(view.host.textContent).toContain('not accepted')
+
+    selectFiles(input, [firstCandidate, secondCandidate, thirdCandidate])
+    await view.flush()
+    expect(view.model.value).toEqual([current])
+    expect(transform).not.toHaveBeenCalled()
+    expect(view.host.textContent).toContain('no more than 3 files')
+    view.cleanup()
+  })
+
+  it('rejects a custom upload result that the asset adapter cannot read', async () => {
+    const upload = vi.fn(async () => 'untyped response' as unknown as Asset)
+    const view = mountInput<Asset | null>(FileInput, {
+      model: null,
+      props: { upload },
+      adapters: adaptersForUpload(vi.fn(async () => asset('unused.pdf'))),
+    })
+    await view.flush()
+
+    selectFiles(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, [new File(['receipt'], 'receipt.pdf', { type: 'application/pdf' })])
+    await view.flush()
+
+    expect(view.model.value).toBeNull()
+    expect(view.host.textContent).toContain('invalid asset')
+    view.cleanup()
+  })
+
+  it('aborts a local transform when its pending file is removed and ignores its late result', async () => {
+    const output = deferred<File>()
+    let signal: AbortSignal | undefined
+    const transform = vi.fn((_file: File, context: { signal: AbortSignal }) => {
+      signal = context.signal
+      return output.promise
+    })
+    const view = mountInput<File | null>(FileInput, {
+      model: null,
+      props: { mode: 'file', transform },
+      framework: false,
+    })
+    await view.flush()
+
+    selectFiles(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, [new File(['source'], 'source.txt', { type: 'text/plain' })])
+    await view.flush()
+    expect(view.host.querySelector('[role="status"]')?.textContent).toContain('Processing')
+    expect(signal?.aborted).toBe(false)
+
+    view.host.querySelector<HTMLButtonElement>('[aria-label="Remove pending upload"]')!.click()
+    await view.flush()
+    expect(signal?.aborted).toBe(true)
+    output.resolve(new File(['late'], 'late.txt', { type: 'text/plain' }))
+    await view.flush()
+
+    expect(view.model.value).toBeNull()
+    expect(view.host.textContent).not.toContain('late.txt')
+    view.cleanup()
+  })
+
+  it('cancels pending work when its transform hook changes', async () => {
+    const staleResult = deferred<File>()
+    const staleTransform = vi.fn((_file: File, context: { signal: AbortSignal }) => {
+      expect(context.signal.aborted).toBe(false)
+      return staleResult.promise
+    })
+    const currentTransform = vi.fn((file: File) => new File([file], 'current.txt', { type: file.type }))
+    const view = mountInput<File | null>(FileInput, {
+      model: null,
+      props: { mode: 'file', transform: staleTransform },
+      framework: false,
+    })
+    await view.flush()
+
+    selectFiles(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, [new File(['stale'], 'stale.txt', { type: 'text/plain' })])
+    await view.flush()
+    view.setProps({ transform: currentTransform })
+    await view.flush()
+    expect(staleTransform.mock.calls[0]?.[1].signal.aborted).toBe(true)
+    staleResult.resolve(new File(['late'], 'late.txt', { type: 'text/plain' }))
+    await view.flush()
+    expect(view.model.value).toBeNull()
+
+    selectFiles(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, [new File(['current'], 'current-source.txt', { type: 'text/plain' })])
+    await view.flush()
+    expect(currentTransform).toHaveBeenCalledOnce()
+    expect(view.model.value?.name).toBe('current.txt')
+    view.cleanup()
+  })
+
+  it('cancels pending local work when its mode changes', async () => {
+    const staleResult = deferred<File>()
+    let signal: AbortSignal | undefined
+    const transform = vi.fn((_file: File, context: { signal: AbortSignal }) => {
+      signal = context.signal
+      return staleResult.promise
+    })
+    const upload = vi.fn(async () => asset('unused.txt'))
+    const view = mountInput<File | Asset | null>(FileInput, {
+      model: null,
+      props: { mode: 'file', transform },
+      adapters: adaptersForUpload(upload),
+    })
+    await view.flush()
+
+    selectFiles(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, [new File(['stale'], 'stale.txt', { type: 'text/plain' })])
+    await view.flush()
+    view.setProps({ mode: 'asset' })
+    await view.flush()
+    expect(signal?.aborted).toBe(true)
+    staleResult.resolve(new File(['late'], 'late.txt', { type: 'text/plain' }))
+    await view.flush()
+
+    expect(view.model.value).toBeNull()
+    expect(upload).not.toHaveBeenCalled()
+    view.cleanup()
+  })
+
   it('renders its drop zone through the form renderer without an upload operation', async () => {
     const view = mountCore(Form, {
       schema: singleFileSchema,
@@ -219,6 +511,59 @@ describe('FileInput upload surface', () => {
     view.find('form')!.dispatchEvent(new Event('submit'))
     await flush()
     expect(submit).toHaveBeenCalledWith({ files: [asset('first.pdf'), asset('second.pdf')] })
+    view.unmount()
+  })
+
+  it('keeps a failed upload error after a sibling succeeds until a new selection', async () => {
+    const failed = deferred<Asset>()
+    const sibling = deferred<Asset>()
+    const recovery = deferred<Asset>()
+    const results = [failed, sibling, recovery]
+    const upload = vi.fn(() => results.shift()!.promise)
+    const submit = vi.fn(async () => undefined)
+    const view = mountCore(Form, {
+      schema: multiFileSchema,
+      fields: { files: { label: 'Files', renderer: 'file', props: { multi: true } } },
+      initialData: { files: [] },
+      submit,
+    }, { adapters: adaptersForUpload(upload) })
+    await flush()
+
+    const exposed = view.exposed() as { inputPending: boolean; submit: () => Promise<void> }
+    const input = view.find<HTMLInputElement>('input[type="file"]')!
+    selectFiles(input, [
+      new File(['failed'], 'failed.pdf', { type: 'application/pdf' }),
+      new File(['sibling'], 'sibling.pdf', { type: 'application/pdf' }),
+    ])
+    await flush()
+    expect(upload).toHaveBeenCalledTimes(2)
+
+    failed.reject(new Error('first upload failed'))
+    await flush()
+    expect(view.text()).toContain('first upload failed')
+    expect(exposed.inputPending).toBe(true)
+    await exposed.submit()
+    await flush()
+    expect(submit).not.toHaveBeenCalled()
+
+    sibling.resolve(asset('sibling.pdf'))
+    await flush()
+    expect(exposed.inputPending).toBe(false)
+    expect(view.text()).toContain('first upload failed')
+    await exposed.submit()
+    await flush()
+    expect(submit).not.toHaveBeenCalled()
+
+    selectFiles(input, [new File(['recovery'], 'recovery.pdf', { type: 'application/pdf' })])
+    await flush()
+    expect(view.text()).not.toContain('first upload failed')
+    expect(exposed.inputPending).toBe(true)
+    recovery.resolve(asset('recovery.pdf'))
+    await flush()
+    view.find('form')!.dispatchEvent(new Event('submit'))
+    await flush()
+
+    expect(submit).toHaveBeenCalledWith({ files: [asset('sibling.pdf'), asset('recovery.pdf')] })
     view.unmount()
   })
 

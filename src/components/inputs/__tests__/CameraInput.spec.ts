@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { toast } from 'vue-sonner'
 import type { AssetAdapter, AssetValue } from '../../../assets/contracts'
+import type { UploadContext } from '../../../contracts/upload'
 import CameraInput from '../CameraInput.vue'
 import { deferred, mountInput, testAssetAdapter } from './harness'
 
@@ -51,7 +52,7 @@ async function startUpload() {
   const request = deferred<AssetValue>()
   const adapter: AssetAdapter = {
     ...testAssetAdapter,
-    upload: vi.fn(() => request.promise),
+    upload: vi.fn((_file: Blob, _context: UploadContext) => request.promise),
   }
   const stream = {
     getTracks: () => [{ stop: vi.fn() }],
@@ -59,7 +60,9 @@ async function startUpload() {
   }
   installCamera(async () => stream as unknown as MediaStream)
   installCanvas()
-  vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue('data:image/png;base64,AA==')
+  vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback, type) => {
+    callback(new Blob(['png'], { type: type ?? 'image/png' }))
+  })
   const toastError = vi.spyOn(toast, 'error').mockImplementation(() => '')
   const initial: AssetValue | null = stored
   const mounted = mountInput(CameraInput, { model: initial, adapters: { assets: adapter } })
@@ -71,6 +74,10 @@ async function startUpload() {
   await mounted.flush()
   document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button.aspect-square').item(1)?.click()
   await vi.waitFor(() => expect(adapter.upload).toHaveBeenCalled())
+  const capture = adapter.upload.mock.calls[0]?.[0]
+  expect(capture).toBeInstanceOf(File)
+  expect((capture as File).name).toBe('capture.png')
+  expect((capture as File).type).toBe('image/png')
 
   return { mounted, request, toastError }
 }
@@ -84,6 +91,33 @@ afterEach(() => {
 })
 
 describe('CameraInput async ownership', () => {
+  it('commits a local capture without an asset adapter and stops its camera stream', async () => {
+    const current = createStream()
+    installCamera(async () => current.stream)
+    installCanvas()
+    vi.spyOn(HTMLCanvasElement.prototype, 'toBlob').mockImplementation((callback, type) => {
+      callback(new Blob(['png'], { type: type ?? 'image/png' }))
+    })
+    const mounted = mountInput<File | null>(CameraInput, {
+      model: null,
+      props: { mode: 'file' },
+      framework: false,
+    })
+    cleanup.push(mounted.cleanup)
+
+    findButton(mounted.host, 'Buka Kamera')?.click()
+    await mounted.flush()
+    document.querySelector<HTMLButtonElement>('[role="dialog"] button[aria-label="Take photo"]')?.click()
+    await mounted.flush()
+    document.querySelector<HTMLButtonElement>('[role="dialog"] button[aria-label="Save photo"]')?.click()
+    await mounted.flush()
+
+    expect(mounted.model.value).toBeInstanceOf(File)
+    expect((mounted.model.value as File).name).toBe('capture.png')
+    expect((mounted.model.value as File).type).toBe('image/png')
+    expect(current.stop).toHaveBeenCalledOnce()
+  })
+
   it('stops and detaches the current stream before reacquiring on retake', async () => {
     const current = createStream()
     const next = createStream()
@@ -146,6 +180,32 @@ describe('CameraInput async ownership', () => {
     await mounted.flush()
 
     expect(video?.srcObject).toBe(current.stream)
+  })
+
+  it('closes the camera and stops a late stream when the value mode changes', async () => {
+    const stale = createStream()
+    const request = deferred<MediaStream>()
+    const getUserMedia = installCamera(() => request.promise)
+    installCanvas()
+    const mounted = mountInput<File | null>(CameraInput, {
+      model: null,
+      props: { mode: 'file' },
+      framework: false,
+    })
+    cleanup.push(mounted.cleanup)
+
+    findButton(mounted.host, 'Buka Kamera')?.click()
+    await mounted.flush()
+    expect(getUserMedia).toHaveBeenCalledOnce()
+    expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+
+    mounted.setProps({ mode: 'asset' })
+    await mounted.flush()
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+    request.resolve(stale.stream)
+    await mounted.flush()
+
+    expect(stale.stop).toHaveBeenCalledOnce()
   })
 
   it('stops and clears the active stream when the dialog closes', async () => {

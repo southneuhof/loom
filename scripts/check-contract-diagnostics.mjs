@@ -46,6 +46,10 @@ const textOrNumberValueSchema = rawSchema<{ value: string | number }, { value: s
 const assetValueSchema = rawSchema<{ value: AssetValue | null }, { value: AssetValue | null }>()
 const assetArraySchema = rawSchema<{ value: AssetValue[] }, { value: AssetValue[] }>()
 const assetUnionSchema = rawSchema<{ value: AssetValue | AssetValue[] | null }, { value: AssetValue | AssetValue[] | null }>()
+const localFileSchema = rawSchema<{ value: File | null }, { value: File | null }>()
+const localFileArraySchema = rawSchema<{ value: File[] }, { value: File[] }>()
+const localFileUnionSchema = rawSchema<{ value: File | File[] | null }, { value: File | File[] | null }>()
+const modeValueSchema = rawSchema<{ value: AssetValue | File | AssetValue[] | File[] | null }, { value: AssetValue | File | AssetValue[] | File[] | null }>()
 const persistedAsset: AssetValue = { kind: 'file', id: 'uploads/report.pdf', url: 'https://files.test/report.pdf', name: 'report.pdf' }
 const managedAsset: ManagedAsset = { kind: 'file', id: persistedAsset.id, name: persistedAsset.name, previewUrl: persistedAsset.url }
 const widenedTextareaConstraint: readonly ('number' | 'text')[] = ['number', 'text']
@@ -53,6 +57,7 @@ const unionTextareaConstraint: readonly ['number'] | readonly ['text'] = Math.ra
 const optionalNumericTextareaProps: { constraint?: readonly ['number'] } = {}
 const optionalMultiAssetProps: { multi?: true } = {}
 const dynamicMulti: boolean = Math.random() > 0.5
+const dynamicFileMode: 'asset' | 'file' = Math.random() > 0.5 ? 'asset' : 'file'
 const tableOptions = { schema: rowSchema, columns: { name: {} } }
 const detailOptions = { schema: rowSchema, fields: { name: {} } }
 const row: Row = { id: '1', name: 'One' }
@@ -877,6 +882,46 @@ void resource
 `,
     invalid: `defineForm({ schema: assetArraySchema, fields: { value: { renderer: 'file' } } })
 `,
+  },
+  {
+    name: 'file-default-mode-is-asset',
+    expectedLocation: 'defineForm default FileInput asset model',
+    expectedLineOffset: 1,
+    expectedTerms: [],
+    valid: "defineForm({ schema: assetValueSchema, fields: { value: { renderer: 'file' } } })\n",
+    invalid: "defineForm({ schema: localFileSchema, fields: { value: { renderer: 'file' } } })\n",
+  },
+  {
+    name: 'file-local-single-cardinality',
+    expectedLocation: 'defineForm single local FileInput model',
+    expectedLineOffset: 1,
+    expectedTerms: [],
+    valid: "defineForm({ schema: localFileSchema, fields: { value: { renderer: 'file', props: { mode: 'file' } } } })\n",
+    invalid: "defineForm({ schema: assetValueSchema, fields: { value: { renderer: 'file', props: { mode: 'file' } } } })\n",
+  },
+  {
+    name: 'file-local-multi-cardinality',
+    expectedLocation: 'defineForm multi local FileInput model',
+    expectedLineOffset: 1,
+    expectedTerms: [],
+    valid: "defineForm({ schema: localFileArraySchema, fields: { value: { renderer: 'file', props: { mode: 'file', multi: true } } } })\n",
+    invalid: "defineForm({ schema: localFileSchema, fields: { value: { renderer: 'file', props: { mode: 'file', multi: true } } } })\n",
+  },
+  {
+    name: 'file-local-mode-rejects-upload',
+    expectedLocation: 'defineForm local FileInput upload override',
+    expectedLineOffset: 1,
+    expectedTerms: [],
+    valid: "defineForm({ schema: localFileSchema, fields: { value: { renderer: 'file', props: { mode: 'file' } } } })\n",
+    invalid: "defineForm({ schema: localFileSchema, fields: { value: { renderer: 'file', props: { mode: 'file', upload: async () => persistedAsset } } } })\n",
+  },
+  {
+    name: 'file-dynamic-mode-model',
+    expectedLocation: 'defineForm dynamic FileInput mode model',
+    expectedLineOffset: 1,
+    expectedTerms: [],
+    valid: "defineForm({ schema: modeValueSchema, fields: { value: { renderer: 'file', props: { mode: dynamicFileMode } } } })\n",
+    invalid: "defineForm({ schema: assetValueSchema, fields: { value: { renderer: 'file', props: { mode: dynamicFileMode } } } })\n",
   },
   {
     name: 'file-multi-cardinality',

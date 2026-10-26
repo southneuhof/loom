@@ -2,7 +2,7 @@ import type { FormDraftSnapshot, FormInput, FormValidatorEntry } from '../contra
 import type { LabelDictionary } from '../contracts/labels'
 import type { MaybePromise } from '../contracts/load'
 import type { RawSchema, RawSchemaInput, RawSchemaOutput } from '../contracts/schema'
-import type { AssetInputModelValue } from '../components/inputs/assetInput.types'
+import type { FileInputMode, FileInputModelValue } from '../components/inputs/fileInput.types'
 import type { TextInputConstraint, TextInputModelValue } from '../components/inputs/textInput.types'
 import type { TextareaInputConstraint, TextareaInputModelValue } from '../components/inputs/textareaInput.types'
 import type { CheckboxGroupInputModelValue, RadioInputModelValue, SelectInputModelValue } from '../components/inputs/selectInput.types'
@@ -60,7 +60,19 @@ type SelectedAssetMulti<TProps> = TProps extends object
     : false
   : false
 
-type AssetRendererControlValue<TEntry> = AssetInputModelValue<SelectedAssetMulti<SelectedProps<TEntry>>>
+type SelectedInputMode<TProps> = TProps extends object
+  ? 'mode' extends keyof TProps
+    ? Exclude<TProps['mode' & keyof TProps], undefined> | (undefined extends TProps['mode' & keyof TProps] ? 'asset' : never)
+    : 'asset'
+  : 'asset'
+
+type FileRendererControlValue<TEntry> = FileInputModelValue<SelectedInputMode<SelectedProps<TEntry>> & FileInputMode, SelectedAssetMulti<SelectedProps<TEntry>>>
+
+type FileModePropsGuard<TRenderer, TEntry> = TRenderer extends 'file' | 'image' | 'canvas'
+  ? SelectedInputMode<SelectedProps<TEntry>> extends 'asset'
+    ? unknown
+    : Extract<keyof SelectedProps<TEntry>, 'destination' | 'upload'> extends never ? unknown : never
+  : unknown
 
 type RendererControlValue<TRenderer extends FormRendererKey, TEntry> = TRenderer extends 'text'
   ? TextModelValue<TEntry>
@@ -73,7 +85,9 @@ type RendererControlValue<TRenderer extends FormRendererKey, TEntry> = TRenderer
         : TRenderer extends 'checkbox-group'
           ? CheckboxGroupInputModelValue<SelectedProps<TEntry>>
           : TRenderer extends 'file' | 'image'
-            ? AssetRendererControlValue<TEntry>
+            ? FileRendererControlValue<TEntry>
+            : TRenderer extends 'canvas'
+              ? FileInputModelValue<SelectedInputMode<SelectedProps<TEntry>> & FileInputMode, false>
             : FormRendererModelValue<TRenderer>
 
 type InvalidRendererChoices<TValue, TRenderer, TEntry> = TRenderer extends FormRendererKey
@@ -143,6 +157,7 @@ type FormInputEntryMemberGuard<TInput extends object, TKey extends keyof TInput,
       ? RequiredPropGuard<TEntry> &
           RequiredPropPatchGuard<TEntry> &
           RendererPropsGuard<TInput, TKey, TEntry> &
+          FileModePropsGuard<SelectedRenderer<TInput, TKey, TEntry>, TEntry> &
           RendererValueGuard<TInput[TKey], SelectedRenderer<TInput, TKey, TEntry>, TEntry> &
           PresentationPropsGuard<TEntry> &
           PresentationRendererGuard<TInput[TKey], TEntry>

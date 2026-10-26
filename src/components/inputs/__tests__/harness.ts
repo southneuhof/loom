@@ -24,6 +24,7 @@ export function mountInput<T>(component: Component, options: {
   props?: Record<string, unknown>
   adapters?: FrameworkAdaptersInput
   queryClient?: QueryClient
+  framework?: boolean
 }) {
   const model = ref(options.model)
   const props = ref(options.props ?? {})
@@ -35,10 +36,12 @@ export function mountInput<T>(component: Component, options: {
       'onUpdate:modelValue': (value: T) => { model.value = value },
     }),
   }))
-  app.use(FrameworkPlugin, {
-    adapters: { assets: testAssetAdapter, ...options.adapters },
-    queryClient: options.queryClient,
-  })
+  if (options.framework !== false) {
+    app.use(FrameworkPlugin, {
+      adapters: { assets: testAssetAdapter, ...options.adapters },
+      queryClient: options.queryClient,
+    })
+  }
   app.mount(host)
   return {
     app,

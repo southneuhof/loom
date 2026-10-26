@@ -11,6 +11,35 @@ function selectFile(input: HTMLInputElement, file: File) {
 }
 
 describe('ImageInput upload surface', () => {
+  it('previews local Files and revokes object URLs on removal and unmount', async () => {
+    const first = new File(['first'], 'first.png', { type: 'image/png' })
+    const second = new File(['second'], 'second.png', { type: 'image/png' })
+    const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValueOnce('blob:first').mockReturnValueOnce('blob:second')
+    const revokeUrl = vi.spyOn(URL, 'revokeObjectURL')
+    const view = mountInput<File | null>(ImageInput, {
+      model: null,
+      props: { mode: 'file' },
+      framework: false,
+    })
+    await view.flush()
+
+    selectFile(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, first)
+    await view.flush()
+    expect(view.host.querySelector<HTMLImageElement>('img')?.getAttribute('src')).toBe('blob:first')
+    expect(createUrl).toHaveBeenCalledWith(first)
+
+    view.host.querySelector<HTMLButtonElement>('[aria-label="Remove image"]')!.click()
+    await view.flush()
+    expect(revokeUrl).toHaveBeenCalledWith('blob:first')
+
+    selectFile(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, second)
+    await view.flush()
+    view.cleanup()
+    expect(revokeUrl).toHaveBeenCalledWith('blob:second')
+    createUrl.mockRestore()
+    revokeUrl.mockRestore()
+  })
+
   it('emits a single image asset and clears it to null', async () => {
     const uploaded: AssetValue = {
       kind: 'file',

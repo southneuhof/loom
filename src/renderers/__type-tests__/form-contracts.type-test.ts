@@ -231,9 +231,14 @@ const unionTextareaForm = defineForm({
   fields: { value: { renderer: 'textarea', props: { constraint: unionTextareaConstraint } } },
 })
 const asset: AssetValue = { kind: 'file', id: 'uploads/file.pdf', url: 'https://assets.test/file.pdf', name: 'file.pdf' }
+const localFile = new File(['input'], 'input.pdf', { type: 'application/pdf' })
 const singleAssetForm = defineForm({
   schema: z.object({ file: z.custom<AssetValue | null>() }),
   fields: { file: { renderer: 'file' } },
+})
+const explicitSingleAssetForm = defineForm({
+  schema: z.object({ file: z.custom<AssetValue | null>() }),
+  fields: { file: { renderer: 'file', props: { mode: 'asset' } } },
 })
 const multiAssetForm = defineForm({
   schema: z.object({ files: z.array(z.custom<AssetValue>()) }),
@@ -257,6 +262,64 @@ const multiImageForm = defineForm({
   schema: z.object({ photos: z.array(z.custom<AssetValue>()) }),
   fields: { photos: { renderer: 'image', props: { multi: true } } },
 })
+const singleLocalFileForm = defineForm({
+  schema: z.object({ file: z.custom<File | null>() }),
+  fields: { file: { renderer: 'file', props: { mode: 'file' } } },
+})
+const multiLocalFileForm = defineForm({
+  schema: z.object({ files: z.array(z.custom<File>()) }),
+  fields: { files: { renderer: 'image', props: { mode: 'file', multi: true } } },
+})
+const invalidLocalAssetSchema = defineForm({
+  schema: z.object({ file: z.custom<AssetValue | null>() }),
+  // @ts-expect-error File mode emits local File values.
+  fields: { file: { renderer: 'file', props: { mode: 'file' } } },
+})
+const invalidAssetLocalSchema = defineForm({
+  schema: z.object({ file: z.custom<File | null>() }),
+  // @ts-expect-error Asset mode is the default when mode is omitted.
+  fields: { file: { renderer: 'file' } },
+})
+const invalidAssetInLocalMulti = defineForm({
+  schema: z.object({ file: z.custom<File | null>() }),
+  // @ts-expect-error Multi file mode emits an array of local files.
+  fields: { file: { renderer: 'file', props: { mode: 'file', multi: true } } },
+})
+const invalidLocalDestination = defineForm({
+  schema: z.object({ file: z.custom<File | null>() }),
+  // @ts-expect-error Destination is available only in asset mode.
+  fields: { file: { renderer: 'file', props: { mode: 'file', destination: 'documents' } } },
+})
+const invalidLocalUpload = defineForm({
+  schema: z.object({ file: z.custom<File | null>() }),
+  // @ts-expect-error Upload overrides are available only in asset mode.
+  fields: { file: { renderer: 'file', props: { mode: 'file', upload: async () => asset } } },
+})
+const validLocalTransform: FormRendererProps<'file'> = {
+  mode: 'file',
+  transform: async (file, { signal }) => {
+    signal.throwIfAborted()
+    return file
+  },
+}
+const validAssetUpload: FormRendererProps<'file'> = {
+  mode: 'asset',
+  upload: async () => asset,
+}
+const invalidTransformProps: FormRendererProps<'file'> = {
+  mode: 'file',
+  // @ts-expect-error Transforms return File values.
+  transform: async () => 'text',
+}
+const invalidUploadResultProps: FormRendererProps<'file'> = {
+  mode: 'asset',
+  // @ts-expect-error Upload overrides return canonical asset values.
+  upload: async () => 'receipt',
+}
+const cameraLocalForm = defineForm({
+  schema: z.object({ photo: z.custom<File | null>() }),
+  fields: { photo: { renderer: 'canvas', props: { mode: 'file' } } },
+})
 const dynamicMulti = Math.random() > 0.5
 const dynamicAssetSchema = z.object({ assets: z.custom<AssetValue | AssetValue[] | null>() })
 const dynamicFileForm = defineForm({
@@ -266,6 +329,12 @@ const dynamicFileForm = defineForm({
 const dynamicImageForm = defineForm({
   schema: dynamicAssetSchema,
   fields: { assets: { renderer: 'image', props: { multi: dynamicMulti } } },
+})
+const dynamicMode: 'asset' | 'file' = Math.random() > 0.5 ? 'asset' : 'file'
+const dynamicValueSchema = z.object({ value: z.custom<AssetValue | File | AssetValue[] | File[] | null>() })
+const dynamicModeForm = defineForm({
+  schema: dynamicValueSchema,
+  fields: { value: { renderer: 'file', props: { mode: dynamicMode, multi: dynamicMulti } } },
 })
 const misspelledProp = { placehoder: 'Name' }
 const spreadMisspelling = { ...correctProps, ...misspelledProp }
@@ -305,6 +374,6 @@ const unknownRendererProps: FormRendererProps<
   'not-a-renderer'
 > = {}
 
-void [textareaUnionSchema, broadTextareaForm, unionTextareaConstraint, unionTextareaForm, dynamicMulti, dynamicAssetSchema, dynamicFileForm, dynamicImageForm]
+void [textareaUnionSchema, broadTextareaForm, unionTextareaConstraint, unionTextareaForm, dynamicMulti, dynamicAssetSchema, dynamicFileForm, dynamicImageForm, dynamicMode, dynamicValueSchema, dynamicModeForm]
 
-void [fileOk, fileBadInline, fileBadVariable, tableProps, missingRenderer, dataProps, managedDataProps, dataPropsForm, directReadonlyProps, managedReadonlyProps, readonlyForm, directTextModel, directPasswordReadonlyProps, managedPasswordReadonlyProps, passwordReadonlyForm, directStringReadonly, managedStringReadonly, directPasswordStringReadonly, managedPasswordStringReadonly, textForm, nativeTextForm, spreadTextForm, optionalTextForm, numericTextForm, textModeRejectsNumber, numericModeRejectsString, broadModeRejectsString, numericSelection, invalidNumericSelection, multiSelection, invalidMultiSelection, radioSelection, invalidRadioSelection, loadRoleOptions, lazyTextareaProps, lazyTextareaModel, loadedCheckboxSelection, invalidLoadedRadioSelection, textareaForm, numericTextareaForm, invalidNumericTextarea, broadTextareaConstraint, asset, singleAssetForm, multiAssetForm, invalidMultiAssetForm, invalidSingleAssetForm, singleImageForm, multiImageForm, inlineMisspelling, variableMisspelling, spreadMisspellingForm, unionMisspellingForm, selectRejectsTextOnlyAttribute, unknownRendererProps, compactTextProps, standaloneSubmitIsUnavailable, submittedCompactFormSubmit]
+void [fileOk, fileBadInline, fileBadVariable, tableProps, missingRenderer, dataProps, managedDataProps, dataPropsForm, directReadonlyProps, managedReadonlyProps, readonlyForm, directTextModel, directPasswordReadonlyProps, managedPasswordReadonlyProps, passwordReadonlyForm, directStringReadonly, managedStringReadonly, directPasswordStringReadonly, managedPasswordStringReadonly, textForm, nativeTextForm, spreadTextForm, optionalTextForm, numericTextForm, textModeRejectsNumber, numericModeRejectsString, broadModeRejectsString, numericSelection, invalidNumericSelection, multiSelection, invalidMultiSelection, radioSelection, invalidRadioSelection, loadRoleOptions, lazyTextareaProps, lazyTextareaModel, loadedCheckboxSelection, invalidLoadedRadioSelection, textareaForm, numericTextareaForm, invalidNumericTextarea, broadTextareaConstraint, asset, localFile, singleAssetForm, explicitSingleAssetForm, multiAssetForm, invalidMultiAssetForm, invalidSingleAssetForm, singleImageForm, multiImageForm, singleLocalFileForm, multiLocalFileForm, invalidLocalAssetSchema, invalidAssetLocalSchema, invalidAssetInLocalMulti, invalidLocalDestination, invalidLocalUpload, validLocalTransform, validAssetUpload, invalidTransformProps, invalidUploadResultProps, cameraLocalForm, inlineMisspelling, variableMisspelling, spreadMisspellingForm, unionMisspellingForm, selectRejectsTextOnlyAttribute, unknownRendererProps, compactTextProps, standaloneSubmitIsUnavailable, submittedCompactFormSubmit]

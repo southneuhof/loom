@@ -15,13 +15,18 @@ type Asset = {
 }
 
 const schema = z.object({ file: z.custom<Asset | null>() })
+const localFileSchema = z.object({
+  file: z.custom<File | null>((value): value is File | null => value === null || (typeof File !== 'undefined' && value instanceof File)),
+})
 const multiSchema = z.object({ files: z.array(z.custom<Asset>()) })
 const requiredFileSchema = z.object({ file: z.custom<Asset | null>().refine((value) => value !== null, 'Choose a file') })
 const rejectedFileSchema = z.object({ file: z.custom<Asset | null>().refine((value) => value?.name === 'accepted.pdf', 'Choose an accepted file') })
 type Input = z.input<typeof schema>
 type MultiInput = z.input<typeof multiSchema>
+type LocalFileInput = z.input<typeof localFileSchema>
 const fields = { file: { label: 'File', renderer: 'file' } } satisfies FormFields<Input>
 const multiFields = { files: { label: 'Files', renderer: 'file', props: { multi: true } } } satisfies FormFields<MultiInput>
+const localFileFields = { file: { label: 'Source file', renderer: 'file', props: { mode: 'file', accept: ['.txt'] } } } satisfies FormFields<LocalFileInput>
 
 function asset(name: string): Asset {
   return {
@@ -69,6 +74,80 @@ afterEach(() => {
 })
 
 describe('FileInput browser behavior', () => {
+  it('restores a local File in a managed form without an asset adapter and submits its text', async () => {
+    const baseline = new File(['baseline text'], 'baseline.txt', { type: 'text/plain' })
+    const replacement = new File(['replacement text'], 'replacement.txt', { type: 'text/plain' })
+    const model = ref<Partial<LocalFileInput>>({ file: baseline })
+    const action = vi.fn(async (_payload: { fileText: string }) => undefined)
+    const host = document.createElement('div')
+    document.body.append(host)
+    const Root = defineComponent({
+      setup: () => () => h(Form, {
+        schema: localFileSchema,
+        fields: localFileFields,
+        initialData: { file: baseline },
+        modelValue: model.value,
+        'onUpdate:modelValue': (value: Partial<LocalFileInput>) => { model.value = value },
+        submit: async ({ file }: LocalFileInput) => file ? action({ fileText: await file.text() }) : undefined,
+      }, {
+        actions: ({ reset }: { reset: () => void }) => [
+          h('button', { type: 'button', onClick: reset }, 'Restore'),
+          h('button', { type: 'submit' }, 'Submit'),
+        ],
+      }),
+    })
+    const app = createApp(Root)
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await settle()
+
+    const input = host.querySelector<HTMLInputElement>('input[type="file"]')!
+    selectFile(input, replacement)
+    await settle()
+    expect(model.value.file).toBe(replacement)
+
+    const restore = [...host.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.trim() === 'Restore')!
+    restore.click()
+    await settle()
+    expect(model.value.file).toBe(baseline)
+    host.querySelector<HTMLButtonElement>('button[type="submit"]')!.click()
+    await vi.waitFor(() => {
+      expect(action).toHaveBeenCalledWith({ fileText: 'baseline text' })
+    })
+  })
+
+  it('accepts a dropped File in local mode without an asset adapter', async () => {
+    const model = ref<Partial<LocalFileInput>>({ file: null })
+    const host = document.createElement('div')
+    document.body.append(host)
+    const Root = defineComponent({
+      setup: () => () => h(Form, {
+        schema: localFileSchema,
+        fields: localFileFields,
+        initialData: { file: null },
+        modelValue: model.value,
+        'onUpdate:modelValue': (value: Partial<LocalFileInput>) => { model.value = value },
+        submit: async () => undefined,
+      }),
+    })
+    const app = createApp(Root)
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await settle()
+
+    const file = new File(['drop'], 'dropped.txt', { type: 'text/plain' })
+    const transfer = new DataTransfer()
+    transfer.items.add(file)
+    const drop = new DragEvent('drop', { bubbles: true, dataTransfer: transfer })
+    host.querySelector<HTMLElement>('.outline-dashed')!.dispatchEvent(drop)
+    await settle()
+
+    expect(model.value.file).toBe(file)
+  })
+
   it('connects the form label and validation message to the file control', async () => {
     const host = document.createElement('div')
     document.body.append(host)

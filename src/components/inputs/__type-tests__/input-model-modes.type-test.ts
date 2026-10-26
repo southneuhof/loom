@@ -1,5 +1,5 @@
 import type { AssetValue } from '../../../assets/contracts'
-import type { AssetInputModelValue } from '../assetInput.types'
+import type { FileInputModelValue } from '../fileInput.types'
 import type { TextareaInputModelValue } from '../textareaInput.types'
 
 type Equal<TLeft, TRight> = (<T>() => T extends TLeft ? 1 : 2) extends (<T>() => T extends TRight ? 1 : 2)
@@ -17,8 +17,11 @@ type TextareaWidenedMode = Assert<Equal<TextareaInputModelValue<readonly ('numbe
 type TextareaUnionMode = Assert<Equal<TextareaInputModelValue<readonly ['number'] | readonly ['text']>, string | number | undefined>>
 type TextareaOptionalNumberMode = Assert<Equal<TextareaInputModelValue<readonly ['number'] | undefined>, string | number | undefined>>
 
-type AssetSingleMode = Assert<Equal<AssetInputModelValue<false>, AssetValue | null>>
-type AssetOmittedMode = Assert<Equal<AssetInputModelValue<undefined>, AssetValue | null>>
-type AssetMultiMode = Assert<Equal<AssetInputModelValue<true>, AssetValue[] | null>>
-type AssetWidenedMode = Assert<Equal<AssetInputModelValue<boolean>, AssetValue | AssetValue[] | null>>
-type AssetUnionMode = Assert<Equal<AssetInputModelValue<true | false>, AssetValue | AssetValue[] | null>>
+type AssetSingleMode = Assert<Equal<FileInputModelValue<'asset', false>, AssetValue | null>>
+type AssetOmittedMode = Assert<Equal<FileInputModelValue, AssetValue | null>>
+type AssetMultiMode = Assert<Equal<FileInputModelValue<'asset', true>, AssetValue[] | null>>
+type AssetWidenedMode = Assert<Equal<FileInputModelValue<'asset', boolean>, AssetValue | AssetValue[] | null>>
+type AssetUnionMode = Assert<Equal<FileInputModelValue<'asset', true | false>, AssetValue | AssetValue[] | null>>
+type LocalSingleMode = Assert<Equal<FileInputModelValue<'file', false>, File | null>>
+type LocalMultiMode = Assert<Equal<FileInputModelValue<'file', true>, File[] | null>>
+type DynamicMode = Assert<Equal<FileInputModelValue<'asset' | 'file', false>, AssetValue | File | null>>
