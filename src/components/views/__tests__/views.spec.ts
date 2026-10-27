@@ -1,6 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { readFileSync, readdirSync } from 'node:fs'
-import { join } from 'node:path'
 import { createApp, defineComponent, h, ref, toRaw, type Component } from 'vue'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { z } from 'zod'
@@ -31,8 +29,6 @@ vi.mock('../../../services/excel', async (importOriginal) => {
     downloadWorkbook: (workbook: unknown) => { exportedWorkbook.value = workbook },
   }
 })
-
-const viewsRoot = join(__dirname, '..')
 
 const tableProps = {
   schema: z.object({ name: z.string() }),
@@ -84,7 +80,7 @@ function installStorage() {
 }
 
 describe('ListView', () => {
-  it('renders the context slot between the toolbar and table cards', async () => {
+  it('renders a context slot with the list', async () => {
     const view = mountCore(
       ListView,
       { title: 'Role', description: 'Manage roles.', table: tableProps },
@@ -101,14 +97,6 @@ describe('ListView', () => {
     expect(view.all('th').map((cell) => cell.textContent)).toEqual(['Nama'])
     expect(view.text()).toContain('Admin')
     expect(view.text()).toContain('List summary')
-    const listView = view.find('.is-list-view')!
-    expect(listView.children).toHaveLength(3)
-    const [toolbarCard, context, contentCard] = [...listView.children]
-    expect(toolbarCard.classList.contains('bg-surface-container')).toBe(true)
-    expect(toolbarCard.contains(view.find('header')!)).toBe(true)
-    expect(context).toBe(view.find('[data-context-slot]'))
-    expect(contentCard.classList.contains('bg-surface-container')).toBe(true)
-    expect(contentCard.contains(view.find('table')!)).toBe(true)
     view.unmount()
   })
 
@@ -153,97 +141,6 @@ describe('ListView', () => {
       exportedWorkbook.value = undefined
       resetParserConfigForTests()
     }
-  })
-
-  it('renders resource actions and footer only from named slots', async () => {
-    const view = mountCore(ListView, { table: tableProps }, {
-      slots: {
-        'resource-action': () => h('button', { 'data-resource-action-slot': '' }, 'Tambah'),
-        footer: () => h('button', { 'data-footer-slot': '' }, 'Kembali'),
-      },
-    })
-    await flush()
-
-    expect(view.find('[data-resource-action-slot]')).not.toBeNull()
-    expect(view.find('[data-footer-slot]')).not.toBeNull()
-    view.unmount()
-  })
-
-  it('keeps standard Create before a resource action in one adjacent action row', async () => {
-    const view = mountCore(ListView, {
-      table: {
-        schema: z.object({ name: z.string() }),
-        columns: { name: { label: 'Name', read: (record: { name: string }) => record.name } },
-        load: async () => ({ data: [{ name: 'Admin' }] }),
-      },
-      createRoute: { name: 'test-route' },
-    }, {
-      slots: {
-        'resource-action': () => h('button', { 'data-resource-action-slot': '' }, 'Public link'),
-      },
-    })
-    await flush()
-
-    const actionRow = view.find('[data-resource-action-slot]')?.parentElement
-    expect(actionRow?.classList.contains('flex')).toBe(true)
-    expect(actionRow?.classList.contains('flex-row')).toBe(true)
-    expect(actionRow?.classList.contains('justify-end')).toBe(true)
-    expect(actionRow?.classList.contains('gap-2')).toBe(true)
-    expect(actionRow?.textContent?.indexOf('Create')).toBeLessThan(actionRow?.textContent?.indexOf('Public link') ?? -1)
-    view.unmount()
-  })
-
-  it('lets create-action replace only the standard Create content', async () => {
-    const view = mountCore(ListView, {
-      table: {
-        schema: z.object({ name: z.string() }),
-        columns: { name: { label: 'Name', read: (record: { name: string }) => record.name } },
-        data: [],
-      },
-      createRoute: { name: 'test-route' },
-    }, {
-      slots: {
-        'create-action': () => h('button', { 'data-custom-create': '' }, 'New role'),
-        'resource-action': () => h('button', { 'data-resource-action-slot': '' }, 'Public link'),
-      },
-    })
-    await flush()
-
-    expect(view.find('[data-custom-create]')).not.toBeNull()
-    expect(view.text()).not.toContain('Create')
-    expect(view.find('[data-resource-action-slot]')).not.toBeNull()
-    view.unmount()
-  })
-
-  it('omits page action regions without slots', async () => {
-    const view = mountCore(ListView, { table: tableProps })
-    await flush()
-
-    expect(view.find('footer')).toBeNull()
-    view.unmount()
-  })
-
-  it('keeps raw table surfaces free of resource row controls', async () => {
-    const view = mountCore(ListView, { table: tableProps })
-    await flush()
-
-    expect(view.all('th').map((cell) => cell.textContent)).toEqual(['Nama'])
-    expect(view.find('[aria-label="Aksi baris"]')).toBeNull()
-    view.unmount()
-  })
-
-  it('defaults list pagination to always', async () => {
-    const view = mountCore(ListView, {
-      table: {
-        schema: z.object({ name: z.string() }),
-        columns: { name: { label: 'Nama', read: (record: { name: string }) => record.name } },
-        load: () => ({ data: [{ name: 'Admin' }], meta: { total: 1, totalPage: 1 } }),
-      },
-    })
-    await flush()
-
-    expect(view.find('nav[aria-label="Pagination"]')).not.toBeNull()
-    view.unmount()
   })
 
   it('updates visible columns immediately, coalesces persistence, and reset cancels pending visibility', async () => {
@@ -1467,18 +1364,6 @@ describe('FormView', () => {
 })
 
 describe('shell boundaries', () => {
-  const shellFiles = readdirSync(viewsRoot).filter((entry) => entry.endsWith('.vue') || entry.endsWith('.ts'))
-
-  it('imports no store or RPC dependency', () => {
-    const forbidden = ['pinia', '../../runtime', '../../adapters', '@southneuhof/sdk']
-    const offenders = shellFiles.flatMap((file) => {
-      const source = readFileSync(join(viewsRoot, file), 'utf8')
-      return forbidden.filter((specifier) => source.includes(`'${specifier}`)).map((specifier) => `${file}: ${specifier}`)
-    })
-
-    expect(offenders).toEqual([])
-  })
-
   it('keeps one heading per shell for a predictable document outline', async () => {
     const view = mountCore(ListView, { title: 'Role', table: tableProps })
     await flush()

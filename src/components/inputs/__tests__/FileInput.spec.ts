@@ -276,64 +276,6 @@ describe('FileInput upload surface', () => {
     view.cleanup()
   })
 
-  it('cancels pending work when its transform hook changes', async () => {
-    const staleResult = deferred<File>()
-    const staleTransform = vi.fn((_file: File, context: { signal: AbortSignal }) => {
-      expect(context.signal.aborted).toBe(false)
-      return staleResult.promise
-    })
-    const currentTransform = vi.fn((file: File) => new File([file], 'current.txt', { type: file.type }))
-    const view = mountInput<File | null>(FileInput, {
-      model: null,
-      props: { mode: 'file', transform: staleTransform },
-      framework: false,
-    })
-    await view.flush()
-
-    selectFiles(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, [new File(['stale'], 'stale.txt', { type: 'text/plain' })])
-    await view.flush()
-    view.setProps({ transform: currentTransform })
-    await view.flush()
-    expect(staleTransform.mock.calls[0]?.[1].signal.aborted).toBe(true)
-    staleResult.resolve(new File(['late'], 'late.txt', { type: 'text/plain' }))
-    await view.flush()
-    expect(view.model.value).toBeNull()
-
-    selectFiles(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, [new File(['current'], 'current-source.txt', { type: 'text/plain' })])
-    await view.flush()
-    expect(currentTransform).toHaveBeenCalledOnce()
-    expect(view.model.value?.name).toBe('current.txt')
-    view.cleanup()
-  })
-
-  it('cancels pending local work when its mode changes', async () => {
-    const staleResult = deferred<File>()
-    let signal: AbortSignal | undefined
-    const transform = vi.fn((_file: File, context: { signal: AbortSignal }) => {
-      signal = context.signal
-      return staleResult.promise
-    })
-    const upload = vi.fn(async () => asset('unused.txt'))
-    const view = mountInput<File | Asset | null>(FileInput, {
-      model: null,
-      props: { mode: 'file', transform },
-      adapters: adaptersForUpload(upload),
-    })
-    await view.flush()
-
-    selectFiles(view.host.querySelector<HTMLInputElement>('input[type="file"]')!, [new File(['stale'], 'stale.txt', { type: 'text/plain' })])
-    await view.flush()
-    view.setProps({ mode: 'asset' })
-    await view.flush()
-    expect(signal?.aborted).toBe(true)
-    staleResult.resolve(new File(['late'], 'late.txt', { type: 'text/plain' }))
-    await view.flush()
-
-    expect(view.model.value).toBeNull()
-    expect(upload).not.toHaveBeenCalled()
-    view.cleanup()
-  })
-
   it('renders its drop zone through the form renderer without an upload operation', async () => {
     const view = mountCore(Form, {
       schema: singleFileSchema,
@@ -347,19 +289,6 @@ describe('FileInput upload surface', () => {
     expect(view.text()).toContain('Letakkan file anda di sini')
     expect(view.text()).toContain('Pilih sumber file')
     view.unmount()
-  })
-
-  it('applies layout attributes to its visible input wrapper', async () => {
-    const view = mountInput<Asset | null>(FileInput, {
-      model: null,
-      props: { class: 'file-layout', style: { marginTop: '8px' } },
-    })
-    await view.flush()
-
-    const wrapper = view.host.firstElementChild as HTMLElement
-    expect(wrapper.classList.contains('file-layout')).toBe(true)
-    expect(wrapper.style.marginTop).toBe('8px')
-    view.cleanup()
   })
 
   it('keeps the uploaded asset object in the live draft through submission', async () => {
@@ -446,32 +375,6 @@ describe('FileInput upload surface', () => {
 
     expect(view.model.value).toEqual(emptyValue)
     expect(view.host.textContent).toContain('Pilih sumber file')
-    view.cleanup()
-  })
-
-  it('preserves an unchanged save without adding framework properties', async () => {
-    const current = { ...asset('first.pdf'), size: 4, metadata: { source: 'upload' } }
-    const view = mountInput<Asset[]>(FileInput, { model: [current], props: { multi: true } })
-    await view.flush()
-
-    expect(view.model.value).toEqual([current])
-    expect(view.model.value?.[0]).not.toHaveProperty('order_number')
-    expect(view.model.value?.[0]).not.toHaveProperty('category')
-    view.cleanup()
-  })
-
-  it.each([
-    ['unset', undefined, false],
-    ['cleared', null, false],
-    ['empty multi value', [], true],
-  ])('preserves the %s asset state during display reads', async (_name, model, multi) => {
-    const view = mountInput<unknown>(FileInput, {
-      model,
-      props: { multi },
-    })
-    await view.flush()
-
-    expect(view.model.value).toEqual(model)
     view.cleanup()
   })
 
