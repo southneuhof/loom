@@ -1,8 +1,9 @@
 import { computed, nextTick, onBeforeUpdate, ref, toRef, watch, type Ref } from 'vue'
 import type { CollectionLoadContext, CollectionMeta, CollectionProps, CollectionResult, QueryValues, SubmitError } from '../../contracts'
 import { coerceQueryValues, useLoader, useNamespacedQuery } from '../../query'
-import { collectionCacheKey, instanceIdentity } from './useCoreData'
-import { copyResourceLoaderIdentity, resourceLoaderOwner, resourceLoaderParameters } from '../../resources/loaderIdentity'
+import { collectionKey } from '../../query/keys'
+import { instanceIdentity } from './useCoreData'
+import { resourceLoaderOwner, resourceLoaderParameters } from '../../resources/loaderIdentity'
 import { createSchemaRuntime } from '../../schemas/schemaRuntime'
 import { assertSingleDataSource } from './useCoreData'
 
@@ -35,14 +36,17 @@ export function useCollection<TRecord extends object, TQuery extends object>(
   sourceGetter: () => CollectionProps<TRecord, TQuery>,
   options: UseCollectionOptions = {},
 ): CollectionReader<TRecord, TQuery> {
-  const source = computed(sourceGetter)
-  assertSingleDataSource('Collection', source.value.data, source.value.load)
-  onBeforeUpdate(() => assertSingleDataSource('Collection', source.value.data, source.value.load))
+  const source = computed(() => {
+    const current = sourceGetter()
+    assertSingleDataSource('Collection', current.data, current.load)
+    return current
+  })
   const defaults = computed<QueryValues>(() => ({ page: 1, limit: source.value.defaultPageSize ?? 10 }))
   const isControlledQuery = () => options.queryControlled?.() ?? Object.hasOwn(source.value, 'query')
   const hasControlledQuery = ref(isControlledQuery())
   const fallbackOwner = instanceIdentity('collection')
   const owner = computed(() => resourceLoaderOwner(source.value.load, source.value.resource, source.value.namespace ?? fallbackOwner))
+  const searchParameters = computed(() => resourceLoaderParameters(source.value.load, source.value.searchParameters))
   const queryState = useNamespacedQuery({
     namespace: toRef(() => source.value.namespace ?? 'collection'),
     defaults,
@@ -78,9 +82,9 @@ export function useCollection<TRecord extends object, TQuery extends object>(
     const currentSource = source.value
     if (!currentSource.load) return undefined
     const sourceLoad = currentSource.load
+    if (!currentSource.querySchema) return sourceLoad
+    const runtime = createSchemaRuntime(currentSource.querySchema)
     const validated = async (context: CollectionLoadContext<TQuery>): Promise<CollectionResult<TRecord>> => {
-      const runtime = currentSource.querySchema ? createSchemaRuntime(currentSource.querySchema) : undefined
-      if (!runtime) return sourceLoad({ ...context, searchParameters: resourceLoaderParameters(sourceLoad, currentSource.searchParameters) })
       const parsed = await runtime.parseAsync(context.query)
       if (!parsed.success) throw queryError('Collection', parsed.issues)
       const query = {
@@ -88,25 +92,20 @@ export function useCollection<TRecord extends object, TQuery extends object>(
         ...(Object.hasOwn(context.query, 'limit') && !Object.hasOwn(parsed.data, 'limit') ? { limit: Reflect.get(context.query, 'limit') } : {}),
         ...parsed.data,
       } as TQuery
-      return sourceLoad({
-        ...context,
-        query,
-        searchParameters: resourceLoaderParameters(sourceLoad, currentSource.searchParameters),
-      })
+      return sourceLoad({ ...context, query })
     }
-    return copyResourceLoaderIdentity(sourceLoad, validated)
+    return validated
   })
   const loaded = useLoader<CollectionLoadContext<TQuery>, CollectionResult<TRecord>>({
-    key: computed(() => collectionCacheKey(
-      owner.value,
-      source.value.namespace,
-      effectiveQuery.value,
-      resourceLoaderParameters(source.value.load, source.value.searchParameters),
-      load.value,
-    )),
+    key: computed(() => collectionKey({
+      resource: owner.value,
+      namespace: source.value.namespace,
+      query: effectiveQuery.value,
+      searchParameters: searchParameters.value,
+    })),
     context: computed(() => ({
       query: effectiveQuery.value as TQuery,
-      searchParameters: resourceLoaderParameters(source.value.load, source.value.searchParameters),
+      searchParameters: searchParameters.value,
     })),
     load,
     data: computed(() => source.value.data !== undefined

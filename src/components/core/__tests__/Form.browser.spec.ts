@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userEvent } from 'vitest/browser'
-import { createApp, defineComponent, h, nextTick, ref, type App } from 'vue'
+import { createApp, defineComponent, h, nextTick, ref, type App, type VNodeChild } from 'vue'
 import { z } from 'zod/v4'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import { createFrameworkQueryClient } from '../../../query'
@@ -25,6 +25,16 @@ async function settle() {
   await nextTick()
 }
 
+function mountFormBrowser(render: () => VNodeChild) {
+  const host = document.createElement('div')
+  document.body.append(host)
+  const app = createApp(defineComponent({ setup: () => render }))
+  app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+  app.mount(host)
+  apps.push(app)
+  return host
+}
+
 afterEach(() => {
   apps.splice(0).forEach((app) => app.unmount())
   document.body.innerHTML = ''
@@ -44,18 +54,11 @@ describe('Form control contracts in the browser', () => {
       },
     })
     const modelValue = ref({ mode: 'compact', body: 'Saved body' })
-    const host = document.createElement('div')
-    document.body.append(host)
-    const app = createApp(defineComponent({
-      setup: () => () => h(Form, {
-        ...form,
-        modelValue: modelValue.value,
-        'onUpdate:modelValue': (value) => { modelValue.value = value },
-      }),
+    const host = mountFormBrowser(() => h(Form, {
+      ...form,
+      modelValue: modelValue.value,
+      'onUpdate:modelValue': (value) => { modelValue.value = value },
     }))
-    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
-    app.mount(host)
-    apps.push(app)
     await settle()
 
     const authoredInput = host.querySelector<HTMLInputElement>('input[id$="-field-body"]')
@@ -116,12 +119,7 @@ describe('Form control contracts in the browser', () => {
       searchParameters: { invitation: 'from invitation' },
       load,
     })
-    const host = document.createElement('div')
-    document.body.append(host)
-    const app = createApp(defineComponent({ setup: () => () => h(Form, { ...bound.form }) }))
-    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
-    app.mount(host)
-    apps.push(app)
+    const host = mountFormBrowser(() => h(Form, { ...bound.form }))
 
     await vi.waitFor(async () => {
       await settle()
@@ -178,18 +176,11 @@ describe('Form control contracts in the browser', () => {
       },
     })
     const modelValue = ref<Draft>({ note: '', selectId: 'one', radioId: 'one', checked: [option], lookupId: 'one' })
-    const host = document.createElement('div')
-    document.body.append(host)
-    const app = createApp(defineComponent({
-      setup: () => () => h(Form, {
-        ...form,
-        modelValue: modelValue.value,
-        'onUpdate:modelValue': (value) => { modelValue.value = value },
-      }),
+    const host = mountFormBrowser(() => h(Form, {
+      ...form,
+      modelValue: modelValue.value,
+      'onUpdate:modelValue': (value) => { modelValue.value = value },
     }))
-    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
-    app.mount(host)
-    apps.push(app)
     await vi.waitFor(async () => {
       await settle()
       expect(host.querySelector('[role="radiogroup"]')).not.toBeNull()
@@ -251,24 +242,17 @@ describe('Form control contracts in the browser', () => {
         scopeLabel: ({ context }: FormFieldContext<LookupInput, WorkspaceContext>) => ({ renderer: 'text', props: { placeholder: context.workspaceId } }),
       },
     })
-    const host = document.createElement('div')
-    document.body.append(host)
-    const app = createApp(defineComponent({
-      setup: () => () => h('div', [
-        h('section', { 'data-context-case': 'local-without-outer' }, [
-          h(Form, { ...localForm, modelValue: { ownerId: 'one', scopeLabel: '' } }),
-        ]),
-        h('section', { 'data-context-case': 'local-with-outer' }, [
-          h(Form, { ...localForm, modelValue: { ownerId: 'one', scopeLabel: '' }, context: { workspaceId: 'Outer replacement' } }),
-        ]),
-        h('section', { 'data-context-case': 'inherited' }, [
-          h(Form, { ...inheritedForm, modelValue: { ownerId: 'one', scopeLabel: '' }, context: { workspaceId: 'Outer inherited' } }),
-        ]),
+    const host = mountFormBrowser(() => h('div', [
+      h('section', { 'data-context-case': 'local-without-outer' }, [
+        h(Form, { ...localForm, modelValue: { ownerId: 'one', scopeLabel: '' } }),
       ]),
-    }))
-    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
-    app.mount(host)
-    apps.push(app)
+      h('section', { 'data-context-case': 'local-with-outer' }, [
+        h(Form, { ...localForm, modelValue: { ownerId: 'one', scopeLabel: '' }, context: { workspaceId: 'Outer replacement' } }),
+      ]),
+      h('section', { 'data-context-case': 'inherited' }, [
+        h(Form, { ...inheritedForm, modelValue: { ownerId: 'one', scopeLabel: '' }, context: { workspaceId: 'Outer inherited' } }),
+      ]),
+    ]))
     await settle()
 
     const openAndCheck = async (testCase: string, expected: string) => {

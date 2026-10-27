@@ -1,7 +1,7 @@
 import type { DisplayField } from './display'
 import type { LabelDictionary } from './labels'
 import type { RawSchema } from './schema'
-import type { ContextRequirements } from './contextRequirements'
+import type { CallbackScopeContext, ContextRequirements } from './contextRequirements'
 
 export interface DetailFieldContext<TRecord extends object, TContext extends object = {}> {
   readonly record: TRecord
@@ -22,13 +22,9 @@ export type DetailFieldEntry<TRecord extends object, TContext extends object = {
   | DetailField<TRecord>
   | DetailFieldResolver<TRecord, TContext>
 
-type DetailFieldContexts<TFields> = {
-  [TKey in keyof TFields]: Exclude<TFields[TKey], undefined> extends (...args: infer TArgs) => unknown
-    ? TArgs extends [infer TScope] ? TScope extends { readonly record: object; readonly context: infer TContext } ? TContext : never : never
-    : never
-}[keyof TFields]
-
-export type DetailFieldsContext<TFields extends object> = ContextRequirements<DetailFieldContexts<TFields>>
+export type DetailFieldsContext<TFields extends object> = ContextRequirements<{
+  [TKey in keyof TFields]: CallbackScopeContext<Exclude<TFields[TKey], undefined>>
+}[keyof TFields]>
 
 export interface DetailDefinition<
   TRecord extends object = Record<string, unknown>,

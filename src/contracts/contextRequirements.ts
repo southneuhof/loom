@@ -13,3 +13,13 @@ type UnionToIntersection<TValue> = [TValue] extends [never]
     : never
 
 export type ContextRequirements<TContext> = UnionToIntersection<ConcreteContext<TContext>>
+
+export type CallbackScopeContext<TEntry> = TEntry extends (...args: infer TArgs) => unknown
+  ? TArgs extends [infer TActual]
+    ? TActual extends { readonly context: infer TContext } ? TContext : never
+    : never
+  : never
+
+export type ContextWithDefault<TContext> = [TContext] extends [never]
+  ? Readonly<Record<string, unknown>>
+  : Extract<TContext, object>

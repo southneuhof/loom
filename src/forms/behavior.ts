@@ -31,7 +31,6 @@ export interface FormBehaviorRuntimeOptions<
   draft: object
   context: () => Readonly<Record<string, unknown>>
   labels: () => Readonly<Record<string, Label | undefined>> | undefined
-  resolveBaseProps: (field: RuntimeFormField<TInput, TKeys>, renderer: string) => Record<string, unknown>
 }
 
 export type RuntimeFormField<
@@ -41,11 +40,6 @@ export type RuntimeFormField<
   key: Extract<TKeys, string>
   input: FormInput<TInput>
   required: boolean
-}
-
-function equalRecord(left: Readonly<Record<string, unknown>>, right: Readonly<Record<string, unknown>>): boolean {
-  const keys = Object.keys(left)
-  return keys.length === Object.keys(right).length && keys.every((key) => Object.is(left[key], right[key]))
 }
 
 function invalidBehavior(key: string, member: string): never {
@@ -126,12 +120,8 @@ export function createFormBehaviorRuntime<TInput extends object, TKeys extends s
   const effectDependencies = new Map<string, readonly string[]>()
   const states = new Map<string, ComputedRef<FormBehaviorState>>()
   for (const field of options.fields) {
-    let previousProps: Readonly<Record<string, unknown>> = {}
-    let previousState: FormBehaviorState | undefined
     states.set(field.key, computed(() => {
       const renderer = field.input.renderer
-      const props = options.resolveBaseProps(field, renderer)
-      if (!equalRecord(props, previousProps)) previousProps = props
       const derivedCallback = field.input.behavior?.derived
       let derived: unknown
       if (typeof derivedCallback === 'function') {
@@ -146,15 +136,11 @@ export function createFormBehaviorRuntime<TInput extends object, TKeys extends s
         disabled: typeof derivedCallback === 'function',
         label: resolveLabel(field.key, field.input.label, options.labels()),
         renderer,
-        props: previousProps,
+        props: field.input.props ?? {},
         required: field.required,
         ...(typeof field.input.span === 'number' ? { span: field.input.span } : {}),
         ...(typeof derivedCallback === 'function' ? { derived } : {}),
       }
-      if (previousState && previousState.visible === state.visible && previousState.disabled === state.disabled && previousState.label === state.label && previousState.renderer === state.renderer && previousState.props === state.props && previousState.span === state.span && previousState.required === state.required && Object.is(previousState.derived, state.derived)) {
-        return previousState
-      }
-      previousState = state
       return state
     }))
   }

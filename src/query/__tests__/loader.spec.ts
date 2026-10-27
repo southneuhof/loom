@@ -5,7 +5,7 @@ import { useLoader } from '../loader'
 import { collectionKey, recordKey } from '../keys'
 import { createFrameworkQueryClient, invalidateResourceData } from '../client'
 import { withWriteRefreshFeedbackSuppressed } from '../feedback'
-import { collectionCacheKey, recordCacheKey } from '../../components/core/useCoreData'
+import { recordCacheKey } from '../../components/core/useCoreData'
 import type { CollectionLoadContext, CollectionResult, RecordLoadContext } from '../../contracts'
 import { deferred, flush, withApp } from './harness'
 
@@ -531,7 +531,7 @@ describe('internal loader', () => {
     const { app } = withApp(
       () => ({
         list: useLoader<CollectionLoadContext, CollectionResult<Role>>({
-          key: collectionCacheKey('roles', undefined, {}, {}),
+          key: collectionKey({ resource: 'roles', query: {}, searchParameters: {} }),
           context,
           load: listLoad,
         }),

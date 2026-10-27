@@ -10,7 +10,7 @@ import { useRendererRegistry } from '../renderers/registry'
 import { useLoader } from '../query'
 import { stableValue } from '../query/keys'
 import { instanceIdentity, recordCacheKey } from '../components/core/useCoreData'
-import { copyResourceLoaderIdentity, resourceLoaderIdentity, resourceLoaderOwner, resourceLoaderParameters } from '../resources/loaderIdentity'
+import { associateResourceLoader, resourceLoaderIdentity } from '../resources/loaderIdentity'
 import { formInputPendingKeyOf, provideFormInputPending } from '../components/core/useFormInputState'
 import { createFormBehaviorRuntime, type FormBehaviorRuntime, type RuntimeFormField } from './behavior'
 import { createSchemaRuntime } from '../schemas/schemaRuntime'
@@ -225,8 +225,8 @@ export function useFormSession<
     assertFormDefinition(currentDefinition, runtime)
     return runtime
   })
-  type ResolverLoaderState = { signature: string; current: Function; forwarder: (...args: unknown[]) => unknown }
-  const resolverLoaders = new Map<string, Map<string, ResolverLoaderState>>()
+  type ResolverLoaderState = { signature: string | undefined; current: Function; forwarder: (...args: unknown[]) => unknown }
+  const resolverLoaders = new Map<string, ResolverLoaderState>()
   const resolverLoaderRoles = ['load', 'loadDetail'] as const
   const resolveFieldLoaders = (key: string, input: unknown): unknown => {
     if (!isRecord(input) || !isRecord(input.props)) return input
@@ -235,32 +235,18 @@ export function useFormSession<
     for (const role of resolverLoaderRoles) {
       const load = Reflect.get(props, role)
       if (typeof load !== 'function') continue
-      let fieldLoaders = resolverLoaders.get(key)
-      if (!fieldLoaders) {
-        fieldLoaders = new Map()
-        resolverLoaders.set(key, fieldLoaders)
-      }
       const identity = resourceLoaderIdentity(load)
-      const resource = Reflect.get(props, 'resource')
-      const namespace = Reflect.get(props, 'namespace')
-      const searchParameters = Reflect.get(props, 'searchParameters')
-      const signature = JSON.stringify(stableValue({
-        owner: resourceLoaderOwner(load, typeof resource === 'string' ? resource : undefined, `form-field-${key}`),
-        operation: identity?.operation ?? role,
-        family: identity?.family ?? role,
-        id: identity?.id ?? Reflect.get(props, 'id') ?? Reflect.get(props, 'record') ?? null,
-        namespace,
-        searchParameters: resourceLoaderParameters(load, isRecord(searchParameters) ? searchParameters : undefined),
-      }))
-      let state = fieldLoaders.get(role)
+      const signature = identity === undefined ? undefined : JSON.stringify(stableValue(identity))
+      const loaderKey = JSON.stringify([key, role])
+      let state = resolverLoaders.get(loaderKey)
       if (!state || state.signature !== signature) {
         const nextState: ResolverLoaderState = {
           signature,
           current: load,
           forwarder: (...args) => Reflect.apply(nextState.current, undefined, args),
         }
-        copyResourceLoaderIdentity(load, nextState.forwarder)
-        fieldLoaders.set(role, nextState)
+        if (identity !== undefined) associateResourceLoader(nextState.forwarder, identity)
+        resolverLoaders.set(loaderKey, nextState)
         state = nextState
       } else state.current = load
       if (load !== state.forwarder) {
@@ -288,6 +274,9 @@ export function useFormSession<
     return Object.keys(fieldEntries).map((key) => {
       const fieldKey = key as Extract<TKeys, string>
       const input = Reflect.get(fieldEntries, fieldKey) as RuntimeField['input']
+      if (!renderers.has(input.renderer)) {
+        throw new Error(`[loom][RENDERER_NOT_REGISTERED] Form field "${fieldKey}" uses unregistered form renderer "${input.renderer}".`)
+      }
       return { key: fieldKey, input, required: fieldKeys(key, input).some((name) => runtime.requiredKeys.has(name)) }
     })
   }
@@ -345,12 +334,6 @@ export function useFormSession<
     draft,
     context: () => props.context ?? {},
     labels: () => props.labels,
-    resolveBaseProps: (field, renderer) => {
-      if (!renderers.has(renderer)) {
-        throw new Error(`[loom][RENDERER_NOT_REGISTERED] Form field "${field.key}" uses unregistered form renderer "${renderer}".`)
-      }
-      return { ...(field.input.props ?? {}) }
-    },
   })
   const behaviorRuntime = shallowRef(behaviorFor(fields.value))
   const behavior = computed(() => behaviorRuntime.value)

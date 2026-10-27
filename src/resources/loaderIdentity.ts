@@ -18,12 +18,6 @@ export function associateResourceLoader<TLoader extends Function>(loader: TLoade
   return loader
 }
 
-export function copyResourceLoaderIdentity<TLoader extends Function>(source: unknown, loader: TLoader): TLoader {
-  const identity = resourceLoaderIdentity(source)
-  if (identity) loaderIdentities.set(loader, identity)
-  return loader
-}
-
 export function resourceLoaderIdentity(source: unknown): ResourceLoaderIdentity | undefined {
   return typeof source === 'function' ? loaderIdentities.get(source) : undefined
 }

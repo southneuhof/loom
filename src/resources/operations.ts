@@ -19,6 +19,7 @@ import type { CompactFormDefinition, FormDefinitionError } from '../forms/defini
 import type { FormFieldsContext } from '../forms/definitionTypes'
 import type { TableColumnsContext } from '../contracts/tables'
 import type { DetailFieldsContext } from '../contracts/details'
+import type { ContextRequirements, ContextWithDefault } from '../contracts/contextRequirements'
 
 type RouteRawParams<TName extends keyof RouteMap> = RouteMap[TName]['paramsRaw']
 type RouteParamKeys<TName extends keyof RouteMap> = keyof RouteRawParams<TName>
@@ -326,10 +327,7 @@ type ResourceFormOptions<TForm> = Pick<TForm, ResourceFormOptionKeys<TForm>>
 type ResourceFormLoad<TForm, TInput extends object> = TForm extends { load: infer TLoad }
   ? { load: BoundRecordLoad<TLoad> }
   : { load?: BoundRecordLoad<(context: RecordLoadContext) => MaybePromise<FormDraft<TInput> | undefined>> }
-type DefinitionFormContext<TFields extends object> = FormFieldsContext<TFields>
-type EffectiveFormContext<TFields extends object> = [DefinitionFormContext<TFields>] extends [never]
-  ? Readonly<Record<string, unknown>>
-  : Extract<DefinitionFormContext<TFields>, object>
+type EffectiveFormContext<TFields extends object> = ContextWithDefault<FormFieldsContext<TFields>>
 type ContextBinding<TContext> = [TContext] extends [never] ? { context?: never } : { context: TContext }
 
 type ResourceFormContract<
@@ -381,9 +379,7 @@ type BoundDetail<TRecord extends object, TFields extends object, TOptions extend
 type TableContext<TTable> = TTable extends { columns: infer TColumns extends object } ? TableColumnsContext<TColumns> : never
 type DetailContext<TDetail> = TDetail extends { fields: infer TFields extends object } ? DetailFieldsContext<TFields> : never
 type BoundTableContract<TTable extends ListTableShape, TContext extends object> = BoundTable<TableRecord<TTable>, TableQuery<TTable>, TTable['columns'], TablePageOptions<TTable>, TTable['load'], TContext>
-type EffectiveTableContext<TTable> = [TableContext<TTable>] extends [never] ? Readonly<Record<string, unknown>> : Extract<TableContext<TTable>, object>
-type BoundDetailContract<TDetail extends DetailBagShape, TIdentity extends RecordIdentity> = BoundDetail<DetailSchemaRecord<TDetail>, TDetail['fields'], DetailPageOptions<TDetail>, TDetail['load'], TIdentity, EffectiveDetailContext<TDetail>>
-type EffectiveDetailContext<TDetail> = [DetailContext<TDetail>] extends [never] ? Readonly<Record<string, unknown>> : Extract<DetailContext<TDetail>, object>
+type BoundDetailContract<TDetail extends DetailBagShape, TIdentity extends RecordIdentity> = BoundDetail<DetailSchemaRecord<TDetail>, TDetail['fields'], DetailPageOptions<TDetail>, TDetail['load'], TIdentity, ContextWithDefault<DetailContext<TDetail>>>
 type RecordBindingOptions<TIdentity extends RecordIdentity, TRecord extends object, TContext, TExtra extends object> = {
   id: TIdentity
   record?: TRecord
@@ -739,19 +735,14 @@ type CreateBindingExtra<TCreate> = {
   searchParameters?: Record<string, unknown>
 }
 type ResourceListFilterOptions<TFilters> = Pick<TFilters, Extract<keyof TFilters, 'defaults' | 'label' | 'resetLabel' | 'queryKeys' | 'toDraft'>>
-type ResourceListFilters<TList> = TList extends { filters: infer TFilters } ? Exclude<TFilters, undefined> : never
-type ResourceListFilterContext<TFilters> = TFilters extends { fields: infer TFields extends object } ? FormFieldsContext<TFields> : never
-type ResourceListContextPart<TLeft, TRight> = [TLeft] extends [never]
-  ? TRight
-  : [TRight] extends [never]
-    ? TLeft
-    : TLeft & TRight
 type ResourceListContext<TList> = TList extends { table: infer TTable }
-  ? ResourceListContextPart<TableContext<TTable>, ResourceListFilterContext<ResourceListFilters<TList>>>
+  ? ContextRequirements<
+      TableContext<TTable> | (TList extends { filters: infer TFilters }
+        ? Exclude<TFilters, undefined> extends { fields: infer TFields extends object } ? FormFieldsContext<TFields> : never
+        : never)
+    >
   : never
-type EffectiveResourceListContext<TList> = [ResourceListContext<TList>] extends [never]
-  ? Readonly<Record<string, unknown>>
-  : Extract<ResourceListContext<TList>, object>
+type EffectiveResourceListContext<TList> = ContextWithDefault<ResourceListContext<TList>>
 type ResourceListFilterContract<TFilters, TQuery extends object, TContext extends object> = TFilters extends {
   schema: RawSchema<infer TInput extends object, infer TOutput extends object>
   fields: infer TFields extends object

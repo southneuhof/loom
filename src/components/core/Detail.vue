@@ -20,12 +20,7 @@ const props = withDefaults(defineProps<DetailProps<TRecord, TContext>>(), {
 
 const instance = getCurrentInstance()
 assertSingleDataSource('Detail', props.data, props.load, 'record', instance?.vnode.props ?? {})
-onBeforeUpdate(() => {
-  const supplied = instance?.vnode.props ?? {}
-  if ((Object.hasOwn(supplied, 'data') && props.data === undefined) || (Object.hasOwn(supplied, 'load') && props.load === undefined)) {
-    assertSingleDataSource('Detail', props.data, props.load, 'record', supplied)
-  }
-})
+onBeforeUpdate(() => assertSingleDataSource('Detail', props.data, props.load, 'record', instance?.vnode.props ?? {}))
 
 const renderers = useRendererRegistry('display')
 const slots = useSlots()

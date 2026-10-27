@@ -80,10 +80,6 @@ export type FormRendererProps<TRenderer extends keyof FormRendererComponents, TC
   FormOwnedProp
 > & (TRenderer extends 'text' | 'password' ? TextInputDataAttributes : {})
 
-export type FormRendererPropPatch<TRenderer extends keyof FormRendererComponents, TContext extends object = Readonly<Record<string, unknown>>> = Partial<
-  FormRendererProps<TRenderer, TContext>
->
-
 type RequiredKeys<TObject> = TObject extends object
   ? {
       [TKey in keyof TObject]-?: {} extends Pick<TObject, TKey> ? never : TKey

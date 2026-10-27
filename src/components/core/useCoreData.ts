@@ -7,7 +7,7 @@
  */
 import { getCurrentInstance } from 'vue'
 import type { QueryKey, QueryNamespace, QueryValues, RecordIdentity } from '../../contracts'
-import { collectionKey, recordKey, stableValue } from '../../query'
+import { recordKey, stableValue } from '../../query'
 import { resourceLoaderParameters, resourceLoaderIdentity } from '../../resources/loaderIdentity'
 
 export function assertSingleDataSource(component: string, data: unknown, load: unknown, dataShape: 'collection' | 'record' = 'collection', supplied?: object): void {
@@ -31,10 +31,6 @@ export function assertSingleDataSource(component: string, data: unknown, load: u
 export function instanceIdentity(fallback: string): string {
   const instance = getCurrentInstance()
   return instance ? `${fallback}-${instance.uid}` : fallback
-}
-
-export function collectionCacheKey(resource: string, namespace: QueryNamespace | undefined, query: QueryValues, searchParameters: QueryValues, load?: unknown): QueryKey {
-  return collectionKey({ resource, namespace, query, searchParameters: resourceLoaderParameters(load, searchParameters) })
 }
 
 export function recordCacheKey(resource: string, id: RecordIdentity | undefined, variant: 'display' | 'form', namespace: QueryNamespace | undefined, searchParameters: QueryValues, load?: unknown): QueryKey {

@@ -5,7 +5,7 @@ import type { Label, LabelDictionary } from '../contracts/labels'
 import type { TableColumnCell, TableColumnEntry } from '../contracts/tables'
 import { resolveLabel } from '../labels/resolveLabel'
 import { displayValueRequirement } from './requirements'
-import { assertDisplayEntry, assertDisplayValueConfiguration, assertSafeDisplayKey } from './assertDisplayDefinition'
+import { assertDisplayEntry, assertSafeDisplayKey, cellDisplayMembers } from './assertDisplayDefinition'
 
 export type DisplaySurface = 'table' | 'detail'
 
@@ -122,27 +122,24 @@ export function resolveDisplayFields<TRecord extends object, TContext extends ob
   })
 }
 
-function cellFieldFor<TRecord extends object, TContext extends object>(record: TRecord, field: ResolvedDisplayField<TRecord, TContext>, context: TContext): ResolvedDisplayField<TRecord, TContext> {
-  if (field.cell === undefined) return field
-  const configuration: unknown = typeof field.cell === 'function' ? field.cell({ record, context }) : field.cell
-  assertDisplayValueConfiguration('table', field.key, configuration, invalidOption)
-  validateEntry<TRecord>('table', field.key, configuration, undefined)
-  const configured = configuration as DisplayValueConfiguration<TRecord>
-  const { cell: _cell, ...base } = field
-  const props: Record<string, unknown> = isRecord(configured.props) ? configured.props : {}
-  return {
-    ...base,
-    ...configured,
-    props: { ...props },
-  }
-}
-
 export function displayFieldForRecord<TRecord extends object, TContext extends object = {}>(
   record: TRecord,
   field: ResolvedDisplayField<TRecord, TContext>,
   context: TContext = {} as TContext
 ): ResolvedDisplayField<TRecord, TContext> {
-  return cellFieldFor(record, field, context)
+  if (field.cell === undefined) return field
+  const configuration: unknown = typeof field.cell === 'function' ? field.cell({ record, context }) : field.cell
+  assertDisplayEntry('table', field.key, configuration, invalidOption, cellDisplayMembers)
+  const configured = configuration as DisplayValueConfiguration<TRecord>
+  const { cell: _cell, ...base } = field
+  const props: Record<string, unknown> = isRecord(configured.props) ? configured.props : {}
+  const resolved = {
+    ...base,
+    ...configured,
+    props: { ...props },
+  }
+  assertDisplayFormatter(resolved)
+  return resolved
 }
 
 function invalidValue<TRecord extends object, TContext extends object>(field: ResolvedDisplayField<TRecord, TContext>, value: unknown, requirement: 'date-format' | 'text-or-renderer'): never {
@@ -160,7 +157,7 @@ export function assertDisplayFormatter<TRecord extends object, TContext extends 
 }
 
 export function readDisplayValue<TRecord extends object, TContext extends object = {}>(record: TRecord, field: ResolvedDisplayField<TRecord, TContext>, context: TContext = {} as TContext): unknown {
-  const displayField = cellFieldFor(record, field, context)
+  const displayField = displayFieldForRecord(record, field, context)
   return displayField.read ? displayField.read(record) : Reflect.get(record, displayField.key)
 }
 
@@ -177,6 +174,7 @@ export function resolveDisplayValue<TRecord extends object, TContext extends obj
   field: ResolvedDisplayField<TRecord, TContext>,
   context: TContext = {} as TContext
 ): unknown {
-  const displayField = cellFieldFor(record, field, context)
-  return formatDisplayValue(readDisplayValue(record, displayField), displayField)
+  const displayField = displayFieldForRecord(record, field, context)
+  const value = displayField.read ? displayField.read(record) : Reflect.get(record, displayField.key)
+  return formatDisplayValue(value, displayField)
 }

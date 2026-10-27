@@ -1,22 +1,16 @@
 import type { DisplayField, DisplayValueConfiguration } from './display'
 import type { LabelDictionary } from './labels'
 import type { RawSchema } from './schema'
-import type { ContextRequirements } from './contextRequirements'
+import type { CallbackScopeContext, ContextRequirements } from './contextRequirements'
 
 export interface TableColumnContext<TContext extends object = {}> {
   readonly context: TContext
 }
 
-export type TableColumnContextValue<TEntry> = TEntry extends (...args: infer TArgs) => unknown
-  ? TArgs extends [infer TScope] ? TScope extends { readonly context: infer TContext } ? TContext : never : never
-  : never
+export type TableColumnContextValue<TEntry> = CallbackScopeContext<TEntry>
 
-type ResolvedColumn<TEntry> = TEntry extends (...args: never[]) => unknown ? ReturnType<TEntry> : TEntry
-
-type TableColumnCellContextValue<TEntry> = ResolvedColumn<TEntry> extends { readonly cell: infer TCell }
-  ? TCell extends (...args: infer TArgs) => unknown
-    ? TArgs extends [infer TScope] ? TScope extends { readonly context: infer TContext } ? TContext : never : never
-    : never
+type TableColumnCellContextValue<TEntry> = (TEntry extends (...args: never[]) => unknown ? ReturnType<TEntry> : TEntry) extends { readonly cell: infer TCell }
+  ? CallbackScopeContext<TCell>
   : never
 
 export type TableColumnCell<TRecord extends object, TContext extends object = {}> =
@@ -51,11 +45,9 @@ export type TableColumnEntry<TRecord extends object, TContext extends object = {
   | TableColumn<TRecord, unknown, TContext>
   | TableColumnResolver<TRecord, TContext>
 
-type TableColumnContexts<TColumns> = {
+export type TableColumnsContext<TColumns extends object> = ContextRequirements<{
   [TKey in keyof TColumns]: TableColumnContextValue<Exclude<TColumns[TKey], undefined>> | TableColumnCellContextValue<Exclude<TColumns[TKey], undefined>>
-}[keyof TColumns]
-
-export type TableColumnsContext<TColumns extends object> = ContextRequirements<TableColumnContexts<TColumns>>
+}[keyof TColumns]>
 
 export interface TableDefinition<
   TRecord extends object = Record<string, unknown>,

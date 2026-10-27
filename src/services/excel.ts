@@ -1,6 +1,6 @@
 import * as XLSX from 'xlsx'
 import type { CollectionResult, MaybePromise } from '../contracts'
-import { assertDisplayFormatter, displayFieldForRecord, formatDisplayValue, readDisplayValue, type ResolvedDisplayField } from '../display/resolveDisplay'
+import { displayFieldForRecord, formatDisplayValue, readDisplayValue, type ResolvedDisplayField } from '../display/resolveDisplay'
 
 export interface ListExportOptions<TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>, TContext extends object = {}> {
   load?: (context: { query: TQuery; searchParameters: Record<string, unknown>; signal?: AbortSignal }) => MaybePromise<TRecord[] | CollectionResult<TRecord>>
@@ -18,7 +18,6 @@ function valueFor<TRecord extends object, TContext extends object>(
 ) {
   const displayField = displayFieldForRecord(record, field, context)
   const value = readDisplayValue(record, displayField, context)
-  assertDisplayFormatter(displayField)
   const mapped = mapValue ? mapValue({ record, field: displayField, value }) : formatDisplayValue(value, displayField)
   if (mapped == null) return ''
   if (mapped instanceof Date || typeof mapped === 'string' || typeof mapped === 'number' || typeof mapped === 'boolean') return mapped

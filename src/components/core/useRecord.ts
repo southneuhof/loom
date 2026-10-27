@@ -1,4 +1,4 @@
-import { computed, onBeforeUpdate, type Ref } from 'vue'
+import { computed, type Ref } from 'vue'
 import type { DetailProps, RecordLoadContext, RecordResult, SubmitError } from '../../contracts'
 import { useLoader } from '../../query'
 import { resourceLoaderOwner, resourceLoaderParameters } from '../../resources/loaderIdentity'
@@ -15,9 +15,11 @@ export interface RecordReader<TRecord extends object> {
 export function useRecord<TRecord extends object, TContext extends object = Readonly<Record<string, unknown>>>(
   sourceGetter: () => DetailProps<TRecord, TContext>,
 ): RecordReader<TRecord> {
-  const source = computed(sourceGetter)
-  assertSingleDataSource('Detail', source.value.data, source.value.load, 'record')
-  onBeforeUpdate(() => assertSingleDataSource('Detail', source.value.data, source.value.load, 'record'))
+  const source = computed(() => {
+    const current = sourceGetter()
+    assertSingleDataSource('Detail', current.data, current.load, 'record')
+    return current
+  })
   const fallbackOwner = instanceIdentity('detail')
   const owner = computed(() => source.value.data !== undefined
     ? fallbackOwner

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { computed, defineComponent, h, shallowRef, toRaw } from 'vue'
+import { computed, defineComponent, h, shallowRef, toRaw, type ComponentPropsOptions, type VNodeChild } from 'vue'
 import { z } from 'zod/v4'
 import type { CollectionProps, CollectionResult, DetailProps } from '../../../contracts'
 import { associateResourceLoader } from '../../../resources/loaderIdentity'
@@ -14,17 +14,23 @@ const recordSchema = z.object({ id: z.number(), name: z.string() })
 const detailFields = { name: { label: 'Name' } }
 const querySchema = z.object({ status: z.enum(['active']) })
 
+function mountReader(
+  setup: () => () => VNodeChild,
+  options: { componentProps?: ComponentPropsOptions; mountProps?: Record<string, unknown> } = {},
+) {
+  return mountCore(defineComponent({ props: options.componentProps, setup }), options.mountProps ?? {})
+}
+
 describe('shared resource readers', () => {
   it('reads the configured record source from a custom page with an unrelated data prop', async () => {
     const load = vi.fn(async () => ({ name: 'Loaded record' }))
-    const Reader = defineComponent({
-      props: { data: String },
-      setup() {
-        const reader = useRecord(() => ({ schema: z.object({ name: z.string() }), fields: {}, load }))
-        return () => h('p', reader.record.value?.name)
-      },
+    const view = mountReader(() => {
+      const reader = useRecord(() => ({ schema: z.object({ name: z.string() }), fields: {}, load }))
+      return () => h('p', reader.record.value?.name)
+    }, {
+      componentProps: { data: String },
+      mountProps: { data: 'Page metadata' },
     })
-    const view = mountCore(Reader, { data: 'Page metadata' })
     await flush()
 
     expect(view.text()).toContain('Loaded record')
@@ -33,14 +39,13 @@ describe('shared resource readers', () => {
   })
 
   it('reads the configured collection source from a custom page with an unrelated load prop', async () => {
-    const Reader = defineComponent({
-      props: { load: String },
-      setup() {
-        const reader = useCollection(() => ({ data: [{ name: 'Local row' }] }))
-        return () => h('p', reader.records.value[0]?.name)
-      },
+    const view = mountReader(() => {
+      const reader = useCollection(() => ({ data: [{ name: 'Local row' }] }))
+      return () => h('p', reader.records.value[0]?.name)
+    }, {
+      componentProps: { load: String },
+      mountProps: { load: 'Page operation' },
     })
-    const view = mountCore(Reader, { load: 'Page operation' })
     await flush()
 
     expect(view.text()).toContain('Local row')
@@ -53,13 +58,10 @@ describe('shared resource readers', () => {
     const load = vi.fn(async () => ({ id: 2, name: 'Remote' }))
     const source = shallowRef<DetailProps<RecordRow>>({ schema: recordSchema, fields: detailFields, data: localRecord })
     let reader: RecordReader<RecordRow> | undefined
-    const Reader = defineComponent({
-      setup() {
-        reader = useRecord(() => source.value)
-        return () => h('p', reader?.record.value?.name ?? 'Loading')
-      },
+    const view = mountReader(() => {
+      reader = useRecord(() => source.value)
+      return () => h('p', reader?.record.value?.name ?? 'Loading')
     })
-    const view = mountCore(Reader, {})
     await flush()
 
     expect(view.text()).toContain('Local')
@@ -97,13 +99,10 @@ describe('shared resource readers', () => {
       id: { right: 2, left: 1 },
       load,
     }
-    const Reader = defineComponent({
-      setup() {
-        const reader = useRecord(() => source)
-        return () => h('p', reader.record.value?.name ?? 'Loading')
-      },
+    const view = mountReader(() => {
+      const reader = useRecord(() => source)
+      return () => h('p', reader.record.value?.name ?? 'Loading')
     })
-    const view = mountCore(Reader, {})
     await flush()
 
     expect(view.text()).toContain('Composite')
@@ -118,13 +117,10 @@ describe('shared resource readers', () => {
       .mockRejectedValueOnce(new Error('Refresh failed'))
     const source = shallowRef<DetailProps<RecordRow>>({ schema: recordSchema, fields: detailFields, id: 1, load })
     let reader: RecordReader<RecordRow> | undefined
-    const Reader = defineComponent({
-      setup() {
-        reader = useRecord(() => source.value)
-        return () => h('p', reader?.record.value?.name ?? 'Loading')
-      },
+    const view = mountReader(() => {
+      reader = useRecord(() => source.value)
+      return () => h('p', reader?.record.value?.name ?? 'Loading')
     })
-    const view = mountCore(Reader, {})
 
     await flush()
     expect(view.text()).toContain('Current')
@@ -150,13 +146,10 @@ describe('shared resource readers', () => {
       load: () => late.promise,
     })
     let reader: RecordReader<RecordRow> | undefined
-    const Reader = defineComponent({
-      setup() {
-        reader = useRecord(() => source.value)
-        return () => h('p', reader?.record.value?.name ?? 'Loading')
-      },
+    const view = mountReader(() => {
+      reader = useRecord(() => source.value)
+      return () => h('p', reader?.record.value?.name ?? 'Loading')
     })
-    const view = mountCore(Reader, {})
     await flush()
 
     source.value = {
@@ -190,19 +183,16 @@ describe('shared resource readers', () => {
       },
     }))
     let reader: CollectionReader<RecordRow, Query> | undefined
-    const Reader = defineComponent({
-      setup() {
-        reader = useCollection(() => source.value, {
-          queryControlled: () => true,
-          onUpdateQuery: (query) => {
-            updates.push(query)
-            controlledQuery.value = { status: String(query.status) }
-          },
-        })
-        return () => h('p', reader?.records.value[0]?.name ?? 'Loading')
-      },
+    const view = mountReader(() => {
+      reader = useCollection(() => source.value, {
+        queryControlled: () => true,
+        onUpdateQuery: (query) => {
+          updates.push(query)
+          controlledQuery.value = { status: String(query.status) }
+        },
+      })
+      return () => h('p', reader?.records.value[0]?.name ?? 'Loading')
     })
-    const view = mountCore(Reader, {})
 
     await flush()
     expect(view.text()).toContain('Current')

@@ -17,12 +17,7 @@ const emit = defineEmits<{
 
 const instance = getCurrentInstance()
 assertSingleDataSource('Collection', props.data, props.load, 'collection', instance?.vnode.props ?? {})
-onBeforeUpdate(() => {
-  const supplied = instance?.vnode.props ?? {}
-  if ((Object.hasOwn(supplied, 'data') && props.data === undefined) || (Object.hasOwn(supplied, 'load') && props.load === undefined)) {
-    assertSingleDataSource('Collection', props.data, props.load, 'collection', supplied)
-  }
-})
+onBeforeUpdate(() => assertSingleDataSource('Collection', props.data, props.load, 'collection', instance?.vnode.props ?? {}))
 
 const collection = useCollection(() => props, {
   onUpdateQuery: (value) => emit('update:query', value),

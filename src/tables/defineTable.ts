@@ -41,17 +41,7 @@ type TableColumnConfig<TColumn> = TColumn extends (...args: never[]) => unknown 
 
 type TableColumnCellConfig<TCell> = TCell extends (...args: never[]) => unknown ? ReturnType<TCell> : TCell
 type AllowedCellMember = keyof DisplayValueConfiguration
-type FlatDisplayMembers = 'read' | 'renderer' | 'props' | 'format'
-
-type HasDefinedMember<TValue, TMember extends PropertyKey> = TMember extends keyof TValue
-  ? {} extends Pick<TValue, TMember> ? false : [Exclude<TValue[TMember], undefined>] extends [never] ? false : true
-  : false
-
-type HasFlatDisplayMember<TValue> = true extends {
-  [TMember in FlatDisplayMembers]: HasDefinedMember<TValue, TMember>
-}[FlatDisplayMembers] ? true : false
-
-type TableColumnCellMemberValid<TRecord extends object, TKey extends string, TCell> = TableColumnCellConfig<TCell> extends infer TConfig
+type CellGuard<TRecord extends object, TKey extends string, TCell> = EveryTrue<TableColumnCellConfig<TCell> extends infer TConfig
   ? TConfig extends unknown
     ? [TConfig] extends [DisplayValueConfiguration<TRecord>]
       ? Exclude<KeysOfUnion<TConfig>, AllowedCellMember> extends never
@@ -59,14 +49,12 @@ type TableColumnCellMemberValid<TRecord extends object, TKey extends string, TCe
         : false
       : false
     : never
-  : never
-
-type TableColumnCellMemberGuard<TRecord extends object, TKey extends string, TCell> = EveryTrue<TableColumnCellMemberValid<TRecord, TKey, TCell>>
+  : never>
 
 type TableColumnMemberGuard<TRecord extends object, TKey extends string, TConfig> = [TConfig] extends [TableColumn<TRecord, DisplayFieldValue<TRecord, TKey, TConfig>, any>]
   ? Exclude<KeysOfUnion<TConfig>, AllowedColumnMember> extends never
     ? TableSortKeyGuard<TRecord, TKey, TConfig> & (TConfig extends { readonly cell: infer TCell }
-        ? HasFlatDisplayMember<TConfig> extends false ? TableColumnCellMemberGuard<TRecord, TKey, TCell> : never
+        ? CellGuard<TRecord, TKey, TCell>
         : DisplayFieldGuard<TRecord, TKey, TConfig>)
     : never
   : never

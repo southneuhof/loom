@@ -4,7 +4,7 @@ import type { MaybePromise } from './load'
 import type { RawSchema, SchemaIssue, SchemaParseResult } from './schema'
 import type { SubmitError } from './results'
 import type { BaseInputControlBindings } from './formControlBindings'
-import type { ContextRequirements } from './contextRequirements'
+import type { CallbackScopeContext, ContextRequirements } from './contextRequirements'
 
 export type FormValidationTrigger = 'blur' | 'submit'
 
@@ -141,17 +141,11 @@ export type FormFields<
     : BoundFormInput<TInput, FormRendererKey, TContext> | BoundFormInputResolver<TInput, TContext>
 }
 
-export type FormFieldContextValue<TEntry> = TEntry extends (...args: infer TArgs) => unknown
-  ? TArgs extends [infer TScope]
-    ? TScope extends { readonly draft: unknown; readonly context: infer TValue } ? TValue : never
-    : never
-  : never
+export type FormFieldContextValue<TEntry> = CallbackScopeContext<TEntry>
 
-type FormFieldContexts<TFields> = {
+export type FormFieldsContext<TFields extends object> = ContextRequirements<{
   [TKey in keyof TFields]: FormFieldContextValue<Exclude<TFields[TKey], undefined>>
-}[keyof TFields]
-
-export type FormFieldsContext<TFields extends object> = ContextRequirements<FormFieldContexts<TFields>>
+}[keyof TFields]>
 
 export interface FormBehaviorContext<
   TInput extends object,
