@@ -1,4 +1,4 @@
-<script setup lang="ts" generic="TRow extends object = Record<string, unknown>, TInput extends object = TRow">
+<script setup lang="ts" generic="TRow extends object = Record<string, unknown>, TInput extends object = TRow, TContext extends object = Readonly<Record<string, unknown>>">
 import { computed, onBeforeUpdate, useAttrs } from 'vue'
 import type { FormDraft, RowReorderPayload } from '../../../contracts'
 import BaseInput from '../../inputs/BaseInput.vue'
@@ -9,7 +9,7 @@ import ConfirmationDialog from '../ConfirmationDialog.vue'
 import DialogForm from '../DialogForm.vue'
 import type { TableInputCoreProps } from './tableInput.types'
 
-const props = defineProps<TableInputCoreProps<TInput, TRow>>()
+const props = defineProps<TableInputCoreProps<TInput, TRow, TContext>>()
 
 const attrs = useAttrs()
 for (const member of ['fields', 'data', 'load', 'submit']) {
@@ -56,6 +56,8 @@ const baseInputProps = computed(() => ({
   error: props.error,
   required: props.required,
 }))
+const tableContext = computed(() => Object.hasOwn(props.table, 'context') ? props.table.context : props.context)
+const formContext = computed(() => props.form && Object.hasOwn(props.form, 'context') ? props.form.context : props.context)
 
 function updateRows(rows: TRow[]) {
   if (props.disabled) return
@@ -96,6 +98,7 @@ function draftFor(row: TRow): FormDraft<TInput> {
         <DialogForm
           v-if="!disabled && form"
           v-bind="form"
+          :context="formContext"
           :disabled="disabled"
           title="Tambah baris"
           cancel-label="Batal"
@@ -111,6 +114,7 @@ function draftFor(row: TRow): FormDraft<TInput> {
       <Table
         v-if="!$slots.table"
         v-bind="table"
+        :context="tableContext"
         :data="modelValue"
         :reorderable="reorderable && !disabled"
         :row-key="rowKey"
@@ -120,6 +124,7 @@ function draftFor(row: TRow): FormDraft<TInput> {
           <div class="flex items-center justify-end gap-1" aria-label="Row actions">
             <DialogForm
               v-bind="form"
+              :context="formContext"
               :disabled="disabled"
               :initial-data="draftFor(record)"
               title="Ubah baris"

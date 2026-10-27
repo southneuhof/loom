@@ -20,8 +20,9 @@ export type FormViewProps<
   TOutput extends object = Record<string, unknown>,
   TResult = unknown,
   TKeys extends string = Extract<keyof TInput, string>,
+  TContext extends object = Readonly<Record<string, unknown>>,
 > = {
-  form: FormProps<TInput, TOutput, TResult, TKeys>
+  form: FormProps<TInput, TOutput, TResult, TKeys, TContext>
   title?: string
   description?: string
   backTo?: RouteLocationRaw | false
@@ -30,14 +31,23 @@ export type FormViewProps<
   successMessage?: string | false
 }
 
-export type FormViewSlots<TInput extends object, TOutput extends object, TResult, TKeys extends string = Extract<keyof TInput, string>> = FormSlots<TInput, TKeys> & {
+export type FormViewSlots<
+  TInput extends object,
+  TOutput extends object,
+  TResult,
+  TKeys extends string = Extract<keyof TInput, string>,
+  TContext extends object = Readonly<Record<string, unknown>>,
+> = FormSlots<TInput, TKeys> & {
   header?: () => unknown
   controls?: () => unknown
-  body?: (props: { readonly form: FormProps<TInput, TOutput, TResult, TKeys> }) => unknown
+  body?: (props: { readonly form: FormProps<TInput, TOutput, TResult, TKeys, TContext> }) => unknown
   footer?: () => unknown
 }
 
-export type ListFilters<TQuery extends object = Record<string, unknown>, TInput extends object = Partial<TQuery>> = Omit<FormDefinition<TInput, Partial<TQuery>>, 'submit'> & {
+export type ListFilters<TQuery extends object = Record<string, unknown>, TInput extends object = Partial<TQuery>, TContext extends object = Readonly<Record<string, unknown>>> = Omit<
+  FormDefinition<TInput, Partial<TQuery>, unknown, Extract<keyof TInput, string>, TContext>,
+  'submit'
+> & {
   submit?: never
   queryKeys: readonly Extract<keyof TQuery, string>[]
   toDraft: (query: Readonly<QueryValues>) => FormDraft<TInput>
@@ -68,26 +78,44 @@ export type ListViewSlotActions<TRecord extends object = Record<string, unknown>
   deleteState: (record: TRecord) => ListViewDeleteState
 }
 
-export type ListViewProps<TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>, TFilterInput extends object = Partial<TQuery>> = {
+export type ListViewProps<
+  TRecord extends object = Record<string, unknown>,
+  TQuery extends object = Record<string, unknown>,
+  TFilterInput extends object = Partial<TQuery>,
+  TContext extends object = Readonly<Record<string, unknown>>,
+> = {
   title?: string
   description?: string
   actionLabels?: Partial<Record<'create' | 'view' | 'edit' | 'delete', string>>
-  filters?: ListFilters<TQuery, TFilterInput>
-  export?: ListExportOptions<TRecord, TQuery> | false
-  table: TableProps<TRecord, TQuery>
-} & ListViewActions<TRecord> & (
-  | {
-      deleteRecord: (record: TRecord) => Promise<unknown>
-      recordIdentity: (record: TRecord) => RecordIdentity
-  }
-  | {
-      deleteRecord?: undefined
-      recordIdentity?: never
-    }
-)
+  filters?: ListFilters<TQuery, TFilterInput, TContext>
+  export?: ListExportOptions<TRecord, TQuery, TContext> | false
+  table: TableProps<TRecord, TQuery, TContext>
+} & ListViewActions<TRecord> &
+  (
+    | {
+        deleteRecord: (record: TRecord) => Promise<unknown>
+        recordIdentity: (record: TRecord) => RecordIdentity
+      }
+    | {
+        deleteRecord?: undefined
+        recordIdentity?: never
+      }
+  )
 
-export type DetailViewProps<TRecord extends object = Record<string, unknown>> = {
-  detail: DetailProps<TRecord>
+export type DetailViewReadyProps<TRecord extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>> = {
+  record: TRecord
+  detail: Omit<DetailProps<TRecord, TContext>, 'load' | 'data'> & { data: TRecord }
+}
+
+export type DetailViewControls<TRecord extends object = Record<string, unknown>> = {
+  record?: TRecord
+  loading: boolean
+  error?: SubmitError
+  refresh: () => Promise<void>
+}
+
+export type DetailViewProps<TRecord extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>> = {
+  detail: DetailProps<TRecord, TContext>
   title?: string
   backTo?: RouteLocationRaw | false
 }

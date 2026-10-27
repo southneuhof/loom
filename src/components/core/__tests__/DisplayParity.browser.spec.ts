@@ -163,7 +163,7 @@ describe('display surface parity', () => {
           namespace: 'display-asset-tree',
         }),
         h(Detail, { schema, fields, data: record }),
-        h(Table, resource.list.table),
+        h(Table, resource.list().table),
         h(Detail, resource.detail({ id: record.id, record }).detail),
       ]),
     })

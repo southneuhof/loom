@@ -27,7 +27,7 @@ const rows = defineResource({
   },
 })
 
-void rows.list.table
+void rows.list().table
 
 const commands = defineResource({
   key: 'custom-policy',
@@ -165,7 +165,8 @@ const identityOnlyResource = defineResource({
   identity: (record: { id: string }) => record.id,
   create: { permission: null, form: mutationForm },
 })
-const identityOnlyResult: Promise<{ id: string }> = identityOnlyResource.create.form.submit({ name: 'one' })
+const identityOnlyCreate = identityOnlyResource.create()
+const identityOnlyResult: Promise<{ id: string }> = identityOnlyCreate.form.submit({ name: 'one' })
 
 const malformedResultForm = defineForm({
   schema: mutationSchema,

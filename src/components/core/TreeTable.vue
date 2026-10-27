@@ -1,13 +1,12 @@
-<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>">
+<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>">
 import { computed, getCurrentInstance, onBeforeUpdate, ref, useSlots } from 'vue'
-import type { CollectionLoadContext, CollectionProps, CollectionResult, CollectionSlotProps, QueryValues, RowReorderPayload, SubmitError, TreeRowContext, TreeTableProps } from '../../contracts'
-import { createSchemaRuntime } from '../../schemas/schemaRuntime'
+import type { CollectionProps, CollectionSlotProps, QueryValues, RowReorderPayload, SubmitError, TreeRowContext, TreeTableProps } from '../../contracts'
 import type { ResolvedDisplayField } from '../../display/resolveDisplay'
 import Collection from './Collection.vue'
 import TreeTableContent from './TreeTableContent.vue'
 import { assertSingleDataSource } from './useCoreData'
 
-const props = withDefaults(defineProps<TreeTableProps<TRecord, TQuery>>(), {
+const props = withDefaults(defineProps<TreeTableProps<TRecord, TQuery, TContext>>(), {
   searchParameters: () => ({}),
   pagination: false,
   pageSizeOptions: () => [10, 25, 50, 100],
@@ -16,8 +15,8 @@ const props = withDefaults(defineProps<TreeTableProps<TRecord, TQuery>>(), {
   maxColumnWidth: 360,
 })
 
-assertSingleDataSource('TreeTable', props.data, props.load)
 const instance = getCurrentInstance()
+assertSingleDataSource('TreeTable', props.data, props.load, 'collection', instance?.vnode.props ?? {})
 const hasControlledQuery = ref(hasQueryProp())
 const hasControlledExpansion = ref(hasVnodeProp('expandedKeys', 'expanded-keys'))
 const hasDefaultExpansion = ref(hasVnodeProp('defaultExpandedKeys', 'default-expanded-keys'))
@@ -31,7 +30,7 @@ const emit = defineEmits<{
 }>()
 
 type TreeRowScope = { record: TRecord; index: number; tree: TreeRowContext }
-type TreeCellScope = TreeRowScope & { value: unknown; field: ResolvedDisplayField<TRecord> }
+type TreeCellScope = TreeRowScope & { value: unknown; field: ResolvedDisplayField<TRecord, TContext> }
 
 defineSlots<{
   collection?: (scope: CollectionSlotProps<TRecord, TQuery>) => unknown
@@ -46,7 +45,6 @@ defineSlots<{
 }>()
 
 const slots = useSlots()
-const querySchemaRuntime = computed(() => (props.querySchema ? createSchemaRuntime(props.querySchema) : undefined))
 const forwardedSlots = computed(() => Object.fromEntries(Object.entries(slots).filter(([name]) => name !== 'collection')))
 const collectionRef = ref<{
   refresh: () => Promise<void>
@@ -61,7 +59,7 @@ const expansionProps = computed(() => ({
 }))
 
 onBeforeUpdate(() => {
-  assertSingleDataSource('TreeTable', props.data, props.load)
+  assertSingleDataSource('TreeTable', props.data, props.load, 'collection', instance?.vnode.props ?? {})
   hasControlledQuery.value = hasQueryProp()
   hasControlledExpansion.value = hasVnodeProp('expandedKeys', 'expanded-keys')
   hasDefaultExpansion.value = hasVnodeProp('defaultExpandedKeys', 'default-expanded-keys')
@@ -72,6 +70,7 @@ const collectionProps = computed<CollectionProps<TRecord, TQuery>>(() => {
     resource: props.resource,
     searchParameters: props.searchParameters,
     namespace: props.namespace,
+    querySchema: props.querySchema,
     pagination: props.pagination,
     pageSizeOptions: props.pageSizeOptions,
     defaultPageSize: props.defaultPageSize,
@@ -79,27 +78,8 @@ const collectionProps = computed<CollectionProps<TRecord, TQuery>>(() => {
     ...(hasControlledQuery.value ? { query: props.query as TQuery } : {}),
   }
   if (props.data !== undefined) return { ...options, data: props.data }
-  const load = props.load
-  return {
-    ...options,
-    load: async (context: CollectionLoadContext<TQuery>): Promise<CollectionResult<TRecord>> => {
-      if (!load) throw new Error('[loom] No TreeTable loader supplied.')
-      const runtime = querySchemaRuntime.value
-      if (!runtime) return load(context)
-      const result = await runtime.parseAsync(context.query)
-      if (!result.success) {
-        const issue = result.issues[0]
-        const path = issue ? issue.path.map(String).join('.') || '$' : '$'
-        throw new Error(`[loom][SURFACE_OPTION_INVALID] TreeTable query does not match querySchema at "${path}".`)
-      }
-      const query = {
-        ...(Object.hasOwn(context.query, 'page') && !Object.hasOwn(result.data, 'page') ? { page: Reflect.get(context.query, 'page') } : {}),
-        ...(Object.hasOwn(context.query, 'limit') && !Object.hasOwn(result.data, 'limit') ? { limit: Reflect.get(context.query, 'limit') } : {}),
-        ...result.data,
-      }
-      return load({ ...context, query })
-    },
-  }
+  if (!props.load) throw new Error('[loom] No TreeTable loader supplied.')
+  return { ...options, load: props.load }
 })
 
 function refresh() {
@@ -157,6 +137,8 @@ function hasVnodeProp(camel: string, kebab: string): boolean {
         :query-schema="props.querySchema"
         :columns="props.columns"
         :labels="props.labels"
+        :context="props.context"
+        :result-context="collection.context"
         :row-key="props.rowKey"
         :children="props.children"
         :tree-column="props.treeColumn"

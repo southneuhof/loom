@@ -1,4 +1,4 @@
-import type { DetailField, DetailDefinition } from '../contracts/details'
+import type { DetailField, DetailFieldContext, DetailFieldsContext, DetailDefinition } from '../contracts/details'
 import type { CompactDisplayField, DisplayFieldGuard, DisplayFieldValue } from '../display/compatibility'
 import type { LabelDictionary } from '../contracts/labels'
 import type { RawSchema, RawSchemaOutput } from '../contracts/schema'
@@ -10,9 +10,11 @@ type DetailSchemaGuard<TSchema extends RawSchema<object, object>> = FiniteRecord
 type AllowedFieldMember = keyof DetailField
 type KeysOfUnion<TValue> = TValue extends unknown ? keyof TValue : never
 
-type DetailFieldGuard<TRecord extends object, TKey extends string, TField> = [TField] extends [DetailField<TRecord, DisplayFieldValue<TRecord, TKey, TField>>]
-  ? Exclude<KeysOfUnion<TField>, AllowedFieldMember> extends never
-    ? DisplayFieldGuard<TRecord, TKey, TField>
+type DetailFieldConfig<TField> = TField extends (...args: never[]) => unknown ? ReturnType<TField> : TField
+
+type DetailFieldGuard<TRecord extends object, TKey extends string, TField> = [DetailFieldConfig<TField>] extends [DetailField<TRecord, DisplayFieldValue<TRecord, TKey, DetailFieldConfig<TField>>>]
+  ? Exclude<KeysOfUnion<DetailFieldConfig<TField>>, AllowedFieldMember> extends never
+    ? DisplayFieldGuard<TRecord, TKey, DetailFieldConfig<TField>>
     : never
   : never
 
@@ -24,16 +26,32 @@ type DetailFieldsGuard<TRecord extends object, TFields> = TFields extends object
       : never
   : never
 
+type DetailFieldArgument<TRecord extends object> = DetailField<TRecord> | ((scope: DetailFieldContext<TRecord, any>) => DetailField<TRecord>)
+
+type DetailFieldsArgument<TRecord extends object, TFields extends object> = {
+  readonly [TKey in keyof TFields]: DetailFieldArgument<TRecord>
+}
+
+type DetailArgument<TSchema extends RawSchema<object, object>, TFields extends object> = {
+  readonly schema: TSchema & DetailSchemaGuard<TSchema>
+  readonly fields: TFields & DetailFieldsArgument<RawSchemaOutput<TSchema>, TFields> & NoInfer<DetailFieldsGuard<RawSchemaOutput<TSchema>, TFields>>
+  readonly labels?: LabelDictionary
+}
+
 type CompactDetailField<TRecord extends object, TKey extends string, TField> = CompactDisplayField<TRecord, DisplayFieldValue<TRecord, TKey, TField>, TField> & {
   readonly emphasis?: 'strong' | 'muted'
   readonly span?: number
 }
 
+type CompactDetailEntry<TRecord extends object, TKey extends string, TField> = TField extends (...args: never[]) => unknown
+  ? TField
+  : CompactDetailField<TRecord, TKey, TField>
+
 type CompactDetailFields<TRecord extends object, TFields extends object> = {
-  readonly [TKey in keyof TFields]: TKey extends string ? CompactDetailField<TRecord, TKey, TFields[TKey]> : never
+  readonly [TKey in keyof TFields]: TKey extends string ? CompactDetailEntry<TRecord, TKey, TFields[TKey]> : never
 }
 
-type DefinedDetail<TSchema extends RawSchema<object, object>, TFields extends object> = DetailDefinition<RawSchemaOutput<TSchema>, CompactDetailFields<RawSchemaOutput<TSchema>, TFields>>
+type DefinedDetail<TSchema extends RawSchema<object, object>, TFields extends object> = DetailDefinition<RawSchemaOutput<TSchema>, CompactDetailFields<RawSchemaOutput<TSchema>, TFields>, Extract<DetailFieldsContext<TFields>, object>>
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -57,13 +75,9 @@ function snapshotMap<T extends object>(value: T): T {
 
 export function defineDetail<
   TSchema extends RawSchema<object, object>,
-  const TFields extends Record<string, DetailField<RawSchemaOutput<TSchema>>>,
+  const TFields extends object,
   const TLabels extends LabelDictionary | undefined = undefined,
->(definition: {
-  readonly schema: TSchema & DetailSchemaGuard<TSchema>
-  readonly fields: TFields & DetailFieldsGuard<RawSchemaOutput<TSchema>, TFields>
-  readonly labels?: TLabels
-}): DefinedDetail<TSchema, TFields> {
+>(definition: DetailArgument<TSchema, TFields> & { readonly labels?: TLabels }): DefinedDetail<TSchema, TFields> {
   if (!isRecord(definition)) invalidOption('definition', 'an object')
   for (const member of Object.keys(definition)) {
     if (!['schema', 'fields', 'labels'].includes(member)) invalidOption(member, 'a DetailDefinition member')
@@ -73,15 +87,18 @@ export function defineDetail<
   assertLabels(definition.labels)
   for (const key of Reflect.ownKeys(definition.fields)) {
     assertSafeDisplayKey(key, (invalidKey, expected) => invalidOption(`fields.${String(invalidKey)}`, expected))
-    assertDisplayEntry('detail', `fields.${key}`, definition.fields[key], (_surface, location, member, expected) => {
-      invalidOption(member === 'definition' ? location : `${location}.${member}`, expected)
-    })
+    const field = definition.fields[key]
+    if (typeof field !== 'function') {
+      assertDisplayEntry('detail', `fields.${key}`, field, (_surface, location, member, expected) => {
+        invalidOption(member === 'definition' ? location : `${location}.${member}`, expected)
+      })
+    }
   }
 
-  const result: DefinedDetail<TSchema, TFields> = {
+  const result = {
     schema: definition.schema,
     fields: snapshotMap(definition.fields),
     ...(definition.labels !== undefined ? { labels: { ...definition.labels } } : {}),
-  }
+  } as DefinedDetail<TSchema, TFields>
   return result
 }

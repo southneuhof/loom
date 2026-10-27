@@ -7,6 +7,7 @@ import type { CollectionLoadContext, CollectionResult, Load } from '../../../con
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import { createFrameworkQueryClient } from '../../../query'
 import { defineTable } from '../../../tables/defineTable'
+import type { TableColumnContext } from '../../../contracts/tables'
 
 const apps: App[] = []
 
@@ -111,6 +112,44 @@ describe('LookupInput real dialog', () => {
     expect(view.model.value).toBe('two')
     expect(trigger(view.host).textContent).toContain('Option two')
     expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  })
+
+  it('keeps nested table context ahead of LookupInput context', async () => {
+    type LookupContext = { workspaceId: string }
+    const contextualTable = {
+      ...defineTable({
+        schema: optionSchema,
+        columns: {
+          name: ({ context }: TableColumnContext<LookupContext>) => ({ read: () => context.workspaceId }),
+        },
+      }),
+      context: { workspaceId: 'Table local' },
+    }
+    const model = ref<string | null>(null)
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(defineComponent({
+      setup: () => () => h(LookupInput, {
+        table: contextualTable,
+        data: options,
+        context: { workspaceId: 'Input outer' },
+        pick: 'id',
+        view: 'name',
+        modelValue: model.value,
+        'onUpdate:modelValue': (value: string | null) => { model.value = value },
+      }),
+    }))
+    app.use(createRouter({ history: createMemoryHistory(), routes: [{ path: '/:pathMatch(.*)*', component: { render: () => null } }] }))
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await frame()
+
+    trigger(host).click()
+    await frame()
+
+    expect(dialog().textContent).toContain('Table local')
+    expect(dialog().textContent).not.toContain('Input outer')
   })
 
   it('does not open or change the model while disabled', async () => {

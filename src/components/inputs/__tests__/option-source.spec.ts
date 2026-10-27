@@ -7,7 +7,7 @@ import SelectInput from '../SelectInput.vue'
 import type { SelectModelValue } from '../selectInput.types'
 import { defineResource, type CollectionLoadContext, type CollectionResult } from '../../..'
 import { mountInput } from './harness'
-import { createFrameworkQueryClient, invalidateResourceData } from '../../../query'
+import { createFrameworkQueryClient } from '../../../query'
 
 afterEach(() => vi.restoreAllMocks())
 
@@ -32,7 +32,7 @@ describe('explicit option sources', () => {
         },
       },
     })
-    const list = resource.list
+    const list = resource.list()
     const searchParameters = { active: true }
     const mounted = mountInput(CheckboxGroupInput, {
       model: [],
@@ -276,9 +276,7 @@ describe('explicit option sources', () => {
     const rolesInput = mountInput(SelectInput, {
       model: 'selected',
       props: {
-        load: roles.list.table.load,
-        resource: roles.list.table.resource,
-        namespace: roles.list.table.namespace,
+        load: roles.list().table.load,
         searchable: false,
       },
       queryClient,
@@ -286,9 +284,7 @@ describe('explicit option sources', () => {
     const teamsInput = mountInput(SelectInput, {
       model: 'team',
       props: {
-        load: teams.list.table.load,
-        resource: teams.list.table.resource,
-        namespace: teams.list.table.namespace,
+        load: teams.list().table.load,
         searchable: false,
       },
       queryClient,
@@ -314,7 +310,7 @@ describe('explicit option sources', () => {
     })
 
     roleOptions = [{ id: 'selected', name: 'Administrator' }]
-    await invalidateResourceData(queryClient, { resource: roles.list.table.resource })
+    await roles.invalidate()
     await vi.waitFor(() => expect(rolesLoad).toHaveBeenCalledTimes(2))
     await rolesInput.flush()
 
@@ -329,14 +325,12 @@ describe('explicit option sources', () => {
 
     rolesInput.cleanup()
     roleOptions = [{ id: 'selected', name: 'Senior administrator' }]
-    await invalidateResourceData(queryClient, { resource: roles.list.table.resource, id: 'selected' })
+    await roles.invalidate({ id: 'selected' })
 
     const remountedRolesInput = mountInput(SelectInput, {
       model: 'selected',
       props: {
-        load: roles.list.table.load,
-        resource: roles.list.table.resource,
-        namespace: roles.list.table.namespace,
+        load: roles.list().table.load,
         searchable: false,
       },
       queryClient,

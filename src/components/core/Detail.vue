@@ -1,33 +1,45 @@
-<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>">
+<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>">
 /**
  * Record core.
  *
  * Owns record loading, field rendering, and loading/empty/error states. It owns
  * no page layout, route navigation, or edit and delete controls.
  */
-import { computed, onBeforeUpdate, useSlots } from 'vue'
-import type { DetailProps, RecordLoadContext, RecordResult } from '../../contracts'
+import { computed, getCurrentInstance, onBeforeUpdate, useSlots } from 'vue'
+import type { DetailProps } from '../../contracts'
 import DisplayValue from '../../display/DisplayValue.vue'
 import { resolveDisplayFields, resolveDisplayValue } from '../../display/resolveDisplay'
-import { useLoader } from '../../query'
 import { schemaOutputKeys } from '../../schemas/schemaRuntime'
 import { useRendererRegistry } from '../../renderers/registry'
-import { assertSingleDataSource, instanceIdentity, recordCacheKey } from './useCoreData'
+import { useRecord } from './useRecord'
+import { assertSingleDataSource } from './useCoreData'
 
-const props = withDefaults(defineProps<DetailProps<TRecord>>(), {
+const props = withDefaults(defineProps<DetailProps<TRecord, TContext>>(), {
   searchParameters: () => ({}),
 })
 
-assertSingleDataSource('Detail', props.data, props.load, 'record')
-onBeforeUpdate(() => assertSingleDataSource('Detail', props.data, props.load, 'record'))
+const instance = getCurrentInstance()
+assertSingleDataSource('Detail', props.data, props.load, 'record', instance?.vnode.props ?? {})
+onBeforeUpdate(() => {
+  const supplied = instance?.vnode.props ?? {}
+  if ((Object.hasOwn(supplied, 'data') && props.data === undefined) || (Object.hasOwn(supplied, 'load') && props.load === undefined)) {
+    assertSingleDataSource('Detail', props.data, props.load, 'record', supplied)
+  }
+})
 
 const renderers = useRendererRegistry('display')
 const slots = useSlots()
+const recordReader = useRecord(() => props)
+const record = recordReader.record
 const fields = computed(() => {
+  const currentRecord = record.value
+  if (!currentRecord) return []
   const resolved = resolveDisplayFields({
     surface: 'detail',
     entries: props.fields,
     labels: props.labels,
+    record: currentRecord,
+    context: (props.context ?? {}) as TContext,
     recordKeys: schemaOutputKeys(props.schema),
   })
   for (const field of resolved) {
@@ -35,17 +47,6 @@ const fields = computed(() => {
   }
   return resolved
 })
-const fallbackOwner = instanceIdentity('detail')
-const owner = computed(() => props.resource ?? props.namespace ?? fallbackOwner)
-
-const loaded = useLoader<RecordLoadContext, RecordResult<TRecord>>({
-  key: computed(() => recordCacheKey(owner.value, props.id, 'display', props.namespace, props.searchParameters ?? {})),
-  context: computed(() => ({ id: props.id, searchParameters: props.searchParameters ?? {} })),
-  load: computed(() => props.load),
-  data: computed(() => props.data),
-})
-
-const record = computed(() => loaded.data.value)
 const entries = computed(() => {
   const currentRecord = record.value
   return currentRecord
@@ -57,17 +58,17 @@ const entries = computed(() => {
     : []
 })
 
-defineExpose({ refresh: loaded.refresh })
+defineExpose({ refresh: recordReader.refresh })
 </script>
 
 <template>
   <div class="is-detail">
-    <slot v-if="loaded.loading.value" name="loading">
+    <slot v-if="recordReader.loading.value && !record" name="loading">
       <p role="status" aria-live="polite">Memuat…</p>
     </slot>
 
-    <slot v-else-if="loaded.error.value" name="error" :error="loaded.error.value">
-      <p role="alert">{{ loaded.error.value?.message }}</p>
+    <slot v-else-if="recordReader.error.value && !record" name="error" :error="recordReader.error.value">
+      <p role="alert">{{ recordReader.error.value?.message }}</p>
     </slot>
 
     <slot v-else-if="!record" name="empty">
@@ -75,6 +76,9 @@ defineExpose({ refresh: loaded.refresh })
     </slot>
 
     <div v-else class="overflow-x-auto">
+      <slot v-if="recordReader.error.value" name="read-error" :error="recordReader.error.value" :refresh="recordReader.refresh">
+        <p role="alert">{{ recordReader.error.value.message }}</p>
+      </slot>
       <table class="w-full border-collapse">
         <tbody>
           <tr v-for="entry in entries" :key="entry.field.key">

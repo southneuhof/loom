@@ -2,22 +2,21 @@ import type { CollectionLoadContext, CollectionResult, MaybePromise } from '../c
 import type { ResolvedDisplayField } from '../display/resolveDisplay'
 import { createWorkbook, downloadWorkbook, type ListExportOptions } from './excel'
 
-export interface ExportRequest<TRecord extends object, TQuery extends object> {
+export interface ExportRequest<TRecord extends object, TQuery extends object, TContext extends object = {}> {
   activeQuery: TQuery
   searchParameters: Record<string, unknown>
   data?: readonly TRecord[]
   load?: (context: CollectionLoadContext<TQuery>) => MaybePromise<CollectionResult<TRecord>>
-  columns: readonly ResolvedDisplayField<TRecord>[]
-  options?: ListExportOptions<TRecord, TQuery>
+  columns: readonly ResolvedDisplayField<TRecord, TContext>[]
+  context?: TContext
+  options?: ListExportOptions<TRecord, TQuery, TContext>
   fallbackNamespace?: string
 }
 
 const MAX_EXPORT_PAGES = 10_000
 const DEFAULT_EXPORT_PAGE_SIZE = 500
 
-async function collectRows<TRecord extends object, TQuery extends object>(
-  request: ExportRequest<TRecord, TQuery>,
-): Promise<TRecord[]> {
+async function collectRows<TRecord extends object, TQuery extends object, TContext extends object>(request: ExportRequest<TRecord, TQuery, TContext>): Promise<TRecord[]> {
   const { options = {}, activeQuery, searchParameters } = request
   if (options.load) {
     const result = await options.load({ query: activeQuery, searchParameters })
@@ -61,13 +60,11 @@ async function collectRows<TRecord extends object, TQuery extends object>(
   return rows
 }
 
-export async function exportTableRows<TRecord extends object, TQuery extends object>(
-  request: ExportRequest<TRecord, TQuery>,
-): Promise<void> {
+export async function exportTableRows<TRecord extends object, TQuery extends object, TContext extends object = {}>(request: ExportRequest<TRecord, TQuery, TContext>): Promise<void> {
   const { options = {} } = request
   const rows = await collectRows(request)
   if (!request.columns.length) throw new Error('[loom] Export requires one visible column.')
-  const workbook = createWorkbook(rows, request.columns, options)
+  const workbook = createWorkbook(rows, request.columns, options, request.context)
   const fallback = `${request.fallbackNamespace ?? 'export'}-${Date.now()}`.replace(/[^a-zA-Z0-9._-]/g, '-')
   const filename = typeof options.filename === 'function' ? options.filename({ query: request.activeQuery }) : (options.filename ?? fallback)
   downloadWorkbook(workbook, filename)

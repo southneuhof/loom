@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type { DialogFormProps, FormProps } from '../../../forms/props'
+import type { FormFieldContext } from '../../../contracts/forms'
 import type { FormFields } from '../../../contracts/forms'
 import { defineForm } from '../../../forms/defineForm'
 
@@ -34,6 +35,20 @@ const modelBoundDialog: DialogFormProps<Input, Output> = {
   modelValue: undefined,
   open: false,
 }
+
+type WorkspaceContext = { workspaceId: string }
+const contextualDialog: DialogFormProps<Input, Output, string, Extract<keyof Input, string>, WorkspaceContext> = {
+  schema,
+  fields: {
+    name: ({ context }: FormFieldContext<Input, WorkspaceContext>) => ({
+      renderer: 'text',
+      label: context.workspaceId,
+    }),
+  },
+  context: { workspaceId: 'north' },
+  submit: async (value) => value.name,
+  open: true,
+}
 const modelBoundForm: FormProps<Input, Output> = {
   schema,
   fields,
@@ -64,25 +79,20 @@ const incompatibleBaseRenderer = defineForm({
   },
 })
 
-const incompatiblePresentationRenderer = defineForm({
+const incompatibleResolverRenderer = defineForm({
   schema,
   fields: {
-    // @ts-expect-error The base string renderer cannot be changed to a number renderer.
-    name: {
-      behavior: {
-        presentation: () => ({
-          renderer: 'number' as const,
-        }),
-      },
-    },
+    // @ts-expect-error A field resolver cannot change a string input to a number input.
+    name: () => ({ renderer: 'number' as const }),
   },
 })
 
 void dialogProps
 void formProps
 void modelBoundDialog
+void contextualDialog
 void modelBoundForm
 void missingDialogBinding
 void selectedRecordForm
 void incompatibleBaseRenderer
-void incompatiblePresentationRenderer
+void incompatibleResolverRenderer

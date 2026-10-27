@@ -11,19 +11,22 @@ export type { UploadProgress, UploadContext, UploadOperation } from './upload'
 export type { Coordinate, LocationPrediction, LocationOperations } from './location'
 
 export type { Label, LabelDictionary } from './labels'
-export type { DisplayField } from './display'
+export type { DisplayField, DisplayValueConfiguration } from './display'
 export type { BaseInputControlBindings } from './formControlBindings'
-export type { TableColumn, TableDefinition } from './tables'
-export type { DetailField, DetailDefinition } from './details'
+export type { TableColumn, TableColumnCell, TableColumnContext, TableColumnEntry, TableColumnResolver, TableDefinition, TableColumnsContext } from './tables'
+export type { DetailField, DetailFieldContext, DetailFieldEntry, DetailFieldResolver, DetailDefinition, DetailFieldsContext } from './details'
 export type {
   FormBehaviorContext,
-  FormInputPresentation,
   FormBehavior,
   FormInput,
+  FormFieldContext,
+  FormFieldEntry,
+  FormFieldsContext,
   FormFieldBinding,
   BoundFormInput,
   FormFields,
   FormDraft,
+  FormDraftSnapshot,
   FormInputSlotField,
   FormInputSlotProps,
   FormActionSlotProps,
@@ -55,4 +58,4 @@ export type { ResourceOperation, StandardRowOperation, AccessRequest, AccessAdap
 export type { QueryNamespace, QueryValues, QueryLocationAdapter, QueryKey } from './query'
 
 export type { CollectionProps, CollectionSlotProps, TableProps, TreeTableProps, TableContentProps, TreeRowContext, TreePresentationOptions, TreeTableContentProps, DetailProps, RowReorderPayload } from './components'
-export type { AfterSubmitContext, DetailViewProps, FormViewProps, FormViewSlots, ListFilters, ListViewActions, ListViewDeleteState, ListViewProps, ListViewSlotActions } from './views'
+export type { AfterSubmitContext, DetailViewControls, DetailViewProps, DetailViewReadyProps, FormViewProps, FormViewSlots, ListFilters, ListViewActions, ListViewDeleteState, ListViewProps, ListViewSlotActions } from './views'

@@ -1,4 +1,4 @@
-<script setup lang="ts" generic="TInput extends object, TOutput extends object, TResult, TKeys extends string = Extract<keyof TInput, string>">
+<script setup lang="ts" generic="TInput extends object, TOutput extends object, TResult, TKeys extends string = Extract<keyof TInput, string>, TContext extends object = Readonly<Record<string, unknown>>">
 import { computed, getCurrentInstance, onBeforeUpdate, reactive, ref, useAttrs, type WritableComputedRef } from 'vue'
 import type { FormDraftSnapshot, FormInputSlotProps, FormSlots } from '../../contracts/forms'
 import type { SubmitError } from '../../contracts/results'
@@ -14,7 +14,7 @@ import { useFrameworkUiDefaults } from '../views/uiDefaults'
 
 defineOptions({ inheritAttrs: false })
 
-const props = defineProps<FormProps<TInput, TOutput, TResult, TKeys>>()
+const props = defineProps<FormProps<TInput, TOutput, TResult, TKeys, TContext>>()
 defineSlots<FormSlots<TInput, TKeys>>()
 const attrs = useAttrs()
 const componentProps = getCurrentInstance()?.type.props
@@ -125,6 +125,13 @@ function fieldId(key: string): string {
 function fieldDisabled(key: string): boolean {
   const state = fieldState(key)
   return props.disabled === true || state.disabled || state.props.disabled === true
+}
+
+function rendererProps(key: string): Readonly<Record<string, unknown>> {
+  const field = fieldState(key)
+  if (field.renderer !== 'table' && field.renderer !== 'lookup') return field.props
+  if (Object.hasOwn(field.props, 'context') || props.context === undefined) return field.props
+  return { ...field.props, context: props.context }
 }
 
 function helperMessageFor(key: string): string | undefined {
@@ -256,7 +263,7 @@ defineExpose({
             v-else
             :is="renderers.require(fieldRenderer(field.key))"
             :key="fieldComponentKey(field.key)"
-            v-bind="fieldState(field.key).props"
+            v-bind="rendererProps(field.key)"
             v-model="fieldModel(field.key).value"
             :id="fieldId(field.key)"
             :error="issueFor(field.key)"

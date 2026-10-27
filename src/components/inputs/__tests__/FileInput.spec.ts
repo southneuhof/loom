@@ -606,7 +606,7 @@ describe('FileInput upload surface', () => {
     const view = mountCore(Form, {
       fields: {
         toggle: { label: 'Toggle', renderer: 'text' },
-        file: { label: 'File', renderer: 'file', behavior: { visible: () => show.value } },
+        file: () => ({ label: 'File', renderer: 'file', visible: show.value }),
       },
       schema: fileAndToggleSchema,
       initialData: { toggle: '', file: null },

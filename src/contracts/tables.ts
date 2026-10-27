@@ -1,8 +1,30 @@
-import type { DisplayField } from './display'
+import type { DisplayField, DisplayValueConfiguration } from './display'
 import type { LabelDictionary } from './labels'
 import type { RawSchema } from './schema'
+import type { ContextRequirements } from './contextRequirements'
 
-export interface TableColumn<TRecord extends object = Record<string, unknown>, TValue = unknown> extends DisplayField<TRecord, TValue> {
+export interface TableColumnContext<TContext extends object = {}> {
+  readonly context: TContext
+}
+
+export type TableColumnContextValue<TEntry> = TEntry extends (...args: infer TArgs) => unknown
+  ? TArgs extends [infer TScope] ? TScope extends { readonly context: infer TContext } ? TContext : never : never
+  : never
+
+type ResolvedColumn<TEntry> = TEntry extends (...args: never[]) => unknown ? ReturnType<TEntry> : TEntry
+
+type TableColumnCellContextValue<TEntry> = ResolvedColumn<TEntry> extends { readonly cell: infer TCell }
+  ? TCell extends (...args: infer TArgs) => unknown
+    ? TArgs extends [infer TScope] ? TScope extends { readonly context: infer TContext } ? TContext : never : never
+    : never
+  : never
+
+export type TableColumnCell<TRecord extends object, TContext extends object = {}> =
+  | DisplayValueConfiguration<TRecord>
+  | ((scope: { readonly record: TRecord; readonly context: TContext }) => DisplayValueConfiguration<TRecord>)
+
+type TableColumnMetadata<TRecord extends object> = {
+  readonly label?: DisplayField<TRecord>['label']
   readonly sortable?: boolean
   readonly sortKey?: Extract<keyof TRecord, string>
   readonly align?: 'start' | 'center' | 'end'
@@ -10,8 +32,38 @@ export interface TableColumn<TRecord extends object = Record<string, unknown>, T
   readonly headerClass?: string
 }
 
-export interface TableDefinition<TRecord extends object = Record<string, unknown>, TColumns extends Readonly<Record<string, TableColumn<TRecord>>> = Readonly<Record<string, TableColumn<TRecord>>>> {
+export type TableColumn<TRecord extends object = Record<string, unknown>, TValue = unknown, TContext extends object = {}> =
+  | (TableColumnMetadata<TRecord> & DisplayField<TRecord, TValue> & { readonly cell?: never })
+  | (TableColumnMetadata<TRecord> & {
+      readonly cell: TableColumnCell<TRecord, TContext>
+      readonly read?: never
+      readonly renderer?: never
+      readonly props?: never
+      readonly format?: never
+    })
+
+export type TableColumnResolver<
+  TRecord extends object,
+  TContext extends object = {},
+> = (scope: TableColumnContext<TContext>) => TableColumn<TRecord, unknown, TContext>
+
+export type TableColumnEntry<TRecord extends object, TContext extends object = {}> =
+  | TableColumn<TRecord, unknown, TContext>
+  | TableColumnResolver<TRecord, TContext>
+
+type TableColumnContexts<TColumns> = {
+  [TKey in keyof TColumns]: TableColumnContextValue<Exclude<TColumns[TKey], undefined>> | TableColumnCellContextValue<Exclude<TColumns[TKey], undefined>>
+}[keyof TColumns]
+
+export type TableColumnsContext<TColumns extends object> = ContextRequirements<TableColumnContexts<TColumns>>
+
+export interface TableDefinition<
+  TRecord extends object = Record<string, unknown>,
+  TColumns extends Readonly<Record<string, unknown>> = Readonly<Record<string, TableColumnEntry<TRecord>>>,
+  TContext extends object = Readonly<Record<string, unknown>>,
+> {
   readonly schema: RawSchema<object, TRecord>
   readonly columns: TColumns
   readonly labels?: LabelDictionary
+  readonly context?: TContext
 }

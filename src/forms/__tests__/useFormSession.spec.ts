@@ -187,9 +187,9 @@ describe('useFormSession loading and identity', () => {
         const form = ref<Record<string, unknown> | null>(null)
         expose({ form })
         return () => h('div', [
-          h(Table as Component, resource.list.table),
+          h(Table as Component, resource.list().table),
           h(Form, {
-            ...resource.create.form,
+            ...resource.create().form,
             ref: form,
             onSubmitted: (result: unknown, refreshError?: unknown) => submitted.push([result, refreshError]),
           }),
@@ -264,8 +264,8 @@ describe('useFormSession loading and identity', () => {
         queryClient = useFrameworkQueryClient()
         expose({ form })
         return () => h('div', [
-          h(Table as Component, resource.list.table),
-          h(Form, { ...resource.create.form, ref: form }),
+          h(Table as Component, resource.list().table),
+          h(Form, { ...resource.create().form, ref: form }),
         ])
       },
     })

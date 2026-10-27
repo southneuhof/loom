@@ -1,6 +1,7 @@
 import { defineResource } from '../defineResource'
+import { defineForm } from '../../forms/defineForm'
 import { defineTable } from '../../tables/defineTable'
-import type { CollectionLoadContext, CollectionResult, FormDraft, QueryValues, RawSchema, RecordIdentity, RecordLoadContext } from '../../contracts'
+import type { CollectionLoadContext, CollectionResult, DetailFieldContext, FormDraft, FormDraftSnapshot, FormFieldContext, QueryValues, RawSchema, RecordIdentity, RecordLoadContext, TableColumnContext } from '../../contracts'
 import type { ListFilters, ListViewProps } from '../../contracts/views'
 import type { ListExportOptions } from '../../services/excel'
 import type { ResourceCreateDeclaration, ResourceListDeclaration } from '../operations'
@@ -79,6 +80,100 @@ const rows = defineResource({
   },
 })
 
+type TenantContext = { tenantId: string }
+type FilterContext = { organizationId: string }
+type ContextFilterInput = { state: string }
+type ContextFilterQuery = { status: string }
+const contextFilterSchema = rawSchema<ContextFilterInput, Partial<ContextFilterQuery>>()
+const contextualResource = defineResource({
+  key: 'contextual-resource',
+  identity: (record: Row) => record.id,
+  list: {
+    permission: null,
+    table: {
+      schema: rowSchema,
+      columns: {
+        name: ({ context }: { context: TenantContext }) => ({
+          read: (record: Row) => `${context.tenantId}:${record.name}`,
+        }),
+      },
+      load: async () => ({ data: [] as Row[] }),
+    },
+    filters: {
+      schema: contextFilterSchema,
+      fields: {
+        state: ({ context }: { draft: FormDraftSnapshot<ContextFilterInput>; context: FilterContext }) => ({
+          renderer: 'text' as const,
+          label: context.organizationId,
+        }),
+      },
+      queryKeys: ['status'],
+      toDraft: (query: Readonly<QueryValues>) => typeof query.status === 'string' ? { state: query.status } : {},
+    },
+  },
+  create: {
+    permission: null,
+    form: {
+      schema: draftSchema,
+      fields: {
+        name: ({ context }: { draft: FormDraftSnapshot<Draft>; context: TenantContext }) => ({
+          renderer: 'text',
+          props: { placeholder: context.tenantId },
+        }),
+      },
+      submit: async (output: Draft) => ({ id: output.name, ...output, status: 'new' }),
+    },
+  },
+  detail: {
+    permission: null,
+    detail: ({ id }) => ({
+      schema: detailSchema,
+      fields: {
+        summary: ({ record, context }: { record: DetailRecord; context: TenantContext }) => ({
+          read: () => `${context.tenantId}:${record.summary}`,
+        }),
+      },
+      load: async () => ({ id, name: 'One', status: 'new', summary: 'Summary' }),
+    }),
+  },
+  update: {
+    permission: null,
+    form: ({ id }) => ({
+      schema: draftSchema,
+      fields: {
+        name: ({ context }: { draft: FormDraftSnapshot<Draft>; context: TenantContext }) => ({
+          renderer: 'text',
+          props: { placeholder: context.tenantId },
+        }),
+      },
+      load: async () => ({ name: `Row ${id}` }),
+      submit: async (output: Draft) => ({ id, ...output, status: 'updated' }),
+    }),
+  },
+})
+contextualResource.list({ context: { tenantId: 'north', organizationId: 'west' }, searchParameters: { active: true } })
+contextualResource.create({ context: { tenantId: 'north' }, searchParameters: { active: true } })
+contextualResource.detail({ id: '1', context: { tenantId: 'north' }, searchParameters: { version: 2 } })
+contextualResource.update({ id: '1', context: { tenantId: 'north' }, searchParameters: { version: 2 }, initialData: { name: 'Draft' } })
+
+// @ts-expect-error Contextual columns and filter fields require their typed binding context.
+contextualResource.list()
+
+// @ts-expect-error Contextual form fields require their typed binding context.
+contextualResource.create({ context: { tenantId: 7 } })
+
+// @ts-expect-error Contextual detail fields require their typed binding context.
+contextualResource.detail({ id: '1' })
+
+// @ts-expect-error Contextual update fields require their typed binding context.
+contextualResource.update({ id: '1' })
+
+// @ts-expect-error Binding context must satisfy every configured resolver.
+contextualResource.list({ context: { tenantId: 'north' } })
+
+const rowsList = rows.list()
+const rowsCreate = rows.create()
+
 type ServerSortQuery = { sort_by?: 'name' | 'id' }
 const loadSortedRows = async (_context: CollectionLoadContext<ServerSortQuery>): Promise<CollectionResult<Row>> => ({ data: [] })
 const sharedSortableColumns = {
@@ -94,7 +189,8 @@ const sortedRows = defineResource({
     table: { schema: rowSchema, columns: { ...sharedSortableColumns }, load: loadSortedRows },
   },
 })
-type SortedQuery = Parameters<typeof sortedRows.list.table.load>[0]['query']
+const sortedRowsList = sortedRows.list()
+type SortedQuery = Parameters<typeof sortedRowsList.table.load>[0]['query']
 const sortedQuery: SortedQuery = { sort_by: 'id' }
 type SortQueryPreserved = Assert<Equal<SortedQuery, ServerSortQuery>>
 const dynamicSortable = Math.random() > 0.5
@@ -144,7 +240,8 @@ const constructorBoundSortedRows = defineResource({
   identity: (record: Row) => record.id,
   list: { permission: null, table: { ...compactTableWithLiteralTrue, load: loadSortedRows } },
 })
-type ConstructorBoundQuery = Parameters<typeof constructorBoundSortedRows.list.table.load>[0]['query']
+const constructorBoundSortedRowsList = constructorBoundSortedRows.list()
+type ConstructorBoundQuery = Parameters<typeof constructorBoundSortedRowsList.table.load>[0]['query']
 type ConstructorBoundQueryPreserved = Assert<Equal<ConstructorBoundQuery, ServerSortQuery>>
 
 const updateOnly = defineResource({
@@ -163,17 +260,17 @@ const updateOnly = defineResource({
 
 void rows.update({ id: '1' }).form.id
 void updateOnly.update({ id: '1' }).form.load({ id: '1' })
-void rows.list.filters?.label
-void rows.list.export
-void rows.list.createRoute
-void rows.create.backTo
-void rows.create.defaultTo
+void rowsList.filters?.label
+void rowsList.export
+void rowsList.createRoute
+void rowsCreate.backTo
+void rowsCreate.defaultTo
 void rows.detail({ id: '1' }).backTo
 void rows.detail({ id: '1' }).title
 void rows.update({ id: '1' }).backTo
 
-const listLoadResult: Promise<CollectionResult<Row>> = rows.list.table.load({ query: {}, searchParameters: {} })
-const createdResult: Promise<{ id: string; name: string; status: 'new' }> = rows.create.form.submit({ name: 'Ada' })
+const listLoadResult: Promise<CollectionResult<Row>> = rowsList.table.load({ query: {}, searchParameters: {} })
+const createdResult: Promise<{ id: string; name: string; status: 'new' }> = rowsCreate.form.submit({ name: 'Ada' })
 const detailLoad: Promise<DetailRecord | undefined> = rows.detail({ id: '1' }).detail.load({ id: '1', searchParameters: {} })
 const updateLoad: (context: RecordLoadContext) => Promise<{ name: string }> = rows.update({ id: '1' }).form.load
 const updatedResult: Promise<{ id: string; name: string; status: 'updated' }> = rows.update({ id: '1' }).form.submit({ name: 'Ada' })
@@ -184,7 +281,7 @@ const updateAfterSubmit: NonNullable<typeof updatePage.afterSubmit> = async ({ r
 }
 void updateAfterSubmit
 const deletedResult: Promise<string> = rows.delete({ id: '1' }).run()
-const boundListIdentity: (record: Row) => RecordIdentity = rows.list.recordIdentity
+const boundListIdentity: (record: Row) => RecordIdentity = rowsList.recordIdentity
 const customActionResult: Promise<string> = rows.actions.verify.run('1')
 const listPermission: 'rows.list' = rows.permissions.list
 const createPermission: 'rows.create' = rows.permissions.create
@@ -229,44 +326,47 @@ const compactResource = defineResource({
   },
 })
 
-type CompactResourceFormSchema = Assert<Equal<typeof compactResource.create.form.schema, RawSchema<Draft, Draft>>>
-type CompactResourceTableSchema = Assert<Equal<typeof compactResource.list.table.schema, RawSchema<object, Row>>>
+const compactResourceList = compactResource.list()
+const compactResourceCreate = compactResource.create()
+
+type CompactResourceFormSchema = Assert<Equal<typeof compactResourceCreate.form.schema, RawSchema<Draft, Draft>>>
+type CompactResourceTableSchema = Assert<Equal<typeof compactResourceList.table.schema, RawSchema<object, Row>>>
 const compactDetailPage = compactResource.detail({ id: '1' })
 type CompactResourceDetailSchema = Assert<Equal<typeof compactDetailPage.detail.schema, RawSchema<object, DetailRecord>>>
-type CompactResourceFormProps = Assert<Equal<NonNullable<typeof compactResource.create.form.fields.name.props>, FormRendererProps<'text'>>>
-type CompactResourceFieldKeys = Assert<Equal<keyof typeof compactResource.create.form.fields, 'name'>>
-type CompactResourceFieldRenderer = Assert<Equal<typeof compactResource.create.form.fields.name.renderer, 'text'>>
-type CompactResourcePageTitle = Assert<Equal<typeof compactResource.list.title, 'Rows'>>
-type CompactResourceCreateTitle = Assert<Equal<typeof compactResource.create.title, 'Create row'>>
+type CompactResourceFormProps = Assert<Equal<NonNullable<typeof compactResourceCreate.form.fields.name.props>, FormRendererProps<'text'>>>
+type CompactResourceFieldKeys = Assert<Equal<keyof typeof compactResourceCreate.form.fields, 'name'>>
+type CompactResourceFieldRenderer = Assert<Equal<typeof compactResourceCreate.form.fields.name.renderer, 'text'>>
+type CompactResourcePageTitle = Assert<Equal<typeof compactResourceList.title, 'Rows'>>
+type CompactResourceCreateTitle = Assert<Equal<typeof compactResourceCreate.title, 'Create row'>>
 type CompactResourceDetailTitle = Assert<Equal<typeof compactDetailPage.title, 'Detail row'>>
 type CompactResourcePermission = Assert<Equal<typeof compactResource.permissions.create, null>>
-type CompactListIdentityNotConfigured = Assert<Equal<typeof compactResource.list.recordIdentity, undefined>>
+type CompactListIdentityNotConfigured = Assert<Equal<typeof compactResourceList.recordIdentity, undefined>>
 type ResourceListIdentityIsResourceOwned = Assert<Equal<'recordIdentity' extends keyof ResourceListDeclaration ? true : false, false>>
-const compactFormResult: Promise<{ id: string; name: string; status: string }> = compactResource.create.form.submit({ name: 'Ada' })
+const compactFormResult: Promise<{ id: string; name: string; status: string }> = compactResourceCreate.form.submit({ name: 'Ada' })
 const compactDetailLoad: Promise<DetailRecord | undefined> = compactResource.detail({ id: '1' }).detail.load({ id: '1', searchParameters: {} })
-const compactAfterSubmit: NonNullable<typeof compactResource.create.afterSubmit> = async ({ result }) => {
+const compactAfterSubmit: NonNullable<typeof compactResourceCreate.afterSubmit> = async ({ result }) => {
   const id: string = result.id
   void id
 }
 const standaloneDelete: ListViewProps<Row> = {
-  table: rows.list.table,
+  table: rowsList.table,
   deleteRecord: async (record) => record.id,
   recordIdentity: (record) => record.id,
 }
-const standaloneDeleteWithoutIdentity = { table: rows.list.table, deleteRecord: async (record: Row) => record.id }
+const standaloneDeleteWithoutIdentity = { table: rowsList.table, deleteRecord: async (record: Row) => record.id }
 type StandaloneDeleteNeedsIdentity = Assert<Equal<typeof standaloneDeleteWithoutIdentity extends ListViewProps<Row> ? true : false, false>>
 
 // @ts-expect-error Resource output hides the schema implementation detail.
-void compactResource.create.form.schema.compiler
+void compactResourceCreate.form.schema.compiler
 
 // @ts-expect-error Resource output hides the table schema implementation detail.
-void compactResource.list.table.schema.compiler
+void compactResourceList.table.schema.compiler
 
 // @ts-expect-error Resource output hides the detail schema implementation detail.
 void compactResource.detail({ id: '1' }).detail.schema.compiler
 
 // @ts-expect-error Bound submit keeps the complete required schema input.
-compactResource.create.form.submit({})
+compactResourceCreate.form.submit({})
 
 const twoArgumentDefinition = {
   key: 'rows',
@@ -342,21 +442,24 @@ const completeViewProps = defineResource({
   },
 })
 
-void completeViewProps.list.filters?.defaults?.status
-void completeViewProps.list.export
-void completeViewProps.list.createRoute
-void completeViewProps.create.form.submitLabel
-void completeViewProps.create.afterSubmit
+const completeViewPropsList = completeViewProps.list()
+const completeViewPropsCreate = completeViewProps.create()
+
+void completeViewPropsList.filters?.defaults?.status
+void completeViewPropsList.export
+void completeViewPropsList.createRoute
+void completeViewPropsCreate.form.submitLabel
+void completeViewPropsCreate.afterSubmit
 void completeViewProps.detail({ id: '1' }).backTo
 
-type CompactListFilterSchema = Assert<Equal<typeof completeViewProps.list.filters.schema, RawSchema<Partial<CompleteFilterInput>, Partial<CompleteFilterInput>>>>
-type CompactListFilterKeys = Assert<Equal<keyof typeof completeViewProps.list.filters.fields, 'status'>>
-type CompactListFilterRenderer = Assert<Equal<typeof completeViewProps.list.filters.fields.status.renderer, 'text'>>
-type CompactListFilterQueryKeys = Assert<Equal<typeof completeViewProps.list.filters.queryKeys, typeof completeFilters.queryKeys>>
-type CompactListFilterDraftMapper = Assert<Equal<typeof completeViewProps.list.filters.toDraft, typeof completeFilters.toDraft>>
+type CompactListFilterSchema = Assert<Equal<typeof completeViewPropsList.filters.schema, RawSchema<Partial<CompleteFilterInput>, Partial<CompleteFilterInput>>>>
+type CompactListFilterKeys = Assert<Equal<keyof typeof completeViewPropsList.filters.fields, 'status'>>
+type CompactListFilterRenderer = Assert<Equal<typeof completeViewPropsList.filters.fields.status.renderer, 'text'>>
+type CompactListFilterQueryKeys = Assert<Equal<typeof completeViewPropsList.filters.queryKeys, typeof completeFilters.queryKeys>>
+type CompactListFilterDraftMapper = Assert<Equal<typeof completeViewPropsList.filters.toDraft, typeof completeFilters.toDraft>>
 
 // @ts-expect-error Resource output hides the list filter schema implementation detail.
-void completeViewProps.list.filters.schema.compiler
+void completeViewPropsList.filters.schema.compiler
 
 type FilterQuery = { search?: string }
 type FilterInput = { term: string }
@@ -380,13 +483,14 @@ const mappedFiltersResource = defineResource({
     filters: mappedFilters,
   },
 })
-void mappedFiltersResource.list.filters?.fields.term
-type MappedResourceFilterQueryKeys = Assert<Equal<typeof mappedFiltersResource.list.filters.queryKeys, typeof mappedFilters.queryKeys>>
-type MappedResourceFilterDraftMapper = Assert<Equal<typeof mappedFiltersResource.list.filters.toDraft, typeof mappedFilters.toDraft>>
-type MappedResourceFilterSchema = Assert<Equal<typeof mappedFiltersResource.list.filters.schema, RawSchema<FilterInput, { search: string }>>>
-type MappedResourceFilterFields = Assert<Equal<keyof typeof mappedFiltersResource.list.filters.fields, 'term'>>
-type MappedResourceFilterRenderer = Assert<Equal<typeof mappedFiltersResource.list.filters.fields.term.renderer, 'text'>>
-type MappedResourceFilterCannotSubmit = Assert<Equal<typeof mappedFiltersResource.list.filters.submit, undefined>>
+const mappedFiltersResourceList = mappedFiltersResource.list()
+void mappedFiltersResourceList.filters?.fields.term
+type MappedResourceFilterQueryKeys = Assert<Equal<typeof mappedFiltersResourceList.filters.queryKeys, typeof mappedFilters.queryKeys>>
+type MappedResourceFilterDraftMapper = Assert<Equal<typeof mappedFiltersResourceList.filters.toDraft, typeof mappedFilters.toDraft>>
+type MappedResourceFilterSchema = Assert<Equal<typeof mappedFiltersResourceList.filters.schema, RawSchema<FilterInput, { search: string }>>>
+type MappedResourceFilterFields = Assert<Equal<keyof typeof mappedFiltersResourceList.filters.fields, 'term'>>
+type MappedResourceFilterRenderer = Assert<Equal<typeof mappedFiltersResourceList.filters.fields.term.renderer, 'text'>>
+type MappedResourceFilterCannotSubmit = Assert<Equal<typeof mappedFiltersResourceList.filters.submit, undefined>>
 
 const typedCreateFormBase = {
   schema: rawSchema<TypedCreateInput, TypedCreateOutput>(),
@@ -404,14 +508,119 @@ const typedCreateResource = defineResource({
   identity: (record: { id: string }) => record.id,
   create: typedCreateDeclaration,
 })
-void typedCreateResource.create.afterSubmit
-type TypedCreateSchema = Assert<Equal<typeof typedCreateResource.create.form.schema, RawSchema<TypedCreateInput, TypedCreateOutput>>>
-type TypedCreateFieldKeys = Assert<Equal<keyof typeof typedCreateResource.create.form.fields, 'name'>>
-type TypedCreateFieldRenderer = Assert<Equal<typeof typedCreateResource.create.form.fields.name.renderer, 'text'>>
-const typedCreateFieldProps: FormRendererProps<'text'> | undefined = typedCreateResource.create.form.fields.name.props
-const typedCreateOutput: Promise<{ id: string; name: string; status: 'new' }> = typedCreateResource.create.form.submit({ normalizedName: 'Ada' })
-type TypedCreateSubmitUsesParsedOutput = Assert<Equal<Parameters<typeof typedCreateResource.create.form.submit>[0], TypedCreateOutput>>
-type TypedCreateSubmitResultStaysDistinct = Assert<Equal<Awaited<ReturnType<typeof typedCreateResource.create.form.submit>>, { id: string; name: string; status: 'new' }>>
+const typedCreateResourceCreate = typedCreateResource.create()
+void typedCreateResourceCreate.afterSubmit
+type TypedCreateSchema = Assert<Equal<typeof typedCreateResourceCreate.form.schema, RawSchema<TypedCreateInput, TypedCreateOutput>>>
+type TypedCreateFieldKeys = Assert<Equal<keyof typeof typedCreateResourceCreate.form.fields, 'name'>>
+type TypedCreateFieldRenderer = Assert<Equal<typeof typedCreateResourceCreate.form.fields.name.renderer, 'text'>>
+const typedCreateFieldProps: FormRendererProps<'text'> | undefined = typedCreateResourceCreate.form.fields.name.props
+const typedCreateOutput: Promise<{ id: string; name: string; status: 'new' }> = typedCreateResourceCreate.form.submit({ normalizedName: 'Ada' })
+type TypedCreateSubmitUsesParsedOutput = Assert<Equal<Parameters<typeof typedCreateResourceCreate.form.submit>[0], TypedCreateOutput>>
+type TypedCreateSubmitResultStaysDistinct = Assert<Equal<Awaited<ReturnType<typeof typedCreateResourceCreate.form.submit>>, { id: string; name: string; status: 'new' }>>
+const typedCreateWithBindingLoad = typedCreateResource.create({ load: async () => ({ name: 'Prepared at binding' }) })
+const typedCreateBoundLoad: ((context: RecordLoadContext) => Promise<FormDraft<TypedCreateInput> | undefined>) | undefined = typedCreateWithBindingLoad.form.load
+const typedCreateBoundLoadResult: Promise<FormDraft<TypedCreateInput> | undefined> | undefined = typedCreateWithBindingLoad.form.load?.({
+  searchParameters: { source: 'invitation' },
+  signal: new AbortController().signal,
+})
+void [typedCreateBoundLoad, typedCreateBoundLoadResult]
+
+// @ts-expect-error A create loader returns the form input draft, not the parsed output.
+typedCreateResource.create({ load: async () => ({ normalizedName: 'Prepared output' }) })
+
+// @ts-expect-error A create loader receives record request parameters, not a custom query context.
+typedCreateResource.create({ load: async (context: { query: string }) => ({ name: context.query }) })
+
+const declaredCreateLoadResource = defineResource({
+  key: 'declared-create-load',
+  identity: (record: { id: string }) => record.id,
+  create: {
+    permission: null,
+    form: {
+      schema: rawSchema<TypedCreateInput, TypedCreateOutput>(),
+      fields: { name: { renderer: 'text' } },
+      load: async () => ({ name: 'Prepared in declaration' }),
+      submit: async (output: TypedCreateOutput) => ({ id: 'declared', ...output }),
+    },
+  },
+})
+const declaredCreateBoundLoad: (context: RecordLoadContext) => Promise<{ name: string }> = declaredCreateLoadResource.create().form.load
+void declaredCreateBoundLoad
+
+type ContextCreateInput = { projectId: string; category: string }
+type ProjectCreateContext = { project: string }
+type CategoryCreateContext = { category: string }
+const contextCreateSchema = rawSchema<ContextCreateInput, ContextCreateInput>()
+const contextCreate = defineResource({
+  key: 'context-create',
+  identity: (record: { id: string }) => record.id,
+  create: {
+    permission: null,
+    form: defineForm({
+      schema: contextCreateSchema,
+      fields: {
+        projectId: ({ context }: FormFieldContext<ContextCreateInput, ProjectCreateContext>) => ({ renderer: 'text', label: context.project }),
+        category: ({ context }: FormFieldContext<ContextCreateInput, CategoryCreateContext>) => ({ renderer: 'text', label: context.category }),
+      },
+      submit: async (output) => ({ id: 'context', ...output }),
+    }),
+  },
+})
+contextCreate.create({ context: { project: 'North', category: 'Safety' } })
+
+// @ts-expect-error Create context must satisfy each configured field resolver.
+contextCreate.create({ context: { project: 'North' } })
+
+const draftOnlyCreateSchema = rawSchema<{ name: string }, { name: string }>()
+const draftOnlyCreate = defineResource({
+  key: 'draft-only-create',
+  identity: (record: { id: string }) => record.id,
+  create: {
+    permission: null,
+    form: defineForm({
+      schema: draftOnlyCreateSchema,
+      fields: { name: ({ draft }: FormFieldContext<{ name: string }>) => ({ renderer: 'text', label: draft.name ?? 'Name' }) },
+      submit: async (output) => ({ id: 'draft-only', ...output }),
+    }),
+  },
+})
+draftOnlyCreate.create()
+
+type AdditionalRecordContext = { organizationId: string }
+const combinedReadContextResource = defineResource({
+  key: 'combined-read-context',
+  identity: (record: Row) => record.id,
+  list: {
+    permission: null,
+    table: {
+      schema: rowSchema,
+      columns: {
+        name: ({ context }: TableColumnContext<TenantContext>) => ({ read: (record: Row) => `${context.tenantId}:${record.name}` }),
+        status: { cell: ({ record, context }: { record: Row; context: AdditionalRecordContext }) => ({ read: () => `${context.organizationId}:${record.status}` }) },
+      },
+      load: async () => ({ data: [] as Row[] }),
+    },
+  },
+  detail: {
+    permission: null,
+    detail: ({ id }) => ({
+      schema: detailSchema,
+      fields: {
+        name: ({ record, context }: DetailFieldContext<DetailRecord, TenantContext>) => ({ read: () => `${context.tenantId}:${record.name}` }),
+        summary: ({ record, context }: DetailFieldContext<DetailRecord, AdditionalRecordContext>) => ({ read: () => `${context.organizationId}:${record.summary}` }),
+      },
+      load: async () => ({ id, name: 'One', status: 'new', summary: 'Summary' }),
+    }),
+  },
+})
+combinedReadContextResource.list({ context: { tenantId: 'north', organizationId: 'west' } })
+combinedReadContextResource.detail({ id: '1', context: { tenantId: 'north', organizationId: 'west' } })
+
+// @ts-expect-error Table and row-cell contexts are combined.
+combinedReadContextResource.list({ context: { tenantId: 'north' } })
+
+// @ts-expect-error Detail field contexts are combined.
+combinedReadContextResource.detail({ id: '1', context: { tenantId: 'north' } })
 
 const badCreateOutput = {
   schema: rawSchema<Draft, Draft>(),

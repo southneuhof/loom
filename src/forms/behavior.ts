@@ -1,18 +1,15 @@
 import { computed, watch, type ComputedRef, type WatchStopHandle } from 'vue'
-import type { FormBehaviorContext, FormInput } from '../contracts/forms'
+import type { FormBehaviorContext, FormDraftSnapshot, FormInput } from '../contracts/forms'
 import type { Label } from '../contracts/labels'
 import { resolveLabel } from '../labels/resolveLabel'
 import { formFieldValue } from './fieldBinding'
-import { isPlainRecord, snapshotEditable } from './draftValues'
-
-const behaviorMembers = new Set(['visible', 'disabled', 'props', 'presentation', 'derived'])
-const presentationMembers = new Set(['renderer', 'label', 'props', 'span', 'required'])
+import { snapshotEditable } from './draftValues'
 
 export interface FormBehaviorState {
   visible: boolean
   disabled: boolean
   label: string
-  renderer?: string
+  renderer: string
   props: Readonly<Record<string, unknown>>
   span?: number
   required: boolean
@@ -46,32 +43,58 @@ export type RuntimeFormField<
   required: boolean
 }
 
-interface FormPresentationRuntime {
-  renderer?: string | null
-  label?: Label | null
-  props?: Record<string, unknown> | null
-  span?: number | null
-  required?: boolean | null
+function equalRecord(left: Readonly<Record<string, unknown>>, right: Readonly<Record<string, unknown>>): boolean {
+  const keys = Object.keys(left)
+  return keys.length === Object.keys(right).length && keys.every((key) => Object.is(left[key], right[key]))
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function isLabel(value: unknown): value is Label {
-  return typeof value === 'string' || typeof value === 'function'
-}
-
-function invalidBehavior(key: string, member: string, expected: string): never {
-  throw new Error(`[loom][SURFACE_OPTION_INVALID] Form field "${key}" member "${member}" must be ${expected}.`)
+function invalidBehavior(key: string, member: string): never {
+  throw new Error(`[loom][SURFACE_OPTION_INVALID] Form field "${key}" member "${member}" must be a function.`)
 }
 
 export function assertFormBehavior(value: unknown, key: string): void {
-  if (!isRecord(value)) invalidBehavior(key, 'behavior', 'an object')
-  for (const [member, callback] of Object.entries(value)) {
-    if (!behaviorMembers.has(member)) invalidBehavior(key, `behavior.${member}`, 'a supported behavior member')
-    if (typeof callback !== 'function') invalidBehavior(key, `behavior.${member}`, 'a function')
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) invalidBehavior(key, 'behavior')
+  const behavior = value as Record<string, unknown>
+  for (const [member, callback] of Object.entries(behavior)) {
+    if (member !== 'derived') invalidBehavior(key, `behavior.${member}`)
+    if (typeof callback !== 'function') invalidBehavior(key, `behavior.${member}`)
   }
+}
+
+function callbackResult<TInput extends object, TKeys extends string>(
+  field: RuntimeFormField<TInput, TKeys>,
+  draft: object,
+  context: Readonly<Record<string, unknown>>,
+  dependencies: Set<string>,
+): unknown {
+  const callback = field.input.behavior?.derived
+  if (typeof callback !== 'function') return undefined
+  const readonlyDraft = new Proxy(draft, {
+    get(target, property, receiver) {
+      if (typeof property === 'string') dependencies.add(property)
+      return snapshotEditable(Reflect.get(target, property, receiver))
+    },
+    set(_target, property) {
+      throw new Error(`[loom][SURFACE_OPTION_INVALID] Form field "${field.key}" behavior.derived cannot write draft.${String(property)}.`)
+    },
+    deleteProperty(_target, property) {
+      throw new Error(`[loom][SURFACE_OPTION_INVALID] Form field "${field.key}" behavior.derived cannot delete draft.${String(property)}.`)
+    },
+    defineProperty(_target, property) {
+      throw new Error(`[loom][SURFACE_OPTION_INVALID] Form field "${field.key}" behavior.derived cannot define draft.${String(property)}.`)
+    },
+    getOwnPropertyDescriptor(target, property) {
+      const descriptor = Reflect.getOwnPropertyDescriptor(target, property)
+      if (!descriptor || !('value' in descriptor)) return descriptor
+      return { ...descriptor, value: snapshotEditable(descriptor.value) }
+    },
+  })
+  const behaviorContext: FormBehaviorContext<TInput, unknown> = {
+    draft: readonlyDraft as FormDraftSnapshot<TInput>,
+    value: formFieldValue(field.key, field.input, draft),
+    context,
+  }
+  return callback(behaviorContext)
 }
 
 function cycleIn(edges: ReadonlyMap<string, readonly string[]>): string[] | undefined {
@@ -96,142 +119,38 @@ function cycleIn(edges: ReadonlyMap<string, readonly string[]>): string[] | unde
   return undefined
 }
 
-function equalRecord(left: Readonly<Record<string, unknown>>, right: Readonly<Record<string, unknown>>): boolean {
-  const keys = Object.keys(left)
-  return keys.length === Object.keys(right).length && keys.every((key) => Object.is(left[key], right[key]))
-}
-
-function callbackResult<TInput extends object, TKeys extends string>(
-  field: RuntimeFormField<TInput, TKeys>,
-  member: string,
-  draft: object,
-  context: Readonly<Record<string, unknown>>,
-  dependencies?: Set<string>,
-): unknown {
-  const callback = Reflect.get(field.input.behavior ?? {}, member)
-  if (typeof callback !== 'function') return undefined
-  const proxy = new Proxy(draft, {
-    get(target, property, receiver) {
-      if (dependencies && typeof property === 'string') dependencies.add(property)
-      return snapshotEditable(Reflect.get(target, property, receiver))
-    },
-    set(_target, property) {
-      throw new Error(`[loom][SURFACE_OPTION_INVALID] Form field "${field.key}" behavior.${member} cannot write draft.${String(property)}.`)
-    },
-    deleteProperty(_target, property) {
-      throw new Error(`[loom][SURFACE_OPTION_INVALID] Form field "${field.key}" behavior.${member} cannot delete draft.${String(property)}.`)
-    },
-    defineProperty(_target, property) {
-      throw new Error(`[loom][SURFACE_OPTION_INVALID] Form field "${field.key}" behavior.${member} cannot define draft.${String(property)}.`)
-    },
-    getOwnPropertyDescriptor(target, property) {
-      const descriptor = Reflect.getOwnPropertyDescriptor(target, property)
-      if (!descriptor || !('value' in descriptor)) return descriptor
-      return { ...descriptor, value: snapshotEditable(descriptor.value) }
-    },
-  })
-  const behaviorContext: FormBehaviorContext<object, unknown> = {
-    draft: proxy,
-    value: formFieldValue(field.key, field.input, draft),
-    context,
-  }
-  return callback(behaviorContext)
-}
-
-function assertPresentation<TInput extends object, TKeys extends string>(field: RuntimeFormField<TInput, TKeys>, value: unknown): FormPresentationRuntime | undefined {
-  if (value === undefined) return undefined
-  if (!isRecord(value)) invalidBehavior(field.key, 'behavior.presentation', 'an object')
-  for (const member of Object.keys(value)) {
-    if (!presentationMembers.has(member)) invalidBehavior(field.key, `behavior.presentation.${member}`, 'a presentation member')
-  }
-  const result: FormPresentationRuntime = {}
-  if (value.label !== undefined && value.label !== null && !isLabel(value.label)) {
-    invalidBehavior(field.key, 'behavior.presentation.label', 'a string, a function, or null')
-  }
-  if (isLabel(value.label) || value.label === null) result.label = value.label
-  if (value.renderer !== undefined && value.renderer !== null && typeof value.renderer !== 'string') {
-    invalidBehavior(field.key, 'behavior.presentation.renderer', 'a registered renderer key or null')
-  }
-  if (typeof value.renderer === 'string' || value.renderer === null) result.renderer = value.renderer
-  if (value.props !== undefined && value.props !== null && !isRecord(value.props)) {
-    invalidBehavior(field.key, 'behavior.presentation.props', 'an object or null')
-  }
-  if (isRecord(value.props) && Object.hasOwn(value.props, 'required')) {
-    invalidBehavior(field.key, 'behavior.presentation.props.required', 'controlled by the input schema')
-  }
-  if (isRecord(value.props)) result.props = { ...value.props }
-  else if (value.props === null) result.props = null
-  if (value.span !== undefined && value.span !== null && (typeof value.span !== 'number' || !Number.isInteger(value.span) || value.span < 1)) {
-    invalidBehavior(field.key, 'behavior.presentation.span', 'a positive integer or null')
-  }
-  if (typeof value.span === 'number' || value.span === null) result.span = value.span
-  if (value.required !== undefined && value.required !== null && typeof value.required !== 'boolean') {
-    invalidBehavior(field.key, 'behavior.presentation.required', 'a boolean or null')
-  }
-  if (typeof value.required === 'boolean' || value.required === null) result.required = value.required
-  return result
-}
-
-function assertProps<TInput extends object, TKeys extends string>(field: RuntimeFormField<TInput, TKeys>, props: Readonly<Record<string, unknown>>, member: string): void {
-  if (Object.hasOwn(props, 'required')) invalidBehavior(field.key, `${member}.required`, 'controlled by the input schema')
-}
-
 export function createFormBehaviorRuntime<TInput extends object, TKeys extends string>(
   options: FormBehaviorRuntimeOptions<TInput, TKeys>,
 ): FormBehaviorRuntime {
   const effectKeys = new Set<string>(options.fields.filter((field) => field.input.behavior?.derived).map((field) => field.key))
   const effectDependencies = new Map<string, readonly string[]>()
-  const evaluate = (field: RuntimeFormField<TInput, TKeys>, member: string): unknown => {
-    const dependencies = member === 'derived' ? new Set<string>() : undefined
-    const value = callbackResult(field, member, options.draft, options.context(), dependencies)
-    if (member === 'derived') {
-      effectDependencies.set(field.key, [...(dependencies ?? [])].filter((dependency) => effectKeys.has(dependency)))
-      const cycle = cycleIn(effectDependencies)
-      if (cycle) throw new Error(`[loom][SURFACE_OPTION_INVALID] Form behavior value-effect cycle: ${cycle.join(' -> ')}.`)
-    }
-    return value
-  }
-
   const states = new Map<string, ComputedRef<FormBehaviorState>>()
   for (const field of options.fields) {
     let previousProps: Readonly<Record<string, unknown>> = {}
     let previousState: FormBehaviorState | undefined
     states.set(field.key, computed(() => {
-      const behavior = field.input.behavior
-      const visibleResult = evaluate(field, 'visible')
-      const disabledResult = evaluate(field, 'disabled')
-      if (visibleResult !== undefined && typeof visibleResult !== 'boolean') invalidBehavior(field.key, 'behavior.visible', 'a boolean')
-      if (disabledResult !== undefined && typeof disabledResult !== 'boolean') invalidBehavior(field.key, 'behavior.disabled', 'a boolean')
-      const presentation = assertPresentation(field, evaluate(field, 'presentation'))
-      const rendererMember = presentation && Object.hasOwn(presentation, 'renderer') ? presentation.renderer : field.input.renderer
-      const renderer = typeof rendererMember === 'string' ? rendererMember : field.input.renderer
-      let props = options.resolveBaseProps(field, renderer)
-      const behaviorProps = evaluate(field, 'props')
-      if (behaviorProps !== undefined) {
-        if (!isRecord(behaviorProps)) invalidBehavior(field.key, 'behavior.props', 'an object')
-        assertProps(field, behaviorProps, 'behavior.props')
-        props = { ...props, ...behaviorProps }
-      }
-      if (presentation?.props === null) props = options.resolveBaseProps(field, field.input.renderer)
-      else if (isRecord(presentation?.props)) {
-        assertProps(field, presentation.props, 'behavior.presentation.props')
-        props = { ...props, ...presentation.props }
-      }
-      assertProps(field, props, 'props')
+      const renderer = field.input.renderer
+      const props = options.resolveBaseProps(field, renderer)
       if (!equalRecord(props, previousProps)) previousProps = props
-      const labelMember = presentation && Object.hasOwn(presentation, 'label') ? presentation.label : field.input.label
-      const label = resolveLabel(field.key, labelMember, options.labels())
-      const state: FormBehaviorState = {
-        visible: visibleResult !== false,
-        disabled: Boolean(disabledResult) || typeof behavior?.derived === 'function',
-        label,
-        props: previousProps,
-        required: presentation?.required == null ? field.required : presentation.required === true,
+      const derivedCallback = field.input.behavior?.derived
+      let derived: unknown
+      if (typeof derivedCallback === 'function') {
+        const dependencies = new Set<string>()
+        derived = callbackResult(field, options.draft, options.context(), dependencies)
+        effectDependencies.set(field.key, [...dependencies].filter((dependency) => effectKeys.has(dependency)))
+        const cycle = cycleIn(effectDependencies)
+        if (cycle) throw new Error(`[loom][SURFACE_OPTION_INVALID] Form behavior value-effect cycle: ${cycle.join(' -> ')}.`)
       }
-      state.renderer = renderer
-      const span = presentation && Object.hasOwn(presentation, 'span') ? presentation.span : field.input.span
-      if (typeof span === 'number') state.span = span
-      if (typeof behavior?.derived === 'function') state.derived = evaluate(field, 'derived')
+      const state: FormBehaviorState = {
+        visible: field.input.visible !== false,
+        disabled: typeof derivedCallback === 'function',
+        label: resolveLabel(field.key, field.input.label, options.labels()),
+        renderer,
+        props: previousProps,
+        required: field.required,
+        ...(typeof field.input.span === 'number' ? { span: field.input.span } : {}),
+        ...(typeof derivedCallback === 'function' ? { derived } : {}),
+      }
       if (previousState && previousState.visible === state.visible && previousState.disabled === state.disabled && previousState.label === state.label && previousState.renderer === state.renderer && previousState.props === state.props && previousState.span === state.span && previousState.required === state.required && Object.is(previousState.derived, state.derived)) {
         return previousState
       }

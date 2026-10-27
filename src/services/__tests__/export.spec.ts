@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as XLSX from 'xlsx'
 import { configureParser, resetParserConfigForTests } from '@southneuhof/utilities/parse'
-import { resolveDisplayFields, resolveDisplayValue } from '../../display/resolveDisplay'
+import { formatDisplayValue, resolveDisplayFields, resolveDisplayValue, type ResolvedDisplayField } from '../../display/resolveDisplay'
 import { createWorkbook } from '../excel'
 import { exportTableRows } from '../export'
 
@@ -37,9 +37,13 @@ describe('display export', () => {
     })
     const load = vi.fn(async ({ query }: { query: Record<string, unknown> }) => {
       const page = Number(query.page)
-      const data = page === 1
-        ? [{ id: 1, roleId: 7, internalNote: 'one' }, { id: 2, roleId: 9, internalNote: 'two' }]
-        : [{ id: 3, roleId: 7, internalNote: 'three' }]
+      const data =
+        page === 1
+          ? [
+              { id: 1, roleId: 7, internalNote: 'one' },
+              { id: 2, roleId: 9, internalNote: 'two' },
+            ]
+          : [{ id: 3, roleId: 7, internalNote: 'three' }]
       return { data, meta: { total: 3, pageSize: 2, totalPage: 2 } }
     })
     await exportTableRows({
@@ -50,7 +54,7 @@ describe('display export', () => {
       options: {
         pageSize: 2,
         filename: 'roles',
-        mapValue: ({ value }) => value === 7 ? 'Admin' : value === 9 ? 'Editor' : value,
+        mapValue: ({ value }) => (value === 7 ? 'Admin' : value === 9 ? 'Editor' : value),
       },
     })
 
@@ -58,10 +62,7 @@ describe('display export', () => {
       { status: 'active', page: 1, limit: 2 },
       { status: 'active', page: 2, limit: 2 },
     ])
-    expect(load.mock.calls.map(([context]) => context.searchParameters)).toEqual([
-      { section: 'north' },
-      { section: 'north' },
-    ])
+    expect(load.mock.calls.map(([context]) => context.searchParameters)).toEqual([{ section: 'north' }, { section: 'north' }])
     const workbook = download.workbook as XLSX.WorkBook
     expect(download.filename).toBe('roles')
     expect(XLSX.utils.sheet_to_json(workbook.Sheets.Data!, { header: 1 })).toEqual([
@@ -89,11 +90,68 @@ describe('display export', () => {
     expect(values).toEqual([['Role Name'], ['JOINED ROLE']])
   })
 
+  it('exports context-resolved cells with their per-row formatting and mapping field', async () => {
+    configureParser({ formatters: { uppercase: (value) => String(value).toUpperCase() } })
+    type Record = { name: string }
+    type Context = { prefix: string }
+    const records: Record[] = [{ name: 'joined name' }, { name: 'another name' }]
+    const context: Context = { prefix: 'Joined' }
+    const resolveCell = vi.fn(({ record, context: cellContext }: { record: Record; context: Context }) => ({
+      read: (value: Record) => `${cellContext.prefix} ${value.name}`,
+      ...(record.name === 'joined name' ? { format: 'uppercase' } : {}),
+    }))
+    const columns = resolveDisplayFields<Record, Context>({
+      surface: 'table',
+      entries: { name: { label: 'Name', cell: resolveCell } },
+    })
+    const formattedWorkbook = createWorkbook(records, columns, {}, context)
+
+    expect(XLSX.utils.sheet_to_json(formattedWorkbook.Sheets.Data!, { header: 1 })).toEqual([['Name'], ['JOINED JOINED NAME'], ['Joined another name']])
+    expect(resolveCell.mock.calls.map(([scope]) => [scope.record, scope.context])).toEqual([
+      [records[0], context],
+      [records[1], context],
+    ])
+
+    const mappedFields: ResolvedDisplayField<Record, Context>[] = []
+    const mapValue = vi.fn(({ field, value }: { record: Record; field: ResolvedDisplayField<Record, Context>; value: unknown }) => {
+      mappedFields.push(field)
+      return formatDisplayValue(value, field)
+    })
+    await exportTableRows({
+      activeQuery: {},
+      searchParameters: {},
+      data: records,
+      columns,
+      context,
+      options: { filename: 'joined-names', mapValue },
+    })
+
+    const exportedWorkbook = download.workbook as XLSX.WorkBook
+    expect(download.filename).toBe('joined-names')
+    expect(XLSX.utils.sheet_to_json(exportedWorkbook.Sheets.Data!, { header: 1 })).toEqual([['Name'], ['JOINED JOINED NAME'], ['Joined another name']])
+    expect(
+      mappedFields.map(({ key, label, format, read, cell }) => ({
+        key,
+        label,
+        format,
+        hasRead: typeof read === 'function',
+        cell,
+      }))
+    ).toEqual([
+      { key: 'name', label: 'Name', format: 'uppercase', hasRead: true, cell: undefined },
+      { key: 'name', label: 'Name', format: undefined, hasRead: true, cell: undefined },
+    ])
+    expect(resolveCell).toHaveBeenCalledTimes(4)
+  })
+
   it('exports a joined relation through the display accessor and formatter', async () => {
     configureParser({ formatters: { uppercase: (value) => String(value).toUpperCase() } })
     const record = {
       userId: 'user-1',
-      roles: [{ id: 'role-1', name: 'Admin' }, { id: 'role-2', name: 'Editor' }],
+      roles: [
+        { id: 'role-1', name: 'Admin' },
+        { id: 'role-2', name: 'Editor' },
+      ],
     }
     const readRoleNames = vi.fn((value: typeof record) => value.roles.map((role) => role.name).join(', '))
     const columns = resolveDisplayFields({
@@ -111,11 +169,11 @@ describe('display export', () => {
 
     const workbook = download.workbook as XLSX.WorkBook
     expect(readRoleNames).toHaveBeenCalledWith(record)
-    expect(XLSX.utils.sheet_to_json(workbook.Sheets.Data!, { header: 1 })).toEqual([
-      ['Roles'],
-      ['ADMIN, EDITOR'],
+    expect(XLSX.utils.sheet_to_json(workbook.Sheets.Data!, { header: 1 })).toEqual([['Roles'], ['ADMIN, EDITOR']])
+    expect(record.roles).toEqual([
+      { id: 'role-1', name: 'Admin' },
+      { id: 'role-2', name: 'Editor' },
     ])
-    expect(record.roles).toEqual([{ id: 'role-1', name: 'Admin' }, { id: 'role-2', name: 'Editor' }])
   })
 
   it('reports an incomplete export when paging reaches the safety limit', async () => {
@@ -125,13 +183,15 @@ describe('display export', () => {
     }))
     const columns = resolveDisplayFields({ surface: 'table', entries: { id: { label: 'ID' } } })
 
-    await expect(exportTableRows({
-      activeQuery: {},
-      searchParameters: {},
-      load,
-      columns,
-      options: { pageSize: 1 },
-    })).rejects.toThrow('[loom] Export stopped at the page safety limit.')
+    await expect(
+      exportTableRows({
+        activeQuery: {},
+        searchParameters: {},
+        load,
+        columns,
+        options: { pageSize: 1 },
+      })
+    ).rejects.toThrow('[loom] Export stopped at the page safety limit.')
 
     expect(load).toHaveBeenCalledTimes(10_000)
     expect(download.workbook).toBeUndefined()

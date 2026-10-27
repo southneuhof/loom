@@ -4,6 +4,7 @@ import { createMemoryHistory, createRouter } from 'vue-router'
 import { z } from 'zod'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import type { FrameworkPluginOptions } from '../../../adapters/plugin'
+import type { DetailViewReadyProps } from '../../../contracts'
 import { createFrameworkQueryClient } from '../../../query'
 import { defineResource, resetResourceRuntimeForTests } from '../../../resources'
 import DetailView from '../DetailView.vue'
@@ -76,6 +77,37 @@ describe('resource cache ownership', () => {
     view.unmount()
   })
 
+  it('shares a cached detail read with body content and sibling panels', async () => {
+    const read = vi.fn(async () => ({ id: 1, name: 'Cached user' }))
+    const resource = defineResource({
+      key: 'cached-detail-body',
+      identity: (record: RecordRow) => record.id,
+      detail: { permission: null, detail: () => ({ schema: rowSchema, fields: displayFields, load: read }) },
+    })
+    const bodyMode = ref(false)
+    const view = mount(() => {
+      const page = resource.detail({ id: 1 })
+      const slots = bodyMode.value ? {
+        body: ({ record, detail }: DetailViewReadyProps<RecordRow>) => h('section', [
+          h('p', { class: 'main-record' }, record.name),
+          h('aside', { class: 'sibling-panel' }, detail.data.name),
+        ]),
+      } : undefined
+      return h(DetailView as Component, { ...page, key: bodyMode.value ? 'body' : 'default' }, slots)
+    })
+
+    await vi.waitFor(() => expect(view.host.textContent).toContain('Cached user'))
+    expect(read).toHaveBeenCalledOnce()
+
+    bodyMode.value = true
+    await vi.waitFor(() => {
+      expect(view.host.querySelector('.main-record')?.textContent).toBe('Cached user')
+      expect(view.host.querySelector('.sibling-panel')?.textContent).toBe('Cached user')
+    })
+    expect(read).toHaveBeenCalledOnce()
+    view.unmount()
+  })
+
   it('refreshes inactive detail and reopened form data while preserving a mounted draft', async () => {
     let name = 'Tax ID'
     const read = vi.fn(async () => ({ id: 1, name }))
@@ -145,8 +177,8 @@ describe('resource cache ownership', () => {
       },
     })
     const view = mount(() => h('div', [
-      h(ListView as Component, { ...records.list, table: { ...records.list.table, namespace: 'first', query: { page: 1 } }, key: 'first' }),
-      h(ListView as Component, { ...records.list, table: { ...records.list.table, namespace: 'second', query: { page: 2 } }, key: 'second' }),
+      h(ListView as Component, { ...records.list(), table: { ...records.list().table, namespace: 'first', query: { page: 1 } }, key: 'first' }),
+      h(ListView as Component, { ...records.list(), table: { ...records.list().table, namespace: 'second', query: { page: 2 } }, key: 'second' }),
     ]))
     await vi.waitFor(() => {
       expect(calls).toEqual([1, 2])
@@ -185,7 +217,13 @@ describe('resource cache ownership', () => {
       expect(view.host.textContent).toContain('First 2')
       expect(view.host.textContent).toContain('Second 1')
     })
-    expect(view.queryClient.getQueryCache().getAll().every((query) => query.isActive())).toBe(true)
+    const resourceReads = view.queryClient.getQueryCache().getAll().filter((query) =>
+      query.queryKey[0] === 'resource'
+      && (query.queryKey[1] === 'first' || query.queryKey[1] === 'second')
+      && query.queryKey[2] === 'detail',
+    )
+    expect(resourceReads).toHaveLength(3)
+    expect(resourceReads.every((query) => query.isActive())).toBe(true)
     await resource.update({ id: 1 }).form.submit({ name: 'Changed' })
     await vi.waitFor(() => expect(first).toHaveBeenCalledTimes(3))
     expect(second).toHaveBeenCalledTimes(1)

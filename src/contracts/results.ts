@@ -16,6 +16,7 @@ export interface CollectionMeta {
 export interface CollectionResult<TRecord extends object = Record<string, unknown>> {
   data: TRecord[]
   meta?: CollectionMeta
+  context?: unknown
 }
 
 export type RecordResult<TRecord extends object = Record<string, unknown>> = TRecord | undefined

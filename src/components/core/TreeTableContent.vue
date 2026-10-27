@@ -1,4 +1,4 @@
-<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>">
+<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>">
 import { computed, onBeforeUpdate, useAttrs, useSlots } from 'vue'
 import type { CollectionSlotProps, QueryValues, RowReorderPayload, SubmitError, TreeRowContext, TreeTableContentProps } from '../../contracts'
 import type { ResolvedDisplayField } from '../../display/resolveDisplay'
@@ -7,7 +7,7 @@ import { buildTreeTableIndex, useTreeTableState } from './useTreeTableState'
 
 defineOptions({ inheritAttrs: false })
 
-const props = withDefaults(defineProps<TreeTableContentProps<TRecord, TQuery>>(), {
+const props = withDefaults(defineProps<TreeTableContentProps<TRecord, TQuery, TContext>>(), {
   searchParameters: () => ({}),
   pagination: false,
   pageSizeOptions: () => [10, 25, 50, 100],
@@ -26,7 +26,7 @@ const emit = defineEmits<{
 }>()
 
 type RowScope = { record: TRecord; index: number; tree: TreeRowContext }
-type CellScope = RowScope & { value: unknown; field: ResolvedDisplayField<TRecord> }
+type CellScope = RowScope & { value: unknown; field: ResolvedDisplayField<TRecord, TContext> }
 
 defineSlots<{
   collection?: (scope: CollectionSlotProps<TRecord, TQuery>) => unknown
@@ -130,6 +130,8 @@ defineExpose({ expandAll, collapseAll, reveal })
     :query-schema="props.querySchema"
     :columns="props.columns"
     :labels="props.labels"
+    :context="props.context"
+    :result-context="props.resultContext"
     :records="props.records"
     :meta="props.meta"
     :loading="props.loading"

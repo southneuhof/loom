@@ -224,8 +224,8 @@ form.submit({ name: 'One', obsolete: 'old' })
     expectedTerms: ['initialValue'],
     valid: `const form = defineForm({ schema: draftSchema, fields: { name: { renderer: 'text', initialValue: '' } }, submit: async (output) => ({ id: '1', ...output }) })
 const resource = defineResource({ key: 'defaults', identity: (record: Row) => record.id, create: { permission: null, form }, list: { permission: null, table: { ...tableOptions, load: loadRows } } })
-void resource.create.form.submit({ name: 'One' })
-void resource.list.table
+void resource.create().form.submit({ name: 'One' })
+void resource.list().table
 `,
     invalid: `const resource = defineResource({
   key: 'defaults',
@@ -236,8 +236,8 @@ void resource.list.table
   }) },
   list: { permission: null, table: { ...tableOptions, load: loadRows } },
 })
-void resource.create.form.submit({ name: 'One' })
-void resource.list.table
+void resource.create().form.submit({ name: 'One' })
+void resource.list().table
 `,
   },
   {

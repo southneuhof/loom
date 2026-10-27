@@ -1,4 +1,4 @@
-<script setup lang="ts" generic="TInput extends object, TOutput extends object, TResult, TKeys extends string = Extract<keyof TInput, string>">
+<script setup lang="ts" generic="TInput extends object, TOutput extends object, TResult, TKeys extends string = Extract<keyof TInput, string>, TContext extends object = Readonly<Record<string, unknown>>">
 import { computed, getCurrentInstance, onBeforeUnmount, onBeforeUpdate, ref, useAttrs, useSlots, watch } from 'vue'
 import type { FormDraftSnapshot, FormExposed } from '../../contracts/forms'
 import type { SchemaParseResult } from '../../contracts/schema'
@@ -11,7 +11,7 @@ import { useFrameworkUiDefaults } from '../views/uiDefaults'
 
 defineOptions({ inheritAttrs: false })
 
-const props = withDefaults(defineProps<DialogFormProps<TInput, TOutput, TResult, TKeys>>(), {
+const props = withDefaults(defineProps<DialogFormProps<TInput, TOutput, TResult, TKeys, TContext>>(), {
   closeOnSubmitted: true,
 })
 defineSlots<DialogFormSlots<TInput, TKeys>>()
@@ -78,10 +78,10 @@ const open = computed({
   },
 })
 
-const formBindings = computed<FormProps<TInput, TOutput, TResult, TKeys>>(() => {
+const formBindings = computed<FormProps<TInput, TOutput, TResult, TKeys, TContext>>(() => {
   propRevision.value
   const bindings = Object.fromEntries(forwardedPropNames.filter((name) => name !== 'class' && name !== 'style' && hasCurrentProp(name)).map((name) => [name, propValue(name)]))
-  if (typeof props.submit === 'function' || hasDraftModel.value) return bindings as FormProps<TInput, TOutput, TResult, TKeys>
+  if (typeof props.submit === 'function' || hasDraftModel.value) return bindings as FormProps<TInput, TOutput, TResult, TKeys, TContext>
   throw new Error('[loom][FORM_BINDING_REQUIRED] DialogForm requires a function-valued submit prop or a present modelValue prop.')
 })
 
@@ -89,12 +89,12 @@ const nativeFormAttrs = computed<Record<string, unknown>>(() => {
   propRevision.value
   return Object.fromEntries(Object.entries(attrs).filter(([name]) => name.startsWith('data-')))
 })
-const forwardedFormProps = computed<FormProps<TInput, TOutput, TResult, TKeys>>(
+const forwardedFormProps = computed<FormProps<TInput, TOutput, TResult, TKeys, TContext>>(
   () =>
     ({
       ...formBindings.value,
       ...nativeFormAttrs.value,
-    }) as FormProps<TInput, TOutput, TResult, TKeys>
+    }) as FormProps<TInput, TOutput, TResult, TKeys, TContext>
 )
 const formSlotNames = () => Object.keys(slots).filter((name) => name === 'loading' || name === 'load-error' || name.startsWith('input:'))
 const dirty = computed(() => form.value?.dirty === true)

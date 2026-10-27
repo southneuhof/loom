@@ -2,8 +2,9 @@ type DisplaySurface = 'table' | 'detail'
 
 type InvalidDisplayOption = (surface: DisplaySurface, key: string, member: string, expected: string) => never
 
-const tableMembers = new Set(['label', 'read', 'renderer', 'props', 'format', 'sortable', 'sortKey', 'align', 'class', 'headerClass'])
+const tableMembers = new Set(['label', 'read', 'renderer', 'props', 'format', 'cell', 'sortable', 'sortKey', 'align', 'class', 'headerClass'])
 const detailMembers = new Set(['label', 'read', 'renderer', 'props', 'format', 'emphasis', 'span'])
+const cellMembers = new Set(['read', 'renderer', 'props', 'format'])
 const reservedProps = new Set([
   'value',
   'modelValue',
@@ -65,6 +66,12 @@ export function assertDisplayEntry(
   if ('format' in entry && typeof entry.format !== 'string') invalidOption(surface, key, 'format', 'a format key')
 
   if (surface === 'table') {
+    if ('cell' in entry && entry.cell !== undefined) {
+      for (const member of ['read', 'renderer', 'props', 'format']) {
+        if (Object.hasOwn(entry, member)) invalidOption(surface, key, member, 'omitted when cell is supplied')
+      }
+      if (typeof entry.cell !== 'function') assertDisplayValueConfiguration(surface, key, entry.cell, invalidOption)
+    }
     if ('sortable' in entry && typeof entry.sortable !== 'boolean') invalidOption(surface, key, 'sortable', 'a boolean')
     if ('sortKey' in entry && typeof entry.sortKey !== 'string') invalidOption(surface, key, 'sortKey', 'a record key')
     if (entry.sortable === true && typeof entry.read === 'function' && (!Object.hasOwn(entry, 'sortKey') || !entry.sortKey)) {
@@ -83,4 +90,25 @@ export function assertDisplayEntry(
       invalidOption(surface, key, 'span', 'a positive integer')
     }
   }
+}
+
+export function assertDisplayValueConfiguration(
+  surface: DisplaySurface,
+  key: string,
+  value: unknown,
+  invalidOption: InvalidDisplayOption,
+): asserts value is Record<string, unknown> {
+  if (!isRecord(value)) invalidOption(surface, key, 'cell', 'a display value configuration object')
+  for (const member of Reflect.ownKeys(value)) {
+    if (typeof member !== 'string' || !cellMembers.has(member)) invalidOption(surface, key, String(member), 'a display value configuration member')
+  }
+  if ('read' in value && typeof value.read !== 'function') invalidOption(surface, key, 'cell.read', 'a function')
+  if ('renderer' in value && typeof value.renderer !== 'string') invalidOption(surface, key, 'cell.renderer', 'a registered display key')
+  if ('props' in value && !isRecord(value.props)) invalidOption(surface, key, 'cell.props', 'an object')
+  if (isRecord(value.props)) {
+    for (const member of reservedProps) {
+      if (Object.hasOwn(value.props, member)) invalidOption(surface, key, `cell.props.${member}`, 'supplied by the display surface')
+    }
+  }
+  if ('format' in value && typeof value.format !== 'string') invalidOption(surface, key, 'cell.format', 'a format key')
 }

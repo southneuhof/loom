@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { h } from 'vue'
 import { z } from 'zod/v4'
-import type { CollectionLoadContext, CollectionResult } from '../../../contracts'
+import type { CollectionLoadContext, CollectionResult, TableColumnContext } from '../../../contracts'
 import type { LookupInputProps } from '../form-inputs/lookupInput.types'
 import { defineTable } from '../../../tables/defineTable'
 import LookupInput from '../form-inputs/LookupInput.vue'
@@ -11,6 +11,20 @@ type Role = z.output<typeof schema>
 const roles: Role[] = [{ id: 'one', name: 'Admin' }]
 const table = defineTable({ schema, columns: { name: {} } })
 const load = async (_context: CollectionLoadContext): Promise<CollectionResult<Role>> => ({ data: roles })
+type WorkspaceContext = { workspaceId: string }
+const contextualTable = defineTable({
+  schema,
+  columns: {
+    name: ({ context }: TableColumnContext<WorkspaceContext>) => ({
+      read: (record: Role) => `${context.workspaceId}: ${record.name}`,
+    }),
+  },
+})
+const contextualProps: LookupInputProps<Role, WorkspaceContext> = {
+  table: contextualTable,
+  context: { workspaceId: 'north' },
+  data: roles,
+}
 
 const staticLookup = h(LookupInput, { table, data: roles })
 const loadedLookup = h(LookupInput, { table, load, namespace: 'role-lookup' })
@@ -23,9 +37,10 @@ const tableData: LookupInputProps<Role> = { table: { ...table, data: roles }, da
 // @ts-expect-error LookupInput table definitions cannot own a loader.
 const tableLoad: LookupInputProps<Role> = { table: { ...table, load }, data: roles }
 
-void [staticLookup, loadedLookup, missingSource, competingSources, tableData, tableLoad]
+void [staticLookup, loadedLookup, missingSource, competingSources, tableData, tableLoad, contextualProps]
 </script>
 
 <template>
   <LookupInput :table="table" :data="roles" />
+  <LookupInput v-bind="contextualProps" />
 </template>

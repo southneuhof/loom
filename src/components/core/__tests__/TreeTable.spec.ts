@@ -295,7 +295,7 @@ describe('TreeTable ownership and presentation', () => {
     ;(view.exposed().updateQuery as (patch: Record<string, unknown>) => void)({ search: 42 })
     await flush(12)
     expect(load).toHaveBeenCalledTimes(1)
-    expect(view.text()).toContain('TreeTable query does not match querySchema at "search"')
+    expect(view.text()).toContain('Collection query does not match querySchema at "search"')
     view.unmount()
   })
 

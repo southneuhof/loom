@@ -114,7 +114,7 @@ describe('Table core', () => {
     await flush(12)
 
     expect(load).not.toHaveBeenCalled()
-    expect(view.find('[role="alert"]')?.textContent).toContain('[loom][SURFACE_OPTION_INVALID] Table query does not match querySchema at "status".')
+    expect(view.find('[role="alert"]')?.textContent).toContain('[loom][SURFACE_OPTION_INVALID] Collection query does not match querySchema at "status".')
     view.unmount()
   })
 

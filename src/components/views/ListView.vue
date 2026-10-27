@@ -1,4 +1,4 @@
-<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>, TFilterInput extends object = Partial<TQuery>">
+<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>, TFilterInput extends object = Partial<TQuery>, TContext extends object = Readonly<Record<string, unknown>>">
 /**
  * Collection surface shell.
  *
@@ -38,7 +38,7 @@ import { exportTableRows } from "../../services";
 import { useTablePreferences } from "../core/useTablePreferences";
 import { isConfirmedWriteRefreshError, normalizeWriteError } from "../../resources/postWriteOutcome";
 
-const props = defineProps<ListViewProps<TRecord, TQuery, TFilterInput>>();
+const props = defineProps<ListViewProps<TRecord, TQuery, TFilterInput, TContext>>();
 const adapters = useFrameworkAdapters();
 const emit = defineEmits<{
   (event: "update:query", query: QueryValues): void;
@@ -63,7 +63,7 @@ defineSlots<{
   empty?: () => unknown;
   filters?: () => unknown;
   context?: () => unknown;
-  body?: (props: { table: TableProps<TRecord, TQuery> }) => unknown;
+  body?: (props: { table: TableProps<TRecord, TQuery, TContext> }) => unknown;
   footer?: () => unknown;
   "row-actions"?: (props: { record: TRecord }) => unknown;
 }>();
@@ -82,7 +82,7 @@ const identityOwnerTokens = new WeakMap<NonNullable<ListViewActions<TRecord>["re
 let nextIdentityOwnerToken = 0;
 
 type ListViewSurface = {
-  table: TableProps<TRecord, TQuery>;
+  table: TableProps<TRecord, TQuery, TContext>;
   createRoute?: RouteLocationRaw;
   detailRoute?: (record: TRecord) => RouteLocationRaw | undefined;
   updateRoute?: (record: TRecord) => RouteLocationRaw | undefined;
@@ -112,7 +112,7 @@ const surface = computed<ListViewSurface>(() => {
   };
 });
 
-const tableRef = ref<{ refresh: () => Promise<void>; query: QueryValues; updateQuery: (patch: QueryValues) => void; replaceQuery: (values: QueryValues) => void }>();
+const tableRef = ref<{ refresh: () => Promise<void>; query: QueryValues; updateQuery: (patch: QueryValues) => void; replaceQuery: (values: QueryValues) => void; readReady: boolean }>();
 const currentQuery = computed<QueryValues>(() => (props.table.query as QueryValues | undefined)
   ?? tableRef.value?.query
   ?? { page: 1, limit: props.table.defaultPageSize ?? 10 });
@@ -241,7 +241,7 @@ const deleteOutcomes = reactive(new Map<DeleteOwner, Map<string, DeleteOutcome>>
 const exporting = ref(false);
 let mounted = true;
 const columnFields = computed(() =>
-  resolveDisplayFields({ entries: surface.value.table.columns, labels: surface.value.table.labels, surface: "table" }),
+  resolveDisplayFields({ entries: surface.value.table.columns, labels: surface.value.table.labels, context: surface.value.table.context, surface: "table" }),
 );
 const columnKeys = computed(() => columnFields.value.map((field) => field.key));
 const tableNamespace = computed(() => surface.value.table.namespace);
@@ -340,7 +340,11 @@ function getDeleteState(record: TRecord): ListViewDeleteState {
 
 function deleteRecoveryIsCurrent(binding: DeleteBinding, error: Readonly<SubmitError>): boolean {
   const outcome = deleteOutcome(binding);
-  return mounted && deleteBindingIsCurrent(binding) && outcome?.error === error;
+  const current = surface.value;
+  return mounted
+    && current.recordIdentity === binding.identity
+    && (current.table.resource ?? current.recordIdentity) === binding.owner
+    && outcome?.error === error;
 }
 
 async function refreshDelete(binding: DeleteBinding, error: Readonly<SubmitError>): Promise<void> {
@@ -353,6 +357,11 @@ async function refreshDelete(binding: DeleteBinding, error: Readonly<SubmitError
     if (deleteRecoveryIsCurrent(binding, error)) setDeleteOutcome(binding, undefined);
     else resetDeleteRecovery(binding, error);
   } catch (recoveryError) {
+    const currentRead = tableRef.value;
+    if (isCancelledError(recoveryError) && deleteRecoveryIsCurrent(binding, error) && currentRead?.readReady) {
+      setDeleteOutcome(binding, undefined);
+      return;
+    }
     if (resetDeleteRecovery(binding, error) && deleteBindingIsCurrent(binding) && !isCancelledError(recoveryError)) {
       toast.warning("Changes saved. Could not refresh the data.");
     }
@@ -454,6 +463,7 @@ async function exportRows() {
       data: surface.value.table.data,
       load: surface.value.table.load,
       columns,
+      context: surface.value.table.context ?? ({} as TContext),
       options: props.export ?? {},
       fallbackNamespace: surface.value.table.namespace,
     });
@@ -519,6 +529,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
                     :schema="filters.schema"
                     :labels="filters.labels"
                     :validators="filters.validators"
+                    :context="surface.table.context"
                     :model-value="filterDraft"
                     @update:model-value="updateFilters"
                   />

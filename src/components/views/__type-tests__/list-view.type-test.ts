@@ -1,4 +1,4 @@
-import type { CollectionLoadContext, CollectionResult, FormDraft, QueryValues, RawSchema, TableProps } from '../../../contracts'
+import type { CollectionLoadContext, CollectionResult, FormDraft, FormFieldContext, QueryValues, RawSchema, TableColumnContext, TableProps } from '../../../contracts'
 import type { ListFilters, ListViewProps } from '../../../contracts/views'
 import ListView from '../ListView.vue'
 
@@ -36,6 +36,29 @@ const transformedFilters = {
 ListView({ table, filters: transformedFilters })
 ListView({ table: { ...table, reorderable: true } })
 ListView({ table, actionLabels: { create: 'New Sale', view: 'Open Sale' } })
+
+type WorkspaceContext = { workspaceId: string }
+const contextualTable: TableProps<Role, RoleQuery, WorkspaceContext> = {
+  ...table,
+  columns: {
+    name: ({ context }: TableColumnContext<WorkspaceContext>) => ({
+      read: (record: Role) => `${context.workspaceId}: ${record.name}`,
+    }),
+  },
+  context: { workspaceId: 'north' },
+}
+const contextualFilters = {
+  schema: filterSchema,
+  fields: {
+    state: ({ context }: FormFieldContext<FilterInput, WorkspaceContext>) => ({
+      renderer: 'text' as const,
+      label: context.workspaceId,
+    }),
+  },
+  queryKeys: ['status'],
+  toDraft: (query: Readonly<QueryValues>) => typeof query.status === 'string' ? { state: query.status } : {},
+} satisfies ListFilters<RoleQuery, FilterInput, WorkspaceContext>
+ListView({ table: contextualTable, filters: contextualFilters })
 
 const identityWithoutDelete = { table, recordIdentity: (record: Role) => record.id }
 type IdentityRequiresDelete = Assert<Equal<typeof identityWithoutDelete extends ListViewProps<Role, RoleQuery> ? true : false, false>>

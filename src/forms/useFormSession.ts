@@ -1,7 +1,7 @@
 import { computed, getCurrentInstance, nextTick, onUnmounted, provide, reactive, ref, shallowReactive, shallowRef, useId, watch, type ComputedRef, type WatchStopHandle } from 'vue'
 import { isCancelledError } from '@tanstack/vue-query'
 import { toast } from 'vue-sonner'
-import type { FormDefinition, FormDraft, FormDraftSnapshot } from '../contracts/forms'
+import type { FormDefinition, FormDraft, FormDraftSnapshot, FormFieldContext } from '../contracts/forms'
 import type { RecordLoadContext } from '../contracts/load'
 import type { SchemaIssue, SchemaParseResult } from '../contracts/schema'
 import type { SubmitError } from '../contracts/results'
@@ -10,6 +10,7 @@ import { useRendererRegistry } from '../renderers/registry'
 import { useLoader } from '../query'
 import { stableValue } from '../query/keys'
 import { instanceIdentity, recordCacheKey } from '../components/core/useCoreData'
+import { copyResourceLoaderIdentity, resourceLoaderIdentity, resourceLoaderOwner, resourceLoaderParameters } from '../resources/loaderIdentity'
 import { formInputPendingKeyOf, provideFormInputPending } from '../components/core/useFormInputState'
 import { createFormBehaviorRuntime, type FormBehaviorRuntime, type RuntimeFormField } from './behavior'
 import { createSchemaRuntime } from '../schemas/schemaRuntime'
@@ -142,9 +143,10 @@ function definitionFromProps<
   TOutput extends object,
   TResult,
   TKeys extends string,
+  TContext extends object,
 >(
-  props: FormProps<TInput, TOutput, TResult, TKeys>,
-): FormDefinition<TInput, TOutput, TResult, TKeys> {
+  props: FormProps<TInput, TOutput, TResult, TKeys, TContext>,
+): FormDefinition<TInput, TOutput, TResult, TKeys, TContext> {
   return {
     schema: props.schema,
     fields: props.fields,
@@ -200,8 +202,9 @@ export function useFormSession<
   TOutput extends object,
   TResult,
   TKeys extends string,
+  TContext extends object,
 >(
-  props: FormProps<TInput, TOutput, TResult, TKeys>,
+  props: FormProps<TInput, TOutput, TResult, TKeys, TContext>,
   events: FormSessionEvents<TInput, TResult>,
 ): FormSession<TInput, TOutput, TResult, TKeys> {
   type RuntimeField = RuntimeFormField<TInput, TKeys>
@@ -215,23 +218,81 @@ export function useFormSession<
 
   const adapters = useFrameworkAdapters()
   const renderers = useRendererRegistry('form')
-  const definition = computed(() => definitionFromProps(props))
+  const definition = computed(() => definitionFromProps<TInput, TOutput, TResult, TKeys, TContext>(props))
   const schemaRuntime = computed(() => {
     const currentDefinition = definition.value
     const runtime = createSchemaRuntime(currentDefinition.schema)
     assertFormDefinition(currentDefinition, runtime)
     return runtime
   })
-  const fields = computed<readonly RuntimeField[]>(() => {
+  type ResolverLoaderState = { signature: string; current: Function; forwarder: (...args: unknown[]) => unknown }
+  const resolverLoaders = new Map<string, Map<string, ResolverLoaderState>>()
+  const resolverLoaderRoles = ['load', 'loadDetail'] as const
+  const resolveFieldLoaders = (key: string, input: unknown): unknown => {
+    if (!isRecord(input) || !isRecord(input.props)) return input
+    const props = { ...input.props }
+    let changed = false
+    for (const role of resolverLoaderRoles) {
+      const load = Reflect.get(props, role)
+      if (typeof load !== 'function') continue
+      let fieldLoaders = resolverLoaders.get(key)
+      if (!fieldLoaders) {
+        fieldLoaders = new Map()
+        resolverLoaders.set(key, fieldLoaders)
+      }
+      const identity = resourceLoaderIdentity(load)
+      const resource = Reflect.get(props, 'resource')
+      const namespace = Reflect.get(props, 'namespace')
+      const searchParameters = Reflect.get(props, 'searchParameters')
+      const signature = JSON.stringify(stableValue({
+        owner: resourceLoaderOwner(load, typeof resource === 'string' ? resource : undefined, `form-field-${key}`),
+        operation: identity?.operation ?? role,
+        family: identity?.family ?? role,
+        id: identity?.id ?? Reflect.get(props, 'id') ?? Reflect.get(props, 'record') ?? null,
+        namespace,
+        searchParameters: resourceLoaderParameters(load, isRecord(searchParameters) ? searchParameters : undefined),
+      }))
+      let state = fieldLoaders.get(role)
+      if (!state || state.signature !== signature) {
+        const nextState: ResolverLoaderState = {
+          signature,
+          current: load,
+          forwarder: (...args) => Reflect.apply(nextState.current, undefined, args),
+        }
+        copyResourceLoaderIdentity(load, nextState.forwarder)
+        fieldLoaders.set(role, nextState)
+        state = nextState
+      } else state.current = load
+      if (load !== state.forwarder) {
+        props[role] = state.forwarder
+        changed = true
+      }
+    }
+    return changed ? { ...input, props } : input
+  }
+  const resolveConfiguredFields = (sourceDraft: object): readonly RuntimeField[] => {
     const currentDefinition = definition.value
     const runtime = schemaRuntime.value
-    return Object.keys(currentDefinition.fields).map((key) => {
+    const draftSnapshot = snapshotDraft<TInput>(sourceDraft)
+    const fieldEntries = Object.fromEntries(Object.keys(currentDefinition.fields).map((key) => {
       const fieldKey = key as Extract<TKeys, string>
-      const input = Reflect.get(currentDefinition.fields, fieldKey) as RuntimeField['input']
+      const entry = Reflect.get(currentDefinition.fields, fieldKey)
+      const resolvedInput = typeof entry === 'function'
+        ? (entry as (context: FormFieldContext<TInput, TContext>) => unknown)({ draft: draftSnapshot, context: (props.context ?? {}) as TContext })
+        : entry
+      const input = typeof entry === 'function' ? resolveFieldLoaders(fieldKey, resolvedInput) : resolvedInput
+      return [key, input]
+    }))
+    const resolvedDefinition = { ...currentDefinition, fields: fieldEntries as FormDefinition<TInput, TOutput, TResult, TKeys, TContext>['fields'] }
+    assertFormDefinition(resolvedDefinition, runtime)
+    return Object.keys(fieldEntries).map((key) => {
+      const fieldKey = key as Extract<TKeys, string>
+      const input = Reflect.get(fieldEntries, fieldKey) as RuntimeField['input']
       return { key: fieldKey, input, required: fieldKeys(key, input).some((name) => runtime.requiredKeys.has(name)) }
     })
-  })
-  const initialFields = fields.value
+  }
+  const initialDraftSeed = mergeInputValues(schemaRuntime.value.inputKeys, [props.initialData, modelValuePresent ? props.modelValue : undefined])
+  const initialFields = resolveConfiguredFields(initialDraftSeed)
   const idPrefix = useId()
   const formId = `form-${idPrefix}`
   const inputPendingCount = ref(0)
@@ -256,6 +317,7 @@ export function useFormSession<
   const baseline = ref(cloneRecord(initialValues))
   const draft = shallowReactive<FormDraft<TInput>>({})
   Object.assign(draft, cloneRecord(initialValues))
+  const fields = computed<readonly RuntimeField[]>(() => resolveConfiguredFields(draft))
   const touched = reactive<Record<string, boolean>>({})
   const controlIssues = reactive<Record<string, string>>({})
   const issues = ref<SchemaIssue[]>([])
@@ -290,7 +352,7 @@ export function useFormSession<
       return { ...(field.input.props ?? {}) }
     },
   })
-  const behaviorRuntime = shallowRef(behaviorFor(initialFields))
+  const behaviorRuntime = shallowRef(behaviorFor(fields.value))
   const behavior = computed(() => behaviorRuntime.value)
   const loaded = computed(() => loader.data.value)
   const loading = computed(() => loader.loading.value)
@@ -484,7 +546,7 @@ export function useFormSession<
             data: parsed.data,
             draft: snapshotDraft<TInput>(snapshot),
             initial: snapshotDraft<TInput>(baseline.value),
-            context: props.context ?? {},
+            context: (props.context ?? {}) as TContext,
             ...(field !== undefined ? { field } : {}),
             signal: controller.signal,
           })

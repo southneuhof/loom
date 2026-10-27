@@ -3,6 +3,8 @@ import { createApp, defineComponent, h, nextTick, ref, type App } from 'vue'
 import { z } from 'zod/v4'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import { createFrameworkQueryClient } from '../../../query'
+import type { FormFieldContext } from '../../../contracts/forms'
+import type { TableColumnContext } from '../../../contracts/tables'
 import { defineForm } from '../../../forms/defineForm'
 import { defineTable } from '../../../tables/defineTable'
 import TableInput from '../form-inputs/TableInput.vue'
@@ -81,5 +83,95 @@ describe('TableInput row editor', () => {
     expect(host.querySelector('[aria-label="Edit row"]')).toBeNull()
     expect(host.querySelector('[aria-label="Delete row"]')).toBeNull()
     expect(rows.value).toEqual([{ id: 'one', name: 'Changed first' }, second])
+  })
+
+  it('passes the table context into each row form resolver', async () => {
+    type WorkspaceContext = { workspaceId: string }
+    const contextualTable = defineTable({
+      schema: rowSchema,
+      columns: {
+        name: ({ context }: TableColumnContext<WorkspaceContext>) => ({ read: (row: Row) => `${context.workspaceId}: ${row.name}` }),
+      },
+    })
+    const workspaceForm = defineForm({
+      schema: inputSchema,
+      fields: {
+        label: ({ context }: FormFieldContext<{ id: string; label: string }, WorkspaceContext>) => ({
+          renderer: 'text' as const,
+          label: `${context.workspaceId} row`,
+          props: { placeholder: context.workspaceId },
+        }),
+      },
+    })
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(defineComponent({
+      setup: () => () => h(TableInput, {
+        table: contextualTable,
+        form: workspaceForm,
+        context: { workspaceId: 'north' },
+        toDraft,
+        modelValue: [{ id: 'one', name: 'First' }],
+      }),
+    }))
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+
+    await frame()
+    expect(host.textContent).toContain('north: First')
+    host.querySelector<HTMLButtonElement>('[aria-label="Edit row"]')!.click()
+    await frame()
+
+    const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]')!
+    expect(dialog.querySelector('label')?.textContent).toContain('north row')
+    expect(dialog.querySelector<HTMLInputElement>('input')?.placeholder).toBe('north')
+  })
+
+  it('keeps nested table and row form contexts ahead of TableInput context', async () => {
+    type WorkspaceContext = { workspaceId: string }
+    const contextualTable = {
+      ...defineTable({
+        schema: rowSchema,
+        columns: {
+          name: ({ context }: TableColumnContext<WorkspaceContext>) => ({ read: (row: Row) => `${context.workspaceId}: ${row.name}` }),
+        },
+      }),
+      context: { workspaceId: 'Table local' },
+    }
+    const contextualForm = defineForm({
+      schema: inputSchema,
+      fields: {
+        label: ({ context }: FormFieldContext<{ id: string; label: string }, WorkspaceContext>) => ({
+          renderer: 'text' as const,
+          label: `${context.workspaceId} row`,
+          props: { placeholder: context.workspaceId },
+        }),
+      },
+    })
+    const formWithContext = { ...contextualForm, context: { workspaceId: 'Form local' } }
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(defineComponent({
+      setup: () => () => h(TableInput, {
+        table: contextualTable,
+        form: formWithContext,
+        context: { workspaceId: 'Input outer' },
+        toDraft,
+        modelValue: [{ id: 'one', name: 'First' }],
+      }),
+    }))
+    app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
+    app.mount(host)
+    apps.push(app)
+    await frame()
+
+    expect(host.textContent).toContain('Table local: First')
+    host.querySelector<HTMLButtonElement>('[aria-label="Edit row"]')!.click()
+    await frame()
+
+    const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]')!
+    expect(dialog.querySelector('label')?.textContent).toContain('Form local row')
+    expect(dialog.querySelector<HTMLInputElement>('input')?.placeholder).toBe('Form local')
   })
 })

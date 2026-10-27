@@ -1,9 +1,10 @@
-import type { FormRendererKey, FormRendererModelValue, FormRendererNeedsProps, FormRendererPropPatch, FormRendererProps } from '../renderers/formContracts'
+import type { FormRendererKey, FormRendererModelValue, FormRendererNeedsProps, FormRendererProps } from '../renderers/formContracts'
 import type { Label, LabelDictionary } from './labels'
 import type { MaybePromise } from './load'
 import type { RawSchema, SchemaIssue, SchemaParseResult } from './schema'
 import type { SubmitError } from './results'
 import type { BaseInputControlBindings } from './formControlBindings'
+import type { ContextRequirements } from './contextRequirements'
 
 export type FormValidationTrigger = 'blur' | 'submit'
 
@@ -24,6 +25,11 @@ type SnapshotValue<TValue> = TValue extends Date | Blob
 export type FormDraftSnapshot<TInput extends object> = Readonly<{
   [TKey in keyof FormDraft<TInput>]: SnapshotValue<FormDraft<TInput>[TKey]>
 }>
+
+export interface FormFieldContext<TInput extends object, TContext extends object = {}> {
+  readonly draft: FormDraftSnapshot<TInput>
+  readonly context: TContext
+}
 
 export type FormInputSlotField<_TInput extends object, TKey extends string> = {
   readonly key: TKey
@@ -72,23 +78,42 @@ export type FormSlots<TInput extends object, TKeys extends string = Extract<keyo
   actions?: (props: FormActionSlotProps) => unknown
 }
 
-type FormInputBase<TInput extends object, TValue, TRenderer extends FormRendererKey> = {
+type FormInputBase<TInput extends object, TValue, TRenderer extends FormRendererKey, TContext extends object> = {
   readonly label?: Label
   readonly span?: number
+  readonly visible?: boolean
   readonly initialValue?: TValue | null | (() => TValue | null | undefined)
-  readonly behavior?: FormBehavior<TInput, TValue, TRenderer>
+  readonly behavior?: FormBehavior<TInput, TValue, TRenderer, TContext>
 }
 
-type RendererPropsMember<TRenderer extends FormRendererKey> =
-  FormRendererNeedsProps<TRenderer> extends true ? { readonly props: FormRendererProps<TRenderer> } : { readonly props?: FormRendererProps<TRenderer> }
+type RendererPropsMember<TRenderer extends FormRendererKey, TContext extends object> =
+  FormRendererNeedsProps<TRenderer, TContext> extends true ? { readonly props: FormRendererProps<TRenderer, TContext> } : { readonly props?: FormRendererProps<TRenderer, TContext> }
 
-type FormInputForRenderer<TInput extends object, TValue, TRenderer extends FormRendererKey> = FormInputBase<TInput, TValue, TRenderer> & {
+type FormInputForRenderer<TInput extends object, TValue, TRenderer extends FormRendererKey, TContext extends object> = FormInputBase<TInput, TValue, TRenderer, TContext> & {
   readonly renderer: TRenderer
-} & RendererPropsMember<TRenderer>
+} & RendererPropsMember<TRenderer, TContext>
 
-export type FormInput<TInput extends object = Record<string, unknown>, TValue = unknown, TRenderer extends FormRendererKey = FormRendererKey> = TRenderer extends FormRendererKey
-  ? FormInputForRenderer<TInput, TValue, TRenderer>
+export type FormInput<
+  TInput extends object = Record<string, unknown>,
+  TValue = unknown,
+  TRenderer extends FormRendererKey = FormRendererKey,
+  TContext extends object = Readonly<Record<string, unknown>>,
+> = TRenderer extends FormRendererKey
+  ? FormInputForRenderer<TInput, TValue, TRenderer, TContext>
   : never
+
+export type FormFieldResolver<
+  TInput extends object,
+  TValue,
+  TRenderer extends FormRendererKey,
+  TContext extends object = {},
+> = (context: FormFieldContext<TInput, TContext>) => FormInput<TInput, TValue, TRenderer, TContext>
+
+export type FormFieldEntry<
+  TInput extends object,
+  TValue,
+  TContext extends object = {},
+> = FormInput<TInput, TValue, FormRendererKey, TContext> | FormFieldResolver<TInput, TValue, FormRendererKey, TContext>
 
 export interface FormFieldBinding<TInput extends object, TValue, TKey extends Extract<keyof TInput, string> = Extract<keyof TInput, string>> {
   readonly keys: readonly TKey[]
@@ -96,38 +121,55 @@ export interface FormFieldBinding<TInput extends object, TValue, TKey extends Ex
   readonly write: (value: NonNullable<TValue>) => Partial<Pick<TInput, TKey>>
 }
 
-export type BoundFormInput<TInput extends object, TRenderer extends FormRendererKey = FormRendererKey> = TRenderer extends FormRendererKey
-  ? FormInput<TInput, FormRendererModelValue<TRenderer>, TRenderer> & {
+export type BoundFormInput<TInput extends object, TRenderer extends FormRendererKey = FormRendererKey, TContext extends object = {}> = TRenderer extends FormRendererKey
+  ? FormInput<TInput, FormRendererModelValue<TRenderer>, TRenderer, TContext> & {
       readonly binding: FormFieldBinding<TInput, FormRendererModelValue<TRenderer>>
     }
   : never
 
-export type FormFields<TInput extends object, TKeys extends string = Extract<keyof TInput, string>> = keyof TInput extends never ? object : {
+export type BoundFormInputResolver<TInput extends object, TContext extends object = {}> = (
+  context: FormFieldContext<TInput, TContext>,
+) => BoundFormInput<TInput, FormRendererKey, TContext>
+
+export type FormFields<
+  TInput extends object,
+  TKeys extends string = Extract<keyof TInput, string>,
+  TContext extends object = {},
+> = keyof TInput extends never ? object : {
   readonly [TKey in TKeys]?: TKey extends keyof TInput
-    ? FormInput<TInput, TInput[TKey]>
-    : BoundFormInput<TInput>
+    ? FormInput<TInput, TInput[TKey], FormRendererKey, TContext> | FormFieldResolver<TInput, TInput[TKey], FormRendererKey, TContext>
+    : BoundFormInput<TInput, FormRendererKey, TContext> | BoundFormInputResolver<TInput, TContext>
 }
 
-export interface FormBehaviorContext<TInput extends object, TValue> {
-  draft: FormDraftSnapshot<TInput>
-  value: TValue | null | undefined
-  context: Readonly<Record<string, unknown>>
+export type FormFieldContextValue<TEntry> = TEntry extends (...args: infer TArgs) => unknown
+  ? TArgs extends [infer TScope]
+    ? TScope extends { readonly draft: unknown; readonly context: infer TValue } ? TValue : never
+    : never
+  : never
+
+type FormFieldContexts<TFields> = {
+  [TKey in keyof TFields]: FormFieldContextValue<Exclude<TFields[TKey], undefined>>
+}[keyof TFields]
+
+export type FormFieldsContext<TFields extends object> = ContextRequirements<FormFieldContexts<TFields>>
+
+export interface FormBehaviorContext<
+  TInput extends object,
+  TValue,
+  TContext extends object = Readonly<Record<string, unknown>>,
+> {
+  readonly draft: FormDraftSnapshot<TInput>
+  readonly value: TValue | null | undefined
+  readonly context: TContext
 }
 
-export interface FormInputPresentation<TRenderer extends FormRendererKey = FormRendererKey> {
-  readonly renderer?: TRenderer | null
-  readonly label?: Label | null
-  readonly props?: FormRendererPropPatch<TRenderer> | null
-  readonly span?: number | null
-  readonly required?: boolean | null
-}
-
-export interface FormBehavior<TInput extends object = Record<string, unknown>, TValue = unknown, TRenderer extends FormRendererKey = FormRendererKey> {
-  readonly visible?: (context: FormBehaviorContext<TInput, TValue>) => boolean
-  readonly disabled?: (context: FormBehaviorContext<TInput, TValue>) => boolean
-  readonly props?: (context: FormBehaviorContext<TInput, TValue>) => FormRendererPropPatch<TRenderer>
-  readonly presentation?: (context: FormBehaviorContext<TInput, TValue>) => FormInputPresentation
-  readonly derived?: (context: FormBehaviorContext<TInput, TValue>) => TValue
+export interface FormBehavior<
+  TInput extends object = Record<string, unknown>,
+  TValue = unknown,
+  _TRenderer extends FormRendererKey = FormRendererKey,
+  TContext extends object = Readonly<Record<string, unknown>>,
+> {
+  readonly derived?: (context: FormBehaviorContext<TInput, TValue, TContext>) => TValue
 }
 
 export interface FormDefinitionValidatorContext<TInput extends object, TOutput extends object, TContext extends object = Readonly<Record<string, unknown>>> {
@@ -154,10 +196,11 @@ export interface FormDefinition<
   TOutput extends object = Record<string, unknown>,
   TResult = unknown,
   TKeys extends string = Extract<keyof TInput, string>,
+  TContext extends object = Readonly<Record<string, unknown>>,
 > {
   readonly schema: RawSchema<TInput, TOutput>
-  readonly fields: FormFields<TInput, TKeys>
+  readonly fields: FormFields<TInput, TKeys, TContext>
   readonly labels?: LabelDictionary
-  readonly validators?: readonly FormValidatorEntry<TInput, TOutput>[]
+  readonly validators?: readonly FormValidatorEntry<TInput, TOutput, TContext>[]
   readonly submit?: (output: TOutput) => MaybePromise<TResult>
 }

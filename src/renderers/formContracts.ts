@@ -1,5 +1,6 @@
 import type { Component } from 'vue'
 import type { TableInputProps } from '../components/composites/form-inputs/tableInput.types'
+import type { LookupInputProps } from '../components/composites/form-inputs/lookupInput.types'
 import type { TextInputDataAttributes } from '../components/inputs/textInput.types'
 import type { DrawingCanvasProps, FileInputMode, FileInputModelValue, FileInputProps, ImageInputProps } from '../components/inputs/fileInput.types'
 
@@ -62,8 +63,10 @@ type FormOwnedProp =
   | 'validation:touch'
   | 'validation:error'
 
-export type FormRendererPropBag<TRenderer extends keyof FormRendererComponents> = TRenderer extends 'table'
-  ? TableInputProps<object, object>
+export type FormRendererPropBag<TRenderer extends keyof FormRendererComponents, TContext extends object = Readonly<Record<string, unknown>>> = TRenderer extends 'table'
+  ? TableInputProps<object, object, TContext>
+  : TRenderer extends 'lookup'
+    ? LookupInputProps<object, TContext>
   : TRenderer extends 'file'
     ? FileInputProps<FileInputMode, boolean>
     : TRenderer extends 'image'
@@ -72,13 +75,13 @@ export type FormRendererPropBag<TRenderer extends keyof FormRendererComponents> 
         ? DrawingCanvasProps<FileInputMode>
         : PublicFormProps<FormRendererComponents[TRenderer]>
 
-export type FormRendererProps<TRenderer extends keyof FormRendererComponents> = Omit<
-  FormRendererPropBag<TRenderer>,
+export type FormRendererProps<TRenderer extends keyof FormRendererComponents, TContext extends object = Readonly<Record<string, unknown>>> = Omit<
+  FormRendererPropBag<TRenderer, TContext>,
   FormOwnedProp
 > & (TRenderer extends 'text' | 'password' ? TextInputDataAttributes : {})
 
-export type FormRendererPropPatch<TRenderer extends keyof FormRendererComponents> = Partial<
-  FormRendererProps<TRenderer>
+export type FormRendererPropPatch<TRenderer extends keyof FormRendererComponents, TContext extends object = Readonly<Record<string, unknown>>> = Partial<
+  FormRendererProps<TRenderer, TContext>
 >
 
 type RequiredKeys<TObject> = TObject extends object
@@ -87,8 +90,8 @@ type RequiredKeys<TObject> = TObject extends object
     }[keyof TObject]
   : never
 
-export type FormRendererNeedsProps<TRenderer extends keyof FormRendererComponents> =
-  [RequiredKeys<FormRendererProps<TRenderer>>] extends [never] ? false : true
+export type FormRendererNeedsProps<TRenderer extends keyof FormRendererComponents, TContext extends object = Readonly<Record<string, unknown>>> =
+  [RequiredKeys<FormRendererProps<TRenderer, TContext>>] extends [never] ? false : true
 
 type ModelPropValue<TComponent> = PublicFormProps<TComponent> extends infer TProps
   ? TProps extends { modelValue?: unknown } ? TProps['modelValue'] : never

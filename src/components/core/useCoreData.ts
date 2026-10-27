@@ -7,12 +7,12 @@
  */
 import { getCurrentInstance } from 'vue'
 import type { QueryKey, QueryNamespace, QueryValues, RecordIdentity } from '../../contracts'
-import { collectionKey, recordKey } from '../../query'
+import { collectionKey, recordKey, stableValue } from '../../query'
+import { resourceLoaderParameters, resourceLoaderIdentity } from '../../resources/loaderIdentity'
 
-export function assertSingleDataSource(component: string, data: unknown, load: unknown, dataShape: 'collection' | 'record' = 'collection'): void {
-  const supplied = getCurrentInstance()?.vnode.props ?? {}
-  const hasData = Object.hasOwn(supplied, 'data') || data !== undefined
-  const hasLoad = Object.hasOwn(supplied, 'load') || load !== undefined
+export function assertSingleDataSource(component: string, data: unknown, load: unknown, dataShape: 'collection' | 'record' = 'collection', supplied?: object): void {
+  const hasData = data !== undefined || (supplied !== undefined && Object.hasOwn(supplied, 'data'))
+  const hasLoad = load !== undefined || (supplied !== undefined && Object.hasOwn(supplied, 'load'))
   if (hasData === hasLoad) {
     throw new Error(`[loom][SURFACE_DATA_SOURCE_INVALID] ${component} requires exactly one of "data" or "load".`)
   }
@@ -33,10 +33,14 @@ export function instanceIdentity(fallback: string): string {
   return instance ? `${fallback}-${instance.uid}` : fallback
 }
 
-export function collectionCacheKey(resource: string, namespace: QueryNamespace | undefined, query: QueryValues, searchParameters: QueryValues): QueryKey {
-  return collectionKey({ resource, namespace, query, searchParameters })
+export function collectionCacheKey(resource: string, namespace: QueryNamespace | undefined, query: QueryValues, searchParameters: QueryValues, load?: unknown): QueryKey {
+  return collectionKey({ resource, namespace, query, searchParameters: resourceLoaderParameters(load, searchParameters) })
 }
 
-export function recordCacheKey(resource: string, id: RecordIdentity | undefined, variant: 'display' | 'form', namespace: QueryNamespace | undefined, searchParameters: QueryValues): QueryKey {
-  return recordKey({ resource, id: id ?? null, variant, namespace, searchParameters })
+export function recordCacheKey(resource: string, id: RecordIdentity | undefined, variant: 'display' | 'form', namespace: QueryNamespace | undefined, searchParameters: QueryValues, load?: unknown): QueryKey {
+  const identity = resourceLoaderIdentity(load)
+  if (identity?.id !== undefined && id !== undefined && JSON.stringify(stableValue(identity.id)) !== JSON.stringify(stableValue(id))) {
+    throw new Error('[loom][RESOURCE_LOADER_IDENTITY_CONFLICT] Bound loader has a different record identity.')
+  }
+  return recordKey({ resource, id: id ?? identity?.id ?? null, variant, namespace, searchParameters: resourceLoaderParameters(load, searchParameters) })
 }

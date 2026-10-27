@@ -1,4 +1,4 @@
-import type { FormDraftSnapshot, FormInput, FormValidatorEntry } from '../contracts/forms'
+import type { BoundFormInput, BoundFormInputResolver, FormDefinition, FormDraftSnapshot, FormFieldContext, FormInput, FormValidatorEntry } from '../contracts/forms'
 import type { LabelDictionary } from '../contracts/labels'
 import type { MaybePromise } from '../contracts/load'
 import type { RawSchema, RawSchemaInput, RawSchemaOutput } from '../contracts/schema'
@@ -6,9 +6,9 @@ import type { FileInputMode, FileInputModelValue } from '../components/inputs/fi
 import type { TextInputConstraint, TextInputModelValue } from '../components/inputs/textInput.types'
 import type { TextareaInputConstraint, TextareaInputModelValue } from '../components/inputs/textareaInput.types'
 import type { CheckboxGroupInputModelValue, RadioInputModelValue, SelectInputModelValue } from '../components/inputs/selectInput.types'
-import type { FormRendererKey, FormRendererModelValue, FormRendererPropBag, FormRendererProps } from '../renderers/formContracts'
+import type { FormRendererKey, FormRendererModelValue, FormRendererProps } from '../renderers/formContracts'
 import { assertFormDefinition } from './assertFormDefinition'
-import type { CompactFormDefinition, FormDefinitionError } from './definitionTypes'
+import type { CompactFormDefinition, FormDefinitionError, FormFieldsContext } from './definitionTypes'
 
 type UnsafeKey = '__proto__' | 'prototype' | 'constructor' | `${number}`
 type FiniteObjectGuard<TValue extends object> = string extends Extract<keyof TValue, string> ? never : unknown
@@ -21,18 +21,23 @@ type RequiredKeys<TObject> = {
 type IsAny<TValue> = 0 extends 1 & TValue ? true : false
 
 type SelectedRenderer<TInput extends object, TKey extends keyof TInput, TEntry> = TEntry extends { renderer: infer TRenderer } ? TRenderer : never
+type EntryConfig<TEntry> = TEntry extends (...args: never[]) => unknown ? ReturnType<TEntry> : TEntry
 
 type SelectedProps<TEntry> = TEntry extends { props: infer TProps } ? TProps : {}
 
-type ExtraProps<TRenderer, TProps> = TRenderer extends FormRendererKey ? (TProps extends object ? Exclude<keyof TProps, keyof FormRendererProps<TRenderer>> : keyof TProps) : keyof TProps
+type UndefinedOnlyKeys<TProps> = TProps extends object ? {
+  [TKey in keyof TProps]-?: [Exclude<TProps[TKey], undefined>] extends [never] ? TKey : never
+}[keyof TProps] : never
 
-type ExactRendererProps<TRenderer, TProps> = TRenderer extends FormRendererKey
-  ? IsAny<FormRendererProps<TRenderer>> extends true
+type ExtraProps<TRenderer, TProps, TContext extends object> = TRenderer extends FormRendererKey ? (TProps extends object ? Exclude<keyof TProps, keyof FormRendererProps<TRenderer, TContext> | UndefinedOnlyKeys<TProps>> : keyof TProps) : keyof TProps
+
+type ExactRendererProps<TRenderer, TProps, TContext extends object> = TRenderer extends FormRendererKey
+  ? IsAny<FormRendererProps<TRenderer, TContext>> extends true
     ? never
-    : unknown extends FormRendererProps<TRenderer>
+    : unknown extends FormRendererProps<TRenderer, TContext>
       ? never
-      : [ExtraProps<TRenderer, TProps>] extends [never]
-        ? [TProps] extends [FormRendererProps<TRenderer>]
+      : [ExtraProps<TRenderer, TProps, TContext>] extends [never]
+        ? [TProps] extends [FormRendererProps<TRenderer, TContext>]
           ? unknown
           : never
         : never
@@ -102,88 +107,47 @@ type InvalidRequiredProp<TProps> = TProps extends unknown ? ('required' extends 
 type InvalidRequiredPropEntry<TEntry> = TEntry extends { props: infer TProps } ? InvalidRequiredProp<TProps> : never
 type RequiredPropGuard<TEntry> = [InvalidRequiredPropEntry<TEntry>] extends [never] ? unknown : never
 
-type InvalidRendererProps<TInput extends object, TKey extends keyof TInput, TEntry> = SelectedRenderer<TInput, TKey, TEntry> extends infer TRenderer
+type InvalidRendererProps<TInput extends object, TKey extends keyof TInput, TEntry, TContext extends object> = SelectedRenderer<TInput, TKey, TEntry> extends infer TRenderer
   ? TRenderer extends unknown
     ? TRenderer extends FormRendererKey
-      ? [ExactRendererProps<TRenderer, SelectedProps<TEntry>>] extends [never]
+      ? [ExactRendererProps<TRenderer, SelectedProps<TEntry>, TContext>] extends [never]
         ? TRenderer
         : never
       : TRenderer
     : never
   : never
 
-type RendererPropsGuard<TInput extends object, TKey extends keyof TInput, TEntry> = [InvalidRendererProps<TInput, TKey, TEntry>] extends [never] ? unknown : never
+type RendererPropsGuard<TInput extends object, TKey extends keyof TInput, TEntry, TContext extends object> = [InvalidRendererProps<TInput, TKey, TEntry, TContext>] extends [never] ? unknown : never
 
-type PresentationBranches<TEntry> = TEntry extends { behavior: infer TBehavior } ? (TBehavior extends { presentation: (...args: never[]) => infer TResult } ? TResult : never) : never
-
-type PresentationRenderer<TEntry> = PresentationBranches<TEntry> extends infer TBranch ? (TBranch extends { renderer?: infer TRenderer } ? Exclude<TRenderer, null | undefined> : never) : never
-
-type InvalidPresentationRendererProps<TProps, TRenderer> = Exclude<TRenderer, null | undefined> extends infer TRendererChoice
-  ? TRendererChoice extends unknown
-    ? TRendererChoice extends FormRendererKey
-      ? [ExactRendererProps<TRendererChoice, TProps>] extends [never]
-        ? TRendererChoice
-        : never
-      : TRendererChoice
-    : never
-  : never
-
-type InvalidPresentationProps<TEntry> = PresentationBranches<TEntry> extends infer TBranch
-  ? TBranch extends unknown
-    ? TBranch extends { props: infer TProps }
-      ? TBranch extends { renderer: infer TRenderer }
-        ? InvalidPresentationRendererProps<TProps, TRenderer>
-        : never
-      : never
-    : never
-  : never
-
-type PresentationPropsGuard<TEntry> = [InvalidPresentationProps<TEntry>] extends [never] ? unknown : never
-
-type PresentationRendererGuard<TValue, TEntry> = RendererValueGuard<TValue, PresentationRenderer<TEntry>, PresentationBranches<TEntry>>
-
-type InvalidRequiredPropPatch<TEntry> = TEntry extends { behavior: infer TBehavior }
-  ? TBehavior extends unknown
-    ? TBehavior extends { props: (...args: never[]) => infer TProps }
-      ? InvalidRequiredProp<TProps>
-      : never
-    : never
-  : never
-
-type RequiredPropPatchGuard<TEntry> = [InvalidRequiredPropPatch<TEntry>] extends [never] ? unknown : never
-
-type FormInputEntryMemberGuard<TInput extends object, TKey extends keyof TInput, TEntry> = Omit<TEntry, 'initialValue'> extends FormInput<TInput, TInput[TKey]>
-    ? Exclude<keyof TEntry, keyof FormInput<TInput, TInput[TKey]>> extends never
+type FormInputEntryMemberGuard<TInput extends object, TKey extends keyof TInput, TEntry, TContext extends object> = Omit<TEntry, 'initialValue'> extends FormInput<TInput, TInput[TKey], FormRendererKey, TContext>
+    ? Exclude<keyof TEntry, keyof FormInput<TInput, TInput[TKey], FormRendererKey, TContext>> extends never
       ? RequiredPropGuard<TEntry> &
-          RequiredPropPatchGuard<TEntry> &
-          RendererPropsGuard<TInput, TKey, TEntry> &
+          RendererPropsGuard<TInput, TKey, TEntry, TContext> &
           FileModePropsGuard<SelectedRenderer<TInput, TKey, TEntry>, TEntry> &
-          RendererValueGuard<TInput[TKey], SelectedRenderer<TInput, TKey, TEntry>, TEntry> &
-          PresentationPropsGuard<TEntry> &
-          PresentationRendererGuard<TInput[TKey], TEntry>
+          RendererValueGuard<TInput[TKey], SelectedRenderer<TInput, TKey, TEntry>, TEntry>
       : never
     : never
 
 type EntryGuardAllows<TValue> = [TValue] extends [never] ? false : true
-type FormInputEntryMemberResults<TInput extends object, TKey extends keyof TInput, TEntry> = TEntry extends unknown
-  ? EntryGuardAllows<FormInputEntryMemberGuard<TInput, TKey, TEntry>>
+type FormInputEntryMemberResults<TInput extends object, TKey extends keyof TInput, TEntry, TContext extends object> = TEntry extends unknown
+  ? EntryGuardAllows<FormInputEntryMemberGuard<TInput, TKey, TEntry, TContext>>
   : never
 
-type FormInputEntryGuard<TInput extends object, TKey extends keyof TInput, TEntry> = [TEntry] extends [never]
+type FormInputEntryGuard<TInput extends object, TKey extends keyof TInput, TEntry, TContext extends object> = [TEntry] extends [never]
   ? never
-  : [FormInputEntryMemberResults<TInput, TKey, TEntry>] extends [true]
+  : [FormInputEntryMemberResults<TInput, TKey, TEntry, TContext>] extends [true]
     ? unknown
     : never
 
-type BoundInputGuard<TInput extends object, TEntry> = TEntry extends { renderer: infer TRenderer extends FormRendererKey }
-  ? FormInputEntryMemberGuard<TInput & { __boundValue: RendererControlValue<TRenderer, TEntry> }, '__boundValue', Omit<TEntry, 'binding'>>
+type BoundInputGuard<TInput extends object, TEntry, TContext extends object> = EntryConfig<TEntry> extends { renderer: infer TRenderer extends FormRendererKey }
+  ? FormInputEntryMemberGuard<TInput & { __boundValue: RendererControlValue<TRenderer, EntryConfig<TEntry>> }, '__boundValue', Omit<EntryConfig<TEntry>, 'binding'>, TContext>
   : never
 
-type BindingKeys<TEntry> = TEntry extends { binding: { keys: infer TKeys extends readonly PropertyKey[] } }
+type BindingKeys<TEntry> = EntryConfig<TEntry> extends { binding: { keys: infer TKeys extends readonly PropertyKey[] } }
   ? number extends TKeys['length'] ? never : TKeys[number]
   : never
 
-type WrittenKeys<TKey, TEntry> = TEntry extends { binding: unknown } ? BindingKeys<TEntry> : TKey
+type WrittenKeys<TKey, TEntry> = EntryConfig<TEntry> extends { binding: unknown } ? BindingKeys<TEntry> : TKey
 
 type OtherWrittenKeys<TFields, TKey extends keyof TFields> = {
   [TOther in Exclude<keyof TFields, TKey>]: WrittenKeys<TOther, TFields[TOther]>
@@ -193,7 +157,7 @@ type MissingWriteKeys<TKeys, TResult> = TResult extends unknown ? Exclude<TKeys,
 
 type ExtraWriteKeys<TKeys, TResult> = TResult extends unknown ? Exclude<keyof TResult, TKeys> : never
 
-type BindingWriteGuard<TEntry> = TEntry extends { binding: { keys: infer TKeys extends readonly PropertyKey[]; write: (...args: never[]) => infer TResult } }
+type BindingWriteGuard<TEntry> = EntryConfig<TEntry> extends { binding: { keys: infer TKeys extends readonly PropertyKey[]; write: (...args: never[]) => infer TResult } }
   ? number extends TKeys['length'] ? unknown
     : ([MissingWriteKeys<TKeys[number], TResult>] extends [never] ? unknown : { readonly __bindingWriteMissingKeys: MissingWriteKeys<TKeys[number], TResult> })
       & ([ExtraWriteKeys<TKeys[number], TResult>] extends [never] ? unknown : { readonly __bindingWriteExtraKeys: ExtraWriteKeys<TKeys[number], TResult> })
@@ -204,27 +168,32 @@ type BindingContractGuard<TFields, TKey extends keyof TFields> = BindingWriteGua
     ? unknown
     : { readonly __bindingKeysAlreadyWritten: Extract<WrittenKeys<TKey, TFields[TKey]>, OtherWrittenKeys<TFields, TKey>> })
 
-type FormFieldsGuard<TInput extends object, TFields> = TFields extends object
+type FormFieldsGuard<TInput extends object, TFields extends object, TContext extends object = Readonly<Record<string, unknown>>> = TFields extends object
   ? TFields extends readonly unknown[]
     ? never
     : Extract<keyof TFields, UnsafeKey> extends never
-      ? { [TKey in keyof TFields]: BindingContractGuard<TFields, TKey> & ('initialValue' extends keyof TFields[TKey] ? {
-          initialValue?: TFields[TKey] extends { renderer: infer TRenderer extends FormRendererKey; binding: unknown }
-            ? FormInput<TInput, RendererControlValue<TRenderer, TFields[TKey]>, TRenderer>['initialValue']
-            : TKey extends keyof TInput ? FormInput<TInput, TInput[TKey]>['initialValue'] : never
-        } : unknown) & (TFields[TKey] extends { binding: unknown }
-          ? BoundInputGuard<TInput, TFields[TKey]>
-          : TKey extends keyof TInput ? FormInputEntryGuard<NoInfer<TInput>, TKey, TFields[TKey]> : never) }
+      ? { [TKey in keyof TFields]: BindingContractGuard<TFields, TKey> & ('initialValue' extends keyof EntryConfig<TFields[TKey]> ? {
+          initialValue?: EntryConfig<TFields[TKey]> extends { renderer: infer TRenderer extends FormRendererKey; binding: unknown }
+            ? FormInput<TInput, RendererControlValue<TRenderer, EntryConfig<TFields[TKey]>>, TRenderer, TContext>['initialValue']
+            : TKey extends keyof TInput ? FormInput<TInput, TInput[TKey], FormRendererKey, TContext>['initialValue'] : never
+        } : unknown) & (EntryConfig<TFields[TKey]> extends { binding: unknown }
+          ? BoundInputGuard<TInput, TFields[TKey], TContext>
+          : TKey extends keyof TInput ? FormInputEntryGuard<NoInfer<TInput>, TKey, EntryConfig<TFields[TKey]>, TContext> : never) }
       : never
   : never
 
 type SubmitFunction<TOutput extends object> = (output: TOutput) => MaybePromise<unknown>
 type SubmitResult<TSubmit> = [TSubmit] extends [never] ? unknown : TSubmit extends (...args: never[]) => infer TResult ? Awaited<TResult> : unknown
 
-type DefinedForm<TInput extends object, TOutput extends object, TResult, TFields extends object, THasSubmit extends boolean> = CompactFormDefinition<
+type EffectiveFormContext<TFields extends object> = [FormFieldsContext<TFields>] extends [never]
+  ? Readonly<Record<string, unknown>>
+  : Extract<FormFieldsContext<TFields>, object>
+
+type DefinedForm<TInput extends object, TOutput extends object, TResult, TFields extends object, TContext extends object, THasSubmit extends boolean> = CompactFormDefinition<
   TInput,
   TOutput,
-  TFields
+  TFields,
+  TContext
 >
   & ([THasSubmit] extends [true] ? { readonly submit: ((output: TOutput) => MaybePromise<TResult>) & (TFields extends FormFieldsGuard<TInput, TFields> ? unknown : FormDefinitionError) } : { readonly submit?: never })
 
@@ -255,21 +224,21 @@ function snapshotValidators<TInput extends object, TOutput extends object>(valid
   })
 }
 
-type BoundFields<TInput extends object, TRenderers extends Record<string, FormRendererKey>> = {
-  [K in keyof TRenderers]: K extends keyof TInput
-    ? FormInput<TInput, TInput[K], TRenderers[K]>
-    : FormInput<TInput, FormRendererModelValue<TRenderers[K]>, TRenderers[K]> & {
-        binding: {
-          keys: readonly Extract<keyof TInput, string>[]
-          read: (values: FormDraftSnapshot<TInput>) => FormRendererModelValue<TRenderers[K]> | null | undefined
-          write: (value: NonNullable<FormRendererModelValue<TRenderers[K]>>) => Partial<TInput>
-        }
-      }
+type FormFieldResolverArgument<TInput extends object, TValue> = (
+  context: FormFieldContext<TInput, any>,
+) => FormInput<TInput, TValue, FormRendererKey, any>
+
+type FormFieldArgument<TInput extends object> = {
+  readonly [TKey in keyof TInput]?: FormInput<TInput, TInput[TKey], FormRendererKey, any> | FormFieldResolverArgument<TInput, TInput[TKey]>
 }
 
-type FormArgument<TSchema extends RawSchema<object, object>, TFields extends object, TRenderers extends Record<string, FormRendererKey>> = {
+type BoundFieldArgument<TInput extends object, TFields extends object> = {
+  readonly [TKey in Exclude<keyof TFields, keyof TInput>]: BoundFormInput<TInput, FormRendererKey, any> | BoundFormInputResolver<TInput, any>
+}
+
+type FormArgument<TSchema extends RawSchema<object, object>, TFields extends object> = {
   schema: TSchema & FormSchemaGuard<TSchema>
-  fields: TFields & BoundFields<RawSchemaInput<TSchema>, TRenderers> & NoInfer<FormFieldsGuard<RawSchemaInput<TSchema>, TFields>>
+  fields: TFields & FormFieldArgument<RawSchemaInput<TSchema>> & BoundFieldArgument<RawSchemaInput<TSchema>, TFields> & NoInfer<FormFieldsGuard<RawSchemaInput<TSchema>, TFields>>
   labels?: LabelDictionary
   validators?: readonly FormValidatorEntry<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>>[]
 }
@@ -277,20 +246,23 @@ type FormArgument<TSchema extends RawSchema<object, object>, TFields extends obj
 export function defineForm<
   TSchema extends RawSchema<object, object>,
   const TFields extends object,
-  const TRenderers extends Record<string, FormRendererKey>,
   TSubmit extends SubmitFunction<NoInfer<RawSchemaOutput<TSchema>>>,
->(definition: FormArgument<TSchema, TFields, TRenderers> & { submit: TSubmit }): DefinedForm<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>, SubmitResult<TSubmit>, TFields, true>
+>(definition: FormArgument<TSchema, TFields> & { submit: TSubmit }): DefinedForm<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>, SubmitResult<TSubmit>, TFields, EffectiveFormContext<TFields>, true>
 export function defineForm<
   TSchema extends RawSchema<object, object>,
   const TFields extends object,
-  const TRenderers extends Record<string, FormRendererKey> = Record<string, FormRendererKey>,
->(definition: FormArgument<TSchema, TFields, TRenderers> & { submit?: never }): DefinedForm<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>, unknown, TFields, false>
+>(definition: FormArgument<TSchema, TFields> & { submit?: never }): DefinedForm<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>, unknown, TFields, EffectiveFormContext<TFields>, false>
 export function defineForm<
   TSchema extends RawSchema<object, object>,
   const TFields extends object,
-  const TRenderers extends Record<string, FormRendererKey>,
->(definition: FormArgument<TSchema, TFields, TRenderers> & { submit?: SubmitFunction<RawSchemaOutput<TSchema>> }): unknown {
-  assertFormDefinition(definition)
+>(definition: {
+  schema: TSchema & FormSchemaGuard<TSchema>
+  fields: TFields
+  labels?: LabelDictionary
+  validators?: readonly FormValidatorEntry<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>>[]
+  submit?: SubmitFunction<RawSchemaOutput<TSchema>>
+}): unknown {
+  assertFormDefinition(definition as unknown as FormDefinition<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>>)
 
   const result: Record<string, unknown> = {
     schema: definition.schema,

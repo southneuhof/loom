@@ -1,4 +1,4 @@
-<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>">
+<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>">
 /**
  * Loaded-row table presentation. Collection owns data loading and query state.
  */
@@ -6,7 +6,7 @@ import { computed, nextTick, onBeforeUnmount, ref, shallowRef, toRef, useSlots, 
 import { getCoreRowModel, getExpandedRowModel, useVueTable, type ColumnDef, type ColumnSizingState, type ExpandedState, type Row } from '@tanstack/vue-table'
 import type { QueryValues, RowReorderPayload, TableContentProps, TreeRowContext } from '../../contracts'
 import { createSchemaRuntime, schemaOutputKeys, schemaSortByValues } from '../../schemas/schemaRuntime'
-import { readDisplayValue, resolveDisplayFields, resolveDisplayValue, type ResolvedDisplayField } from '../../display/resolveDisplay'
+import { displayFieldForRecord, readDisplayValue, resolveDisplayFields, resolveDisplayValue, type ResolvedDisplayField } from '../../display/resolveDisplay'
 import DisplayValue from '../../display/DisplayValue.vue'
 
 import { useRendererRegistry } from '../../renderers/registry'
@@ -25,12 +25,12 @@ interface TableTreeHierarchy<TRecord extends object> {
   onExpandedKeysChange: (keys: string[]) => void
 }
 
-type TableContentRendererProps<TRecord extends object, TQuery extends object> = TableContentProps<TRecord, TQuery> & {
+type TableContentRendererProps<TRecord extends object, TQuery extends object, TContext extends object> = TableContentProps<TRecord, TQuery, TContext> & {
   /** @internal Supplied only by TreeTableContent for shared nested rendering. */
   hierarchy?: TableTreeHierarchy<TRecord>
 }
 
-const props = withDefaults(defineProps<TableContentRendererProps<TRecord, TQuery>>(), {
+const props = withDefaults(defineProps<TableContentRendererProps<TRecord, TQuery, TContext>>(), {
   searchParameters: () => ({}),
   pagination: 'always',
   pageSizeOptions: () => [10, 25, 50, 100],
@@ -60,6 +60,7 @@ const fields = computed(() => {
     surface: 'table',
     entries: props.columns,
     labels: props.labels,
+    context: (props.context ?? {}) as TContext,
     recordKeys: recordKeys.value,
     queryKeys: queryKeys.value,
     querySortKeys: querySortKeys.value,
@@ -153,7 +154,7 @@ const pagination = computed(() => ({
 const columns = computed<ColumnDef<TRecord>[]>(() =>
   fields.value.map((field) => ({
     id: field.key,
-    accessorFn: (record) => readDisplayValue(record, field),
+    accessorFn: (record) => readDisplayValue(record, field, (props.context ?? {}) as TContext),
     header: field.label,
     enableSorting: field.sortable === true && !props.reorderable,
     sortDescFirst: false,
@@ -289,8 +290,8 @@ function rowScope(row: Row<TRecord>, index: number) {
   return { record: row.original, index, ...(tree ? { tree } : {}) }
 }
 
-function cellScope(row: Row<TRecord>, field: ResolvedDisplayField<TRecord>, index: number) {
-  return { value: valueFor(row.original, field), ...rowScope(row, index), field }
+function cellScope(row: Row<TRecord>, field: ResolvedDisplayField<TRecord, TContext>, index: number) {
+  return { value: valueFor(row.original, field), ...rowScope(row, index), field: displayFieldFor(row.original, field) }
 }
 
 function setDisclosureElement(key: string, element: unknown) {
@@ -299,7 +300,7 @@ function setDisclosureElement(key: string, element: unknown) {
   else disclosureElements.delete(key)
 }
 
-function treeLabel(record: TRecord, field: ResolvedDisplayField<TRecord>) {
+function treeLabel(record: TRecord, field: ResolvedDisplayField<TRecord, TContext>) {
   const value = valueFor(record, field)
   return typeof value === 'string' || typeof value === 'number' ? String(value) : undefined
 }
@@ -387,8 +388,12 @@ function cancelResize() {
 
 onBeforeUnmount(cancelResize)
 
-function valueFor(record: TRecord, field: ResolvedDisplayField<TRecord>) {
-  return resolveDisplayValue(record, field)
+function valueFor(record: TRecord, field: ResolvedDisplayField<TRecord, TContext>) {
+  return resolveDisplayValue(record, field, (props.context ?? {}) as TContext)
+}
+
+function displayFieldFor(record: TRecord, field: ResolvedDisplayField<TRecord, TContext>) {
+  return displayFieldForRecord(record, field, (props.context ?? {}) as TContext)
 }
 
 function sizeFor(key: string) {
@@ -420,15 +425,15 @@ const cellStyles = computed(() => {
   return styles
 })
 
-function cellContentStyle(field: ResolvedDisplayField<TRecord>): Record<string, string> | undefined {
+function cellContentStyle(field: ResolvedDisplayField<TRecord, TContext>): Record<string, string> | undefined {
   return cellStyles.value.get(field.key)
 }
 
 // The tooltip carries the text a clamped cell no longer shows, so it only
 // applies to plain text: renderer content wraps instead of being clipped, and a
 // slot cell owns both its markup and its tooltip.
-function cellTitle(record: TRecord, field: ResolvedDisplayField<TRecord>): string | undefined {
-  if (field.renderer || hasCellSlot(field.key)) return undefined
+function cellTitle(record: TRecord, field: ResolvedDisplayField<TRecord, TContext>): string | undefined {
+  if (displayFieldFor(record, field).renderer || hasCellSlot(field.key)) return undefined
   const value = valueFor(record, field)
   return typeof value === 'string' || typeof value === 'number' ? String(value) : undefined
 }
@@ -469,7 +474,7 @@ function hasCellSlot(key: string): boolean {
         name="collection"
         :records="props.records"
         :meta="props.meta"
-        :context="props.context"
+        :context="props.resultContext"
         :loading="false"
         :error="props.error"
         :empty="false"
@@ -478,10 +483,7 @@ function hasCellSlot(key: string): boolean {
         :update-query="props.updateQuery ?? updateQuery"
       />
       <div v-else class="overflow-x-auto rounded-xl">
-        <table
-          class="w-full border-collapse table-auto"
-          :style="{ minWidth: `${tableMinimumWidth}px`, '--loom-table-cell-max-width': `${maximumColumnWidth}px` }"
-        >
+        <table class="w-full border-collapse table-auto" :style="{ minWidth: `${tableMinimumWidth}px`, '--loom-table-cell-max-width': `${maximumColumnWidth}px` }">
           <colgroup>
             <col v-if="$slots['row-prefix']" style="width: 1%" />
             <col v-for="field in visibleFields" :key="field.key" :style="columnSizing[field.key] == null ? undefined : { width: `${columnSizing[field.key]}px` }" />
@@ -532,14 +534,9 @@ function hasCellSlot(key: string): boolean {
                   <slot name="row-prefix" :record="record" :index="index" />
                 </td>
                 <td v-for="field in visibleFields" :key="field.key" :style="{ textAlign: field.align }" :class="field.class" class="whitespace-nowrap px-4 py-3.5 text-on-surface">
-                  <div
-                    class="is-table-cell-value"
-                    :class="{ 'is-table-cell-value--rich': field.renderer }"
-                    :style="cellContentStyle(field)"
-                    :title="cellTitle(record, field)"
-                  >
-                    <slot v-if="hasCellSlot(field.key)" :name="`cell:${field.key}`" :value="valueFor(record, field)" :record="record" :field="field" :index="index" />
-                    <DisplayValue v-else :value="valueFor(record, field)" :record="record" :field="field" :index="index" />
+                  <div class="is-table-cell-value" :class="{ 'is-table-cell-value--rich': displayFieldFor(record, field).renderer }" :style="cellContentStyle(field)" :title="cellTitle(record, field)">
+                    <slot v-if="hasCellSlot(field.key)" :name="`cell:${field.key}`" :value="valueFor(record, field)" :record="record" :field="displayFieldFor(record, field)" :index="index" />
+                    <DisplayValue v-else :value="valueFor(record, field)" :record="record" :field="displayFieldFor(record, field)" :index="index" />
                   </div>
                 </td>
                 <td
@@ -589,12 +586,12 @@ function hasCellSlot(key: string): boolean {
                     <span class="is-tree-table-label min-w-0 flex-1 whitespace-normal">
                       <div
                         class="is-table-cell-value"
-                        :class="{ 'is-table-cell-value--rich': field.renderer }"
+                        :class="{ 'is-table-cell-value--rich': displayFieldFor(row.original, field).renderer }"
                         :style="cellContentStyle(field)"
                         :title="cellTitle(row.original, field)"
                       >
                         <slot v-if="hasCellSlot(field.key)" :name="`cell:${field.key}`" v-bind="cellScope(row, field, index)" />
-                        <DisplayValue v-else :value="valueFor(row.original, field)" :record="row.original" :field="field" :index="index" />
+                        <DisplayValue v-else :value="valueFor(row.original, field)" :record="row.original" :field="displayFieldFor(row.original, field)" :index="index" />
                       </div>
                     </span>
                   </div>
@@ -602,12 +599,12 @@ function hasCellSlot(key: string): boolean {
                 <template v-else>
                   <div
                     class="is-table-cell-value"
-                    :class="{ 'is-table-cell-value--rich': field.renderer }"
+                    :class="{ 'is-table-cell-value--rich': displayFieldFor(row.original, field).renderer }"
                     :style="cellContentStyle(field)"
                     :title="cellTitle(row.original, field)"
                   >
                     <slot v-if="hasCellSlot(field.key)" :name="`cell:${field.key}`" v-bind="cellScope(row, field, index)" />
-                    <DisplayValue v-else :value="valueFor(row.original, field)" :record="row.original" :field="field" :index="index" />
+                    <DisplayValue v-else :value="valueFor(row.original, field)" :record="row.original" :field="displayFieldFor(row.original, field)" :index="index" />
                   </div>
                 </template>
               </td>

@@ -37,7 +37,7 @@ export const formNativeAttributeNames = [
 
 export type FormSubmit<TOutput extends object, TResult> = (output: TOutput) => MaybePromise<TResult>
 
-export interface FormRuntimeProps<TInput extends object> {
+export interface FormRuntimeProps<TInput extends object, TContext extends object = Readonly<Record<string, unknown>>> {
   modelValue?: FormDraft<TInput> | undefined
   initialData?: FormDraft<TInput>
   load?: (context: RecordLoadContext) => MaybePromise<FormDraft<TInput> | undefined>
@@ -45,7 +45,7 @@ export interface FormRuntimeProps<TInput extends object> {
   resource?: string
   namespace?: QueryNamespace
   searchParameters?: Record<string, unknown>
-  context?: Readonly<Record<string, unknown>>
+  context?: TContext
   normalizeError?: (error: unknown) => SubmitError
   disabled?: boolean
   submitLabel?: string
@@ -61,8 +61,9 @@ export type FormProps<
   TOutput extends object = Record<string, unknown>,
   TResult = unknown,
   TKeys extends string = Extract<keyof TInput, string>,
-> = Omit<FormDefinition<TInput, TOutput, TResult, TKeys>, 'submit'>
-  & FormRuntimeProps<TInput>
+  TContext extends object = Readonly<Record<string, unknown>>,
+> = Omit<FormDefinition<TInput, TOutput, TResult, TKeys, TContext>, 'submit'>
+  & FormRuntimeProps<TInput, TContext>
   & FormBindingProps<TInput, TOutput, TResult>
   & FormNativeAttributes
 
@@ -89,7 +90,8 @@ export type DialogFormProps<
   TOutput extends object = Record<string, unknown>,
   TResult = unknown,
   TKeys extends string = Extract<keyof TInput, string>,
-> = FormProps<TInput, TOutput, TResult, TKeys> & DialogFormPresentationProps
+  TContext extends object = Readonly<Record<string, unknown>>,
+> = FormProps<TInput, TOutput, TResult, TKeys, TContext> & DialogFormPresentationProps
 
 export type DialogFormSlots<
   TInput extends object,
@@ -106,7 +108,7 @@ export type DialogFormSlots<
   footer?: (props: { readonly requestClose: (reason: DialogFormCloseReason) => Promise<boolean> }) => unknown
 }
 
-const formInputMembers = new Set(['label', 'renderer', 'props', 'span', 'initialValue', 'behavior', 'binding'])
+const formInputMembers = new Set(['label', 'renderer', 'props', 'span', 'visible', 'initialValue', 'behavior', 'binding'])
 const unsafeKeys = new Set(['__proto__', 'prototype', 'constructor'])
 
 interface FormInputRuntime {
@@ -114,6 +116,7 @@ interface FormInputRuntime {
   label?: unknown
   props?: unknown
   span?: unknown
+  visible?: unknown
   initialValue?: unknown
   behavior?: unknown
 }
@@ -150,6 +153,7 @@ export function assertFormInput(key: string, value: unknown): asserts value is F
   if ('span' in value && (typeof value.span !== 'number' || !Number.isInteger(value.span) || value.span < 1)) {
     invalidOption(key, 'span', 'a positive integer')
   }
+  if ('visible' in value && typeof value.visible !== 'boolean') invalidOption(key, 'visible', 'a boolean')
   if ('behavior' in value) assertFormBehavior(value.behavior, key)
 
   if (typeof value.renderer !== 'string') throw new Error(`[loom][INPUT_RENDERER_REQUIRED] Form field "${key}" needs an explicit renderer.`)

@@ -5,6 +5,7 @@ import { isCancelledError } from '@tanstack/vue-query'
 import { stableValue } from '../query/keys'
 import { checkIdentityValue, isRecordIdentity } from './identity'
 import { useResourceRuntime } from './runtime'
+import { associateResourceLoader } from './loaderIdentity'
 import { markConfirmedWriteRefreshError } from './postWriteOutcome'
 import { registerResourceRouteRequirement } from './routeAccess'
 import { isStandardRowOperation } from './operations'
@@ -245,12 +246,14 @@ function wrapCollectionLoad<TContext extends CollectionLoadContext, TResult>(
   permission: string | null,
   visible: ((context: { access: AccessAdapter }) => boolean) | undefined,
   load: (context: TContext) => TResult,
+  searchParameters: Record<string, unknown> = {},
 ): (context: TContext) => Promise<Awaited<TResult>> {
-  return async (context): Promise<Awaited<TResult>> => {
+  const bound = async (context: TContext): Promise<Awaited<TResult>> => {
     const runtime = useResourceRuntime()
     assertAllowed(resourceKey, runtime.adapters.access, 'list', permission, visible)
-    return await load(context)
+    return await load({ ...context, searchParameters: { ...searchParameters, ...context.searchParameters } })
   }
+  return associateResourceLoader(bound, { resource: resourceKey, operation: 'list', family: 'collection', searchParameters })
 }
 
 function wrapRecordLoad<TRecord extends object, TResult>(
@@ -261,12 +264,30 @@ function wrapRecordLoad<TRecord extends object, TResult>(
   id: RecordIdentity,
   record: TRecord | undefined,
   load: (context: RecordLoadContext) => TResult,
+  searchParameters: Record<string, unknown> = {},
 ): (context: RecordLoadContext) => Promise<Awaited<TResult>> {
-  return async (context): Promise<Awaited<TResult>> => {
+  const bound = async (context: RecordLoadContext): Promise<Awaited<TResult>> => {
     const runtime = useResourceRuntime()
     assertAllowed(resourceKey, runtime.adapters.access, operation, permission, visible, record)
-    return await load(bindRecordContext(resourceKey, operation, id, context))
+    const boundContext = bindRecordContext(resourceKey, operation, id, context)
+    return await load({ ...boundContext, searchParameters: { ...searchParameters, ...boundContext.searchParameters } })
   }
+  return associateResourceLoader(bound, { resource: resourceKey, operation, family: operation === 'detail' ? 'record' : 'form', id, searchParameters })
+}
+
+function wrapCreateLoad<TRecord extends object, TResult>(
+  resourceKey: string,
+  permission: string | null,
+  visible: ((context: { record?: TRecord; access: AccessAdapter }) => boolean) | undefined,
+  load: (context: RecordLoadContext) => TResult,
+  searchParameters: Record<string, unknown> = {},
+): (context: RecordLoadContext) => Promise<Awaited<TResult>> {
+  const bound = async (context: RecordLoadContext): Promise<Awaited<TResult>> => {
+    const runtime = useResourceRuntime()
+    assertAllowed(resourceKey, runtime.adapters.access, 'create', permission, visible)
+    return await load({ ...context, searchParameters: { ...searchParameters, ...context.searchParameters } })
+  }
+  return associateResourceLoader(bound, { resource: resourceKey, operation: 'create', family: 'form', searchParameters })
 }
 
 type ResourcePostWriteCode = 'RESOURCE_RESULT_INVALID' | 'RESOURCE_POST_WRITE_INVALIDATION_FAILED'
@@ -556,85 +577,88 @@ export function bindResource<
 
   if (definition.list) {
     const declaration = definition.list
-    const table = declaration.table
-    const load = table.load
-    const tableBag = {
-      ...table,
-      resource: resourceKey,
-      namespace: table.namespace ?? resourceKey,
-      load: wrapCollectionLoad(resourceKey, declaration.permission, declaration.visible, load),
-    }
-    const list = withoutMembers(declaration, ['permission', 'route', 'visible', 'table', 'can', 'deleteRecord', 'recordIdentity'])
-    list.table = tableBag
-    if (declaration.createRoute === undefined && definition.create?.route) list.createRoute = staticRouteTarget(definition.create.route)
-    const detailDeclaration = definition.detail
-    if (declaration.detailRoute === undefined && detailDeclaration?.route) {
-      list.detailRoute = (record: IdentityRecord<TIdentityFunction>) => {
-        const binding = snapshotRecordBinding(resourceKey, identity, record, 'detail')
-        const runtime = useResourceRuntime()
-        return standardAllowed(runtime.adapters.access, 'detail', detailDeclaration.permission, detailDeclaration.visible, binding.record)
-          ? routeTarget(detailDeclaration.route, binding.id)
-          : undefined
+    page.list = (options: { context?: object; query?: object; searchParameters?: Record<string, unknown> } = {}) => {
+      const table = declaration.table
+      const searchParameters = { ...(table.searchParameters ?? {}), ...(options.searchParameters ?? {}) }
+      const tableBag = {
+        ...table,
+        ...(options.context !== undefined ? { context: options.context } : {}),
+        ...(options.query !== undefined ? { query: options.query } : {}),
+        searchParameters,
+        resource: resourceKey,
+        namespace: table.namespace ?? resourceKey,
+        load: wrapCollectionLoad(resourceKey, declaration.permission, declaration.visible, table.load, searchParameters),
       }
-    } else if (typeof declaration.detailRoute === 'function') {
-      const detailRoute = declaration.detailRoute
-      list.detailRoute = (record: IdentityRecord<TIdentityFunction>) => {
-        const binding = snapshotRecordBinding(resourceKey, identity, record, 'detail')
-        if (detailDeclaration) {
+      const list = withoutMembers(declaration, ['permission', 'route', 'visible', 'table', 'can', 'deleteRecord', 'recordIdentity'])
+      list.table = tableBag
+      if (declaration.createRoute === undefined && definition.create?.route) list.createRoute = staticRouteTarget(definition.create.route)
+      const detailDeclaration = definition.detail
+      if (declaration.detailRoute === undefined && detailDeclaration?.route) {
+        list.detailRoute = (record: IdentityRecord<TIdentityFunction>) => {
+          const binding = snapshotRecordBinding(resourceKey, identity, record, 'detail')
           const runtime = useResourceRuntime()
-          if (!standardAllowed(runtime.adapters.access, 'detail', detailDeclaration.permission, detailDeclaration.visible, binding.record)) return undefined
+          return standardAllowed(runtime.adapters.access, 'detail', detailDeclaration.permission, detailDeclaration.visible, binding.record)
+            ? routeTarget(detailDeclaration.route, binding.id)
+            : undefined
         }
-        return detailRoute(binding.record)
+      } else if (typeof declaration.detailRoute === 'function') {
+        const detailRoute = declaration.detailRoute
+        list.detailRoute = (record: IdentityRecord<TIdentityFunction>) => {
+          const binding = snapshotRecordBinding(resourceKey, identity, record, 'detail')
+          if (detailDeclaration) {
+            const runtime = useResourceRuntime()
+            if (!standardAllowed(runtime.adapters.access, 'detail', detailDeclaration.permission, detailDeclaration.visible, binding.record)) return undefined
+          }
+          return detailRoute(binding.record)
+        }
       }
-    }
-    const updateDeclaration = definition.update
-    if (declaration.updateRoute === undefined && updateDeclaration?.route) {
-      list.updateRoute = (record: IdentityRecord<TIdentityFunction>) => {
-        const binding = snapshotRecordBinding(resourceKey, identity, record, 'update')
-        const runtime = useResourceRuntime()
-        return standardAllowed(runtime.adapters.access, 'update', updateDeclaration.permission, updateDeclaration.visible, binding.record)
-          ? routeTarget(updateDeclaration.route, binding.id)
-          : undefined
-      }
-    } else if (typeof declaration.updateRoute === 'function') {
-      const updateRoute = declaration.updateRoute
-      list.updateRoute = (record: IdentityRecord<TIdentityFunction>) => {
-        const binding = snapshotRecordBinding(resourceKey, identity, record, 'update')
-        if (updateDeclaration) {
+      const updateDeclaration = definition.update
+      if (declaration.updateRoute === undefined && updateDeclaration?.route) {
+        list.updateRoute = (record: IdentityRecord<TIdentityFunction>) => {
+          const binding = snapshotRecordBinding(resourceKey, identity, record, 'update')
           const runtime = useResourceRuntime()
-          if (!standardAllowed(runtime.adapters.access, 'update', updateDeclaration.permission, updateDeclaration.visible, binding.record)) return undefined
+          return standardAllowed(runtime.adapters.access, 'update', updateDeclaration.permission, updateDeclaration.visible, binding.record)
+            ? routeTarget(updateDeclaration.route, binding.id)
+            : undefined
         }
-        return updateRoute(binding.record)
+      } else if (typeof declaration.updateRoute === 'function') {
+        const updateRoute = declaration.updateRoute
+        list.updateRoute = (record: IdentityRecord<TIdentityFunction>) => {
+          const binding = snapshotRecordBinding(resourceKey, identity, record, 'update')
+          if (updateDeclaration) {
+            const runtime = useResourceRuntime()
+            if (!standardAllowed(runtime.adapters.access, 'update', updateDeclaration.permission, updateDeclaration.visible, binding.record)) return undefined
+          }
+          return updateRoute(binding.record)
+        }
       }
-    }
-    list.can = (operation: ResourceOperation, record?: IdentityRecord<TIdentityFunction>) => {
-      const current = definition[operation]
-      if (!current) return false
-      const visible = 'visible' in current ? current.visible : undefined
-      const row = record !== undefined && isStandardRowOperation(operation)
-        ? snapshotRecordBinding(resourceKey, identity, record, operation).record
-        : undefined
-      return standardAllowed(useResourceRuntime().adapters.access, operation, current.permission, visible, row)
-    }
-    const deleteDeclaration = definition.delete
-    if (deleteDeclaration) {
-      list.deleteRecord = async (record: IdentityRecord<TIdentityFunction>) => {
-        const binding = snapshotRecordBinding(resourceKey, identity, record, 'delete')
-        const runtime = useResourceRuntime()
-        assertAllowed(resourceKey, runtime.adapters.access, 'delete', deleteDeclaration.permission, deleteDeclaration.visible, binding.record)
-        const result = await deleteDeclaration.run(binding.id)
-        await invalidateAfterWrite(runtime, resourceKey, 'delete', binding.id, result)
-        return result
+      list.can = (operation: ResourceOperation, record?: IdentityRecord<TIdentityFunction>) => {
+        const current = definition[operation]
+        if (!current) return false
+        const visible = 'visible' in current ? current.visible : undefined
+        const row = record !== undefined && isStandardRowOperation(operation)
+          ? snapshotRecordBinding(resourceKey, identity, record, operation).record
+          : undefined
+        return standardAllowed(useResourceRuntime().adapters.access, operation, current.permission, visible, row)
       }
-      list.recordIdentity = identity
+      const deleteDeclaration = definition.delete
+      if (deleteDeclaration) {
+        list.deleteRecord = async (record: IdentityRecord<TIdentityFunction>) => {
+          const binding = snapshotRecordBinding(resourceKey, identity, record, 'delete')
+          const runtime = useResourceRuntime()
+          assertAllowed(resourceKey, runtime.adapters.access, 'delete', deleteDeclaration.permission, deleteDeclaration.visible, binding.record)
+          const result = await deleteDeclaration.run(binding.id)
+          await invalidateAfterWrite(runtime, resourceKey, 'delete', binding.id, result)
+          return result
+        }
+        list.recordIdentity = identity
+      }
+      return list
     }
-    page.list = list
   }
 
   if (definition.create) {
     const declaration = definition.create
-    const form = declaration.form
-    const submit = form.submit
     const target = formTarget(
       resourceKey,
       identity,
@@ -642,34 +666,47 @@ export function bindResource<
       definition.detail?.route,
       definition.list?.route,
     )
-    page.create = {
-      ...withoutMembers(declaration, ['permission', 'route', 'visible', 'form']),
-      ...(target !== undefined ? { defaultTo: target } : {}),
-      form: {
-        ...form,
-        resource: resourceKey,
-        namespace: form.namespace ?? `${resourceKey}.create`,
-        submit: wrapSubmit(resourceKey, 'create', declaration.permission, declaration.visible, identity, undefined, undefined, submit),
-      },
+    page.create = (options: { context?: object; initialData?: object; load?: (context: RecordLoadContext) => unknown; searchParameters?: Record<string, unknown> } = {}) => {
+      const form = declaration.form
+      const submit = form.submit
+      const searchParameters = { ...(form.searchParameters ?? {}), ...(options.searchParameters ?? {}) }
+      const load = options.load ?? form.load
+      return {
+        ...withoutMembers(declaration, ['permission', 'route', 'visible', 'form']),
+        ...(target !== undefined ? { defaultTo: target } : {}),
+        form: {
+          ...form,
+          ...(options.context !== undefined ? { context: options.context } : {}),
+          ...(options.initialData !== undefined ? { initialData: options.initialData } : {}),
+          searchParameters,
+          resource: resourceKey,
+          namespace: form.namespace ?? `${resourceKey}.create`,
+          submit: wrapSubmit(resourceKey, 'create', declaration.permission, declaration.visible, identity, undefined, undefined, submit),
+          ...(load ? { load: wrapCreateLoad(resourceKey, declaration.permission, declaration.visible, load, searchParameters) } : {}),
+        },
+      }
     }
   }
 
   if (definition.detail) {
     const declaration = definition.detail
-    page.detail = (binding: { id: ResourceIdentityValue<TIdentityFunction>; record?: IdentityRecord<TIdentityFunction> }) => {
+    page.detail = (binding: { id: ResourceIdentityValue<TIdentityFunction>; record?: IdentityRecord<TIdentityFunction>; context?: object; searchParameters?: Record<string, unknown> }) => {
       const bound = snapshotBinding(resourceKey, identity, binding, 'detail')
       const primitive = declaration.detail(bound)
       const listRoute = definition.list?.route
       const backTo = declaration.backTo === undefined ? staticRouteTarget(listRoute) : declaration.backTo
+      const searchParameters = { ...(primitive.searchParameters ?? {}), ...(binding.searchParameters ?? {}) }
       return {
         ...withoutMembers(declaration, ['permission', 'route', 'visible', 'detail']),
         ...(backTo !== undefined ? { backTo } : {}),
         detail: {
           ...primitive,
+          ...(binding.context !== undefined ? { context: binding.context } : {}),
+          searchParameters,
           id: bound.id,
           resource: resourceKey,
           namespace: primitive.namespace ?? `${resourceKey}.detail.${identityToken(bound.id)}`,
-          load: wrapRecordLoad(resourceKey, 'detail', declaration.permission, declaration.visible, bound.id, bound.record, primitive.load),
+          load: wrapRecordLoad(resourceKey, 'detail', declaration.permission, declaration.visible, bound.id, bound.record, primitive.load, searchParameters),
         },
       }
     }
@@ -677,10 +714,12 @@ export function bindResource<
 
   if (definition.update) {
     const declaration = definition.update
-    page.update = (binding: { id: ResourceIdentityValue<TIdentityFunction>; record?: IdentityRecord<TIdentityFunction> }) => {
+    page.update = (binding: { id: ResourceIdentityValue<TIdentityFunction>; record?: IdentityRecord<TIdentityFunction>; context?: object; initialData?: object; load?: (context: RecordLoadContext) => unknown; searchParameters?: Record<string, unknown> }) => {
       const bound = snapshotBinding(resourceKey, identity, binding, 'update')
       const primitive = declaration.form(bound)
       const submit = primitive.submit
+      const searchParameters = { ...(primitive.searchParameters ?? {}), ...(binding.searchParameters ?? {}) }
+      const load = binding.load ?? primitive.load
       const target = formTarget(
         resourceKey,
         identity,
@@ -690,11 +729,14 @@ export function bindResource<
       )
       const form = {
         ...primitive,
+        ...(binding.context !== undefined ? { context: binding.context } : {}),
+        ...(binding.initialData !== undefined ? { initialData: binding.initialData } : {}),
+        searchParameters,
         id: bound.id,
         resource: resourceKey,
         namespace: primitive.namespace ?? `${resourceKey}.update.${identityToken(bound.id)}`,
         submit: wrapSubmit(resourceKey, 'update', declaration.permission, declaration.visible, identity, bound.id, bound.record, submit),
-        load: wrapRecordLoad(resourceKey, 'update', declaration.permission, declaration.visible, bound.id, bound.record, primitive.load),
+        load: wrapRecordLoad(resourceKey, 'update', declaration.permission, declaration.visible, bound.id, bound.record, load, searchParameters),
       }
       return {
         ...withoutMembers(declaration, ['permission', 'route', 'visible', 'form']),

@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { createApp, defineComponent, h, ref, toRaw, type Component } from 'vue'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { z } from 'zod'
+import * as XLSX from 'xlsx'
+import { configureParser, resetParserConfigForTests } from '@southneuhof/utilities/parse'
 import type { CollectionSlotProps, QueryValues, RecordIdentity } from '../../../contracts'
 import type { ListViewSlotActions } from '../../../contracts/views'
 import { FrameworkPlugin } from '../../../adapters/plugin'
@@ -18,6 +20,16 @@ import { defineResource } from '../../../resources/defineResource'
 import { useFrameworkQueryClient } from '../../../query/client'
 import { resetResourceRuntimeForTests } from '../../../resources/runtime'
 import { toast } from 'vue-sonner'
+
+const exportedWorkbook = vi.hoisted(() => ({ value: undefined as unknown }))
+
+vi.mock('../../../services/excel', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../services/excel')>()
+  return {
+    ...actual,
+    downloadWorkbook: (workbook: unknown) => { exportedWorkbook.value = workbook },
+  }
+})
 
 const viewsRoot = join(__dirname, '..')
 
@@ -97,6 +109,49 @@ describe('ListView', () => {
     expect(contentCard.classList.contains('bg-surface-container')).toBe(true)
     expect(contentCard.contains(view.find('table')!)).toBe(true)
     view.unmount()
+  })
+
+  it('passes table context to row cell export resolvers', async () => {
+    configureParser({ formatters: { uppercase: (value) => String(value).toUpperCase() } })
+    const view = mountCore(ListView, {
+      table: {
+        schema: z.object({ name: z.string() }),
+        columns: {
+          name: {
+            label: 'Name',
+            cell: ({ context }: { context: { prefix: string } }) => ({
+              read: (record: { name: string }) => `${context.prefix} ${record.name}`,
+              format: 'uppercase',
+            }),
+          },
+        },
+        context: { prefix: 'joined' },
+        data: [{ name: 'name' }],
+      },
+      export: { filename: 'context' },
+    }, {
+      slots: {
+        'export-controls': (scope: { export: () => Promise<void> }) => h('button', {
+          type: 'button',
+          'data-export': '',
+          onClick: scope.export,
+        }, 'Export'),
+      },
+    })
+
+    try {
+      view.find('[data-export]')!.click()
+      await vi.waitFor(() => expect(exportedWorkbook.value).toBeDefined())
+      const workbook = exportedWorkbook.value as XLSX.WorkBook
+      expect(XLSX.utils.sheet_to_json(workbook.Sheets.Data!, { header: 1 })).toEqual([
+        ['Name'],
+        ['JOINED NAME'],
+      ])
+    } finally {
+      view.unmount()
+      exportedWorkbook.value = undefined
+      resetParserConfigForTests()
+    }
   })
 
   it('renders resource actions and footer only from named slots', async () => {
@@ -880,10 +935,46 @@ describe('DetailView', () => {
     view.unmount()
   })
 
+  it('gives the body a loaded detail config and keeps controls separate', async () => {
+    const record = { name: 'Loaded role' }
+    const bodyScopes: Array<{ record: { name: string }; detail: Record<string, unknown> }> = []
+    const controlsScopes: Array<{ record?: { name: string }; loading: boolean }> = []
+    const view = mountCore(DetailView, {
+      detail: {
+        schema: z.object({ name: z.string() }),
+        fields: { name: { label: 'Name' } },
+        id: '1',
+        load: async () => record,
+      },
+    }, {
+      slots: {
+        body: (scope: { record: { name: string }; detail: Record<string, unknown> }) => {
+          bodyScopes.push(scope)
+          return h('p', { 'data-detail-body': '' }, scope.record.name)
+        },
+        controls: (scope: { record?: { name: string }; loading: boolean }) => {
+          controlsScopes.push(scope)
+          return h('button', { 'data-detail-controls': '' }, 'Edit')
+        },
+      },
+    })
+    await flush()
+
+    expect(view.find('[data-detail-body]')?.textContent).toBe('Loaded role')
+    expect(bodyScopes).toHaveLength(1)
+    expect(toRaw(bodyScopes[0]?.record)).toBe(record)
+    expect(bodyScopes[0]?.detail).toMatchObject({ id: '1' })
+    expect(toRaw(bodyScopes[0]?.detail.data)).toBe(record)
+    expect(bodyScopes[0]?.detail.load).toBeUndefined()
+    expect(view.find('[data-detail-controls]')).not.toBeNull()
+    expect(controlsScopes.at(-1)).toMatchObject({ record, loading: false })
+    view.unmount()
+  })
+
   it('contains no removed regions or router history logic', () => {
     const source = readFileSync(join(viewsRoot, 'DetailView.vue'), 'utf8')
 
-    for (const forbidden of ['name="header"', 'name="body"', 'name="print"', 'name="footer"', 'description', 'router.back', 'useRouter']) {
+    for (const forbidden of ['name="header"', 'name="print"', 'name="footer"', 'description', 'router.back', 'useRouter']) {
       expect(source).not.toContain(forbidden)
     }
   })
@@ -1387,12 +1478,7 @@ describe('shell boundaries', () => {
   })
 
   it('forwards core props with v-bind instead of translating them', () => {
-    for (const [file, binding] of [
-      ['DetailView.vue', 'v-bind="detail"'],
-      ['FormView.vue', 'v-bind="form"'],
-    ]) {
-      expect(readFileSync(join(viewsRoot, file), 'utf8')).toContain(binding)
-    }
+    expect(readFileSync(join(viewsRoot, 'FormView.vue'), 'utf8')).toContain('v-bind="form"')
   })
 
   it('keeps one heading per shell for a predictable document outline', async () => {
@@ -1831,12 +1917,18 @@ function mountDeleteOutcomeList(initialRows: DeleteOutcomeRow[], deleteRecord: (
 function mountBoundDeleteList(load: (context: { signal: AbortSignal }) => Promise<{ data: DeleteOutcomeRow[] }>, options: { collection?: boolean; run?: (id: string) => Promise<unknown> } = {}) {
   const rowSchema = z.object({ tenant: z.string(), id: z.string(), name: z.string(), reversed: z.boolean() })
   const run = vi.fn(options.run ?? (async () => undefined))
-  const resource = defineResource({
-    key: 'bound-delete-recovery',
+  const createBoundResource = (key: string) => defineResource({
+    key,
     identity: deleteOutcomeIdentity,
     list: { permission: null, table: { schema: rowSchema, columns: { name: {} }, load } },
     delete: { permission: null, run },
   })
+  const resource = createBoundResource('bound-delete-recovery')
+  const replacementResource = createBoundResource('replacement-delete-recovery')
+  const resources = new Map([
+    [resource.key, { list: resource.list!() }],
+    [replacementResource.key, { list: replacementResource.list!() }],
+  ])
   const resourceOwner = ref(resource.key)
   let actions: ListViewSlotActions<DeleteOutcomeRow> | undefined
   let queryClient: ReturnType<typeof useFrameworkQueryClient> | undefined
@@ -1849,10 +1941,8 @@ function mountBoundDeleteList(load: (context: { signal: AbortSignal }) => Promis
         },
       })
       return () => {
-        const props = {
-          ...resource.list,
-          table: { ...resource.list.table, resource: resourceOwner.value },
-        }
+        const props = resources.get(resourceOwner.value)?.list
+        if (!props) throw new Error(`No bound list resource exists for "${resourceOwner.value}".`)
         const slots = {
           collection: (state: CollectionSlotProps<DeleteOutcomeRow> & { actions?: ListViewSlotActions<DeleteOutcomeRow> }) => {
             actions = state.actions
@@ -1991,7 +2081,7 @@ describe('ListView delete outcomes', () => {
       const pending = mounted.actions().deleteRecord!(row)
       expect(mounted.actions().deleteState(row)).toMatchObject({ disabled: true, pending: true })
 
-      mounted.setResource('replacement-delete-resource')
+      mounted.setResource('replacement-delete-recovery')
       await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2))
       if (settlement === 'success') request.resolve(undefined)
       else request.reject(new Error('The delete was rejected.'))
@@ -2031,7 +2121,7 @@ describe('ListView delete outcomes', () => {
       dialogButton('Delete')?.click()
       await vi.waitFor(() => expect(mounted.run).toHaveBeenCalledOnce())
 
-      mounted.setResource('replacement-delete-resource')
+      mounted.setResource('replacement-delete-recovery')
       await vi.waitFor(() => expect(load).toHaveBeenCalledTimes(2))
       const replacementDeleteButton = [...mounted.view.host.querySelectorAll<HTMLTableRowElement>('tbody tr')]
         .find((entry) => entry.textContent?.includes('First'))
@@ -2100,7 +2190,7 @@ describe('ListView delete outcomes', () => {
       const recovery = refresh()
       await vi.waitFor(() => expect(reads).toBe(3))
       mode = 'success'
-      mounted.setResource('replacement-delete-resource')
+      mounted.setResource('replacement-delete-recovery')
       await vi.waitFor(() => expect(reads).toBe(4))
       recoveryRead.resolve({ data: [row] })
       await recovery

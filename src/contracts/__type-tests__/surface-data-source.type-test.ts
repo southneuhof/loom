@@ -82,14 +82,15 @@ const resource = defineResource({
     detail: () => ({ schema, fields: { name: {} }, load: loadRow }),
   },
 })
-const extractedTable: TableProps<Row, Query> = resource.list.table
-const spreadExtractedTable: TableProps<Row, Query> = { ...resource.list.table }
+const resourceList = resource.list()
+const extractedTable: TableProps<Row, Query> = resourceList.table
+const spreadExtractedTable: TableProps<Row, Query> = { ...resourceList.table }
 const extractedDetail: DetailProps<Row> = resource.detail({ id: row.id }).detail
 const spreadExtractedDetail: DetailProps<Row> = { ...resource.detail({ id: row.id }).detail }
 const resourceQuery: Query = { page: 1 }
-const extractedLoad: Promise<CollectionResult<Row>> = resource.list.table.load({ query: resourceQuery, searchParameters: {} })
+const extractedLoad: Promise<CollectionResult<Row>> = resourceList.table.load({ query: resourceQuery, searchParameters: {} })
 const detailLoad: Promise<Row | undefined> = resource.detail({ id: row.id }).detail.load({ id: row.id, searchParameters: {} })
-type ExtractedQueryIsPreserved = Assert<Equal<Parameters<typeof resource.list.table.load>[0]['query'], Query>>
+type ExtractedQueryIsPreserved = Assert<Equal<Parameters<typeof resourceList.table.load>[0]['query'], Query>>
 
 void [
   controlledCollection,

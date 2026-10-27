@@ -577,7 +577,7 @@ describe('Form session', () => {
   it('clears a hidden control error and validates a fresh optional control when shown', async () => {
     const visible = ref(true)
     const schema = z.object({ amount: z.number().optional() })
-    const fields = { amount: { renderer: 'number', behavior: { visible: ({ context }) => context.visible === true } } }
+    const fields = { amount: ({ context }: { context: { visible: boolean } }) => ({ renderer: 'number', visible: context.visible }) }
     const submitResult = vi.fn(async (data: { amount?: number }) => data)
     const Host = defineComponent({
       setup: () => () => h('div', [
@@ -649,7 +649,7 @@ describe('Form session', () => {
     const visible = ref(true)
     const validationGate = deferred<void>()
     const schema = z.object({ amount: z.number().optional() })
-    const fields = { amount: { renderer: 'number', behavior: { visible: ({ context }) => context.visible === true } } }
+    const fields = { amount: ({ context }: { context: { visible: boolean } }) => ({ renderer: 'number', visible: context.visible }) }
     let validationSignal: AbortSignal | undefined
     const validator = vi.fn(async ({ signal }: { signal: AbortSignal }) => {
       validationSignal = signal
@@ -935,7 +935,7 @@ describe('Form session', () => {
       }),
       fields: {
         shown: { renderer: 'text' },
-        hidden: { renderer: 'text', behavior: { visible: () => false } },
+        hidden: { renderer: 'text', visible: false },
       },
       initialData: { shown: 'visible', hidden: 'secret', retained: 'kept' },
       submit: submitResult,

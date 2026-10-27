@@ -1,30 +1,32 @@
 import type { FormDefinition, FormDraft } from '../../../contracts/forms'
-import type { TableColumn, TableDefinition, TableProps } from '../../../contracts'
+import type { TableColumnEntry, TableDefinition, TableProps } from '../../../contracts'
 
-export type TableInputTable<TRow extends object> = Omit<TableDefinition<TRow>, 'columns'> & {
-  columns: Readonly<Record<string, TableColumn<NoInfer<TRow>>>>
+export type TableInputTable<TRow extends object, TContext extends object = Readonly<Record<string, unknown>>> = Omit<TableDefinition<TRow, Readonly<Record<string, TableColumnEntry<NoInfer<TRow>, TContext>>>, TContext>, 'columns'> & {
+  columns: Readonly<Record<string, TableColumnEntry<NoInfer<TRow>, TContext>>>
   data?: never
   load?: never
 }
 
-export type TableInputForm<TInput extends object, TRow extends object> = FormDefinition<TInput, NoInfer<TRow>> & {
+export type TableInputForm<TInput extends object, TRow extends object, TContext extends object = Readonly<Record<string, unknown>>> = FormDefinition<TInput, NoInfer<TRow>, unknown, Extract<keyof TInput, string>, TContext> & {
+  context?: TContext
   submit?: never
   load?: never
   modelValue?: never
 }
 
-interface TableInputBase<TInput extends object, TRow extends object> {
-  table: TableInputTable<TRow>
+type TableInputBase<TInput extends object, TRow extends object, TContext extends object> = {
+  table: TableInputTable<TRow, TContext>
   disabled?: boolean
   field?: string
   label?: string
   helperMessage?: string
   error?: string
   required?: boolean
+  context?: TContext
 }
 
-type TableInputEditor<TInput extends object, TRow extends object> = {
-  form: TableInputForm<TInput, TRow>
+type TableInputEditor<TInput extends object, TRow extends object, TContext extends object> = {
+  form: TableInputForm<TInput, TRow, TContext>
   toDraft: (row: TRow) => FormDraft<TInput>
 } & TableInputReordering<TRow>
 
@@ -45,9 +47,9 @@ type TableInputReordering<TRow extends object> =
       rowKey?: TableProps<TRow>['rowKey']
     }
 
-export type TableInputCoreProps<TInput extends object, TRow extends object> = TableInputBase<TInput, TRow>
-  & (TableInputReadOnly | TableInputEditor<TInput, TRow>)
+export type TableInputCoreProps<TInput extends object, TRow extends object, TContext extends object = Readonly<Record<string, unknown>>> = TableInputBase<TInput, TRow, TContext>
+  & (TableInputReadOnly | TableInputEditor<TInput, TRow, TContext>)
 
-export type TableInputProps<TInput extends object, TRow extends object> = TableInputCoreProps<TInput, TRow> & {
+export type TableInputProps<TInput extends object, TRow extends object, TContext extends object = Readonly<Record<string, unknown>>> = TableInputCoreProps<TInput, TRow, TContext> & {
   modelValue: TRow[]
 }

@@ -61,4 +61,22 @@ describe('surface data source ownership', () => {
     })
     view.unmount()
   })
+
+  it.each(cases)('rejects an explicitly undefined competing source added after $name mounts', async ({ component, name, props }) => {
+    const source = ref<Record<string, unknown>>({ data: props.data })
+    const Host = defineComponent(() => () => h(component, { ...props, ...source.value }))
+    const view = mountCore(Host, {})
+    const errors: unknown[] = []
+    view.app.config.errorHandler = (error) => errors.push(error)
+
+    source.value = { data: props.data, load: undefined }
+    await flush()
+
+    expect(errors).toHaveLength(1)
+    expect(errors[0]).toBeInstanceOf(Error)
+    expect(errors[0]).toMatchObject({
+      message: `[loom][SURFACE_DATA_SOURCE_INVALID] ${name} requires exactly one of "data" or "load".`,
+    })
+    view.unmount()
+  })
 })

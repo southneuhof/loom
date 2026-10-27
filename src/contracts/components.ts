@@ -17,8 +17,8 @@ import type { CollectionLoadContext, Load, RecordIdentity, RecordLoadContext } f
 import type { RawSchema } from './schema'
 import type { CollectionMeta, CollectionResult, RecordResult } from './results'
 import type { QueryNamespace, QueryValues } from './query'
-import type { DetailDefinition } from './details'
-import type { TableDefinition } from './tables'
+import type { DetailDefinition, DetailFieldEntry } from './details'
+import type { TableColumnEntry, TableDefinition } from './tables'
 import type { SubmitError } from './results'
 
 interface CollectionOptions<TQuery extends object> {
@@ -27,6 +27,7 @@ interface CollectionOptions<TQuery extends object> {
   resource?: string
   namespace?: QueryNamespace
   query?: TQuery
+  querySchema?: RawSchema<object, TQuery>
   pagination?: 'auto' | 'always' | false
   pageSizeOptions?: readonly number[]
   defaultPageSize?: number
@@ -52,8 +53,11 @@ export interface CollectionSlotProps<TRecord extends object = Record<string, unk
   updateQuery: (patch: QueryValues) => void
 }
 
-interface TableOptions<TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>> extends CollectionOptions<TQuery>, TableDefinition<TRecord> {
-  querySchema?: RawSchema<object, TQuery>
+interface TableOptions<
+  TRecord extends object = Record<string, unknown>,
+  TQuery extends object = Record<string, unknown>,
+  TContext extends object = Readonly<Record<string, unknown>>,
+> extends CollectionOptions<TQuery>, TableDefinition<TRecord, Readonly<Record<string, TableColumnEntry<TRecord, TContext>>>, TContext> {
   /** Minimum resizable width in pixels. */
   minColumnWidth?: number
   /**
@@ -69,7 +73,11 @@ interface TableOptions<TRecord extends object = Record<string, unknown>, TQuery 
   rowKey?: string | ((record: TRecord) => string | number)
 }
 
-export type TableProps<TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>> = TableOptions<TRecord, TQuery> & CollectionSource<TRecord, TQuery>
+export type TableProps<
+  TRecord extends object = Record<string, unknown>,
+  TQuery extends object = Record<string, unknown>,
+  TContext extends object = Readonly<Record<string, unknown>>,
+> = TableOptions<TRecord, TQuery, TContext> & CollectionSource<TRecord, TQuery>
 
 export interface TreeRowContext {
   key: string
@@ -91,15 +99,15 @@ export type TreePresentationOptions<TRecord extends object> = {
   treeColumn: string
 } & TreeExpansionOptions
 
-export type TreeTableProps<TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>> = Omit<TableOptions<TRecord, TQuery>, 'reorderable' | 'rowKey'> &
+export type TreeTableProps<TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>> = Omit<TableOptions<TRecord, TQuery, TContext>, 'reorderable' | 'rowKey'> &
   CollectionSource<TRecord, TQuery> &
   TreePresentationOptions<TRecord>
 
-export interface TableContentProps<TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>> extends Omit<TableOptions<TRecord, TQuery>, 'query'> {
+export interface TableContentProps<TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>> extends Omit<TableOptions<TRecord, TQuery, TContext>, 'query'> {
   records: TRecord[]
   meta?: CollectionMeta
   /** Query-specific auxiliary data returned with the cached collection. */
-  context?: unknown
+  resultContext?: unknown
   loading: boolean
   error?: SubmitError
   empty: boolean
@@ -110,8 +118,8 @@ export interface TableContentProps<TRecord extends object = Record<string, unkno
   updateQuery?: (patch: QueryValues) => void
 }
 
-export type TreeTableContentProps<TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>> = Omit<
-  TableContentProps<TRecord, TQuery>,
+export type TreeTableContentProps<TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>> = Omit<
+  TableContentProps<TRecord, TQuery, TContext>,
   'reorderable' | 'rowKey'
 > &
   TreePresentationOptions<TRecord>
@@ -124,7 +132,7 @@ export interface RowReorderPayload<TRecord extends object = Record<string, unkno
   query: QueryValues
 }
 
-interface DetailOptions<TRecord extends object> extends DetailDefinition<TRecord> {
+interface DetailOptions<TRecord extends object, TContext extends object> extends DetailDefinition<TRecord, Readonly<Record<string, DetailFieldEntry<TRecord, TContext>>>, TContext> {
   id?: RecordIdentity
   searchParameters?: Record<string, unknown>
   resource?: string
@@ -134,4 +142,4 @@ interface DetailOptions<TRecord extends object> extends DetailDefinition<TRecord
 
 type DetailSource<TRecord extends object> = { data: TRecord; load?: never } | { load: Load<RecordLoadContext, RecordResult<TRecord>>; data?: never }
 
-export type DetailProps<TRecord extends object = Record<string, unknown>> = DetailOptions<TRecord> & DetailSource<TRecord>
+export type DetailProps<TRecord extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>> = DetailOptions<TRecord, TContext> & DetailSource<TRecord>

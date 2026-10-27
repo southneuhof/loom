@@ -178,9 +178,9 @@ describe('DialogForm', () => {
           return method()
         } })
         return () => h('div', [
-          h(Table as Component, resource.list.table),
+          h(Table as Component, resource.list().table),
           h(DialogForm as Component, {
-            ...resource.create.form,
+            ...resource.create().form,
             ref: dialog,
             open: open.value,
             'onUpdate:open': (value: boolean) => { openUpdates.push(value); open.value = value },

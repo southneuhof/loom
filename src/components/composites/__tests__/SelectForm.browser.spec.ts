@@ -160,14 +160,18 @@ describe('SelectInput form parity', () => {
           renderer: 'select',
           props: { data: [{ id: 'north', name: 'North' }, { id: 'south', name: 'South' }], pick: 'id', view: 'name', searchable: false },
         },
-        approverId: {
+        approverId: ({ draft }) => ({
           renderer: 'select',
-          props: { load: childLoad, namespace: 'dependent-refresh-approvers', pick: 'id', view: 'name', searchable: false },
-          behavior: {
-            disabled: ({ draft }) => !draft.divisionId,
-            props: ({ draft }) => ({ searchParameters: { divisionId: draft.divisionId } }),
+          props: {
+            load: childLoad,
+            namespace: 'dependent-refresh-approvers',
+            pick: 'id',
+            view: 'name',
+            searchable: false,
+            disabled: !draft.divisionId,
+            searchParameters: { divisionId: draft.divisionId },
           },
-        },
+        }),
       },
       submit: async (value) => value,
     })
@@ -223,14 +227,19 @@ describe('SelectInput form parity', () => {
           renderer: 'select',
           props: { data: [{ id: 'north', name: 'North' }, { id: 'south', name: 'South' }], pick: 'id', view: 'name', searchable: false },
         },
-        approverId: {
+        approverId: ({ draft }) => ({
           renderer: 'select',
-          props: { load: childLoad, namespace: 'dependent-controlled-approvers', pick: 'id', view: 'name', searchable: false, onSelect },
-          behavior: {
-            disabled: ({ draft }) => !draft.divisionId,
-            props: ({ draft }) => ({ searchParameters: { divisionId: draft.divisionId } }),
+          props: {
+            load: childLoad,
+            namespace: 'dependent-controlled-approvers',
+            pick: 'id',
+            view: 'name',
+            searchable: false,
+            onSelect,
+            disabled: !draft.divisionId,
+            searchParameters: { divisionId: draft.divisionId },
           },
-        },
+        }),
       },
       submit: async (value) => value,
     })
@@ -281,11 +290,10 @@ describe('SelectInput form parity', () => {
       labels: { divisionId: 'Division', approverId: 'Approver' },
       fields: {
         divisionId: { renderer: 'select', props: { data: [{ id: 'north', name: 'North' }, { id: 'south', name: 'South' }], pick: 'id', view: 'name', searchable: false } },
-        approverId: {
+        approverId: ({ draft }) => ({
           renderer: 'select',
-          props: { load, namespace: 'authoritative-approvers', pick: 'id', view: 'name', searchable: false },
-          behavior: { props: ({ draft }) => ({ searchParameters: { divisionId: draft.divisionId } }) },
-        },
+          props: { load, namespace: 'authoritative-approvers', pick: 'id', view: 'name', searchable: false, searchParameters: { divisionId: draft.divisionId } },
+        }),
       },
       submit: async (value) => value,
     })

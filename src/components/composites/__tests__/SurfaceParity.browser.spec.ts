@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, defineComponent, h, nextTick, ref, shallowRef, type App } from 'vue'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { z } from 'zod'
-import type { FormDefinition, FormDraft, FormFields } from '../../../contracts/forms'
+import type { FormDefinition, FormFields } from '../../../contracts/forms'
 import { formNativeAttributeNames } from '../../../forms/props'
 import { defineForm } from '../../../forms/defineForm'
 import { FrameworkPlugin } from '../../../adapters/plugin'
@@ -76,11 +76,11 @@ async function mountParity(useConstructor: boolean) {
   type Submitted = Output & { id: string }
   const fields = {
     name: { renderer: 'text', initialValue: () => `show-default-${++defaultCalls}` },
-    dependent: {
+    dependent: ({ draft }) => ({
       renderer: 'text',
       initialValue: () => `dependent-${++defaultCalls}`,
-      behavior: { visible: ({ draft }: { draft: FormDraft<Input> }) => draft.name?.startsWith('show') === true },
-    },
+      visible: draft.name?.startsWith('show') === true,
+    }),
     owners: {
       renderer: 'select',
       props: { multi: true, asWhole: true },
@@ -89,7 +89,7 @@ async function mountParity(useConstructor: boolean) {
         return [{ id: 'owner-default', name: 'Owner', profile: { region: 'East' } }]
       },
     },
-    hidden: { renderer: 'text', initialValue: () => `hidden-${++defaultCalls}`, behavior: { visible: () => false } },
+    hidden: { renderer: 'text', initialValue: () => `hidden-${++defaultCalls}`, visible: false },
   } satisfies FormFields<Input>
   const labels = { name: 'Name', dependent: 'Dependent', owners: 'Owners', hidden: 'Hidden' }
   const validators = [{
@@ -159,7 +159,7 @@ async function mountParity(useConstructor: boolean) {
         'input:owners': ownerSlot('view', firstOwners, currentOwners, setters),
       }),
       h(Form, {
-        ...resources.create.form,
+        ...resources.create().form,
         name: 'resource-form',
         onSubmitted: (result: unknown) => resourceSubmitted.push(result),
       }, {
@@ -824,8 +824,8 @@ describe('form surface browser parity', () => {
       },
     })
     const view = mountCore(FormView, {
-      ...resource.create,
-      form: { ...resource.create.form, name: 'invalid-result-form' },
+      ...resource.create(),
+      form: { ...resource.create().form, name: 'invalid-result-form' },
       successMessage: false,
       onSubmitted: submitted,
       onError: (error: unknown) => errors.push(error),

@@ -16,6 +16,9 @@ import type { DetailViewProps, FormViewProps, ListFilters, ListViewActions, List
 import type { RawSchema, RawSchemaOutput } from '../contracts/schema'
 import type { RouteLocationRaw, RouteMap } from 'vue-router'
 import type { CompactFormDefinition, FormDefinitionError } from '../forms/definitionTypes'
+import type { FormFieldsContext } from '../forms/definitionTypes'
+import type { TableColumnsContext } from '../contracts/tables'
+import type { DetailFieldsContext } from '../contracts/details'
 
 type RouteRawParams<TName extends keyof RouteMap> = RouteMap[TName]['paramsRaw']
 type RouteParamKeys<TName extends keyof RouteMap> = keyof RouteRawParams<TName>
@@ -128,6 +131,9 @@ type ListTableShape = {
   data?: never
   resource?: never
   namespace?: string
+  searchParameters?: Record<string, unknown>
+  query?: object
+  context?: object
 }
 
 type FormBagShape = {
@@ -139,6 +145,9 @@ type FormBagShape = {
   id?: never
   resource?: never
   namespace?: string
+  context?: object
+  initialData?: object
+  searchParameters?: Record<string, unknown>
 }
 
 type UpdateFormBagShape = FormBagShape & {
@@ -153,6 +162,8 @@ type DetailBagShape = {
   id?: never
   resource?: never
   namespace?: string
+  context?: object
+  searchParameters?: Record<string, unknown>
 }
 
 type TableQuery<TTable> = TTable extends { load: (context: CollectionLoadContext<infer TQuery>) => unknown } ? (TQuery extends object ? TQuery : Record<string, unknown>) : Record<string, unknown>
@@ -297,8 +308,8 @@ export type BoundRecordLoad<TLoad> = TLoad extends (context: infer TContext) => 
 type TablePageOptionKeys = Exclude<keyof TableProps, 'schema' | 'columns' | 'querySchema' | 'load' | 'data' | 'resource' | 'namespace' | 'labels'>
 type TablePageOptions<TTable> = Pick<TTable, Extract<keyof TTable, TablePageOptionKeys>>
 
-type BoundTable<TRecord extends object, TQuery extends object, TColumns extends object, TOptions extends object, TLoad> = Omit<
-  TableProps<TRecord, TQuery>,
+type BoundTable<TRecord extends object, TQuery extends object, TColumns extends object, TOptions extends object, TLoad, TContext extends object> = Omit<
+  TableProps<TRecord, TQuery, TContext>,
   'schema' | 'columns' | 'querySchema' | 'load' | 'data' | 'resource' | 'namespace'
 > & TOptions & {
   schema: RawSchema<object, TRecord>
@@ -310,9 +321,16 @@ type BoundTable<TRecord extends object, TQuery extends object, TColumns extends 
   namespace: string
 }
 
-type ResourceFormOptionKeys<TForm> = Exclude<keyof TForm, 'schema' | 'fields' | 'labels' | 'validators' | 'submit' | 'load' | 'modelValue' | 'id' | 'resource' | 'namespace'>
+type ResourceFormOptionKeys<TForm> = Exclude<keyof TForm, 'schema' | 'fields' | 'labels' | 'validators' | 'submit' | 'load' | 'modelValue' | 'id' | 'resource' | 'namespace' | 'context' | 'initialData' | 'searchParameters'>
 type ResourceFormOptions<TForm> = Pick<TForm, ResourceFormOptionKeys<TForm>>
-type ResourceFormLoad<TForm> = TForm extends { load: infer TLoad } ? { load: BoundRecordLoad<TLoad> } : {}
+type ResourceFormLoad<TForm, TInput extends object> = TForm extends { load: infer TLoad }
+  ? { load: BoundRecordLoad<TLoad> }
+  : { load?: BoundRecordLoad<(context: RecordLoadContext) => MaybePromise<FormDraft<TInput> | undefined>> }
+type DefinitionFormContext<TFields extends object> = FormFieldsContext<TFields>
+type EffectiveFormContext<TFields extends object> = [DefinitionFormContext<TFields>] extends [never]
+  ? Readonly<Record<string, unknown>>
+  : Extract<DefinitionFormContext<TFields>, object>
+type ContextBinding<TContext> = [TContext] extends [never] ? { context?: never } : { context: TContext }
 
 type ResourceFormContract<
   TInput extends object,
@@ -320,10 +338,14 @@ type ResourceFormContract<
   TResult,
   TFields extends object,
   TOptions extends object,
-> = CompactFormDefinition<TInput, TOutput, TFields> & {
+  TContext extends object = EffectiveFormContext<TFields>,
+> = CompactFormDefinition<TInput, TOutput, TFields, TContext> & {
   submit: (output: TOutput) => Promise<Awaited<TResult>>
   resource: string
   namespace: string
+  context?: TContext
+  initialData?: FormDraft<TInput>
+  searchParameters?: Record<string, unknown>
 } & TOptions
 
 type BoundForm<TForm extends FormBagShape> = TForm extends {
@@ -331,7 +353,7 @@ type BoundForm<TForm extends FormBagShape> = TForm extends {
   fields: infer TFields extends object
   submit: (...args: never[]) => unknown
 }
-  ? ResourceFormContract<TInput, TOutput, ResourceFormResult<TForm>, TFields, ResourceFormOptions<TForm>> & ResourceFormLoad<TForm>
+  ? ResourceFormContract<TInput, TOutput, ResourceFormResult<TForm>, TFields, ResourceFormOptions<TForm>, EffectiveFormContext<TFields>> & ResourceFormLoad<TForm, TInput>
   : never
 
 type BoundUpdateForm<TForm extends FormBagShape, TIdentity extends RecordIdentity> = BoundForm<TForm> & {
@@ -341,8 +363,8 @@ type BoundUpdateForm<TForm extends FormBagShape, TIdentity extends RecordIdentit
 type DetailPageOptionKeys = Extract<keyof DetailProps, 'searchParameters'>
 type DetailPageOptions<TDetail> = Pick<TDetail, Extract<keyof TDetail, DetailPageOptionKeys>>
 
-type BoundDetail<TRecord extends object, TFields extends object, TOptions extends object, TLoad, TIdentity extends RecordIdentity> = Omit<
-  DetailProps<TRecord>,
+type BoundDetail<TRecord extends object, TFields extends object, TOptions extends object, TLoad, TIdentity extends RecordIdentity, TContext extends object> = Omit<
+  DetailProps<TRecord, TContext>,
   'schema' | 'fields' | 'labels' | 'load' | 'data' | 'resource' | 'namespace' | 'id'
 > & TOptions & {
   schema: RawSchema<object, TRecord>
@@ -353,10 +375,27 @@ type BoundDetail<TRecord extends object, TFields extends object, TOptions extend
   resource: string
   namespace: string
   id: TIdentity
+  context?: TContext
 }
 
-type BoundTableContract<TTable extends ListTableShape> = BoundTable<TableRecord<TTable>, TableQuery<TTable>, TTable['columns'], TablePageOptions<TTable>, TTable['load']>
-type BoundDetailContract<TDetail extends DetailBagShape, TIdentity extends RecordIdentity> = BoundDetail<DetailSchemaRecord<TDetail>, TDetail['fields'], DetailPageOptions<TDetail>, TDetail['load'], TIdentity>
+type TableContext<TTable> = TTable extends { columns: infer TColumns extends object } ? TableColumnsContext<TColumns> : never
+type DetailContext<TDetail> = TDetail extends { fields: infer TFields extends object } ? DetailFieldsContext<TFields> : never
+type BoundTableContract<TTable extends ListTableShape, TContext extends object> = BoundTable<TableRecord<TTable>, TableQuery<TTable>, TTable['columns'], TablePageOptions<TTable>, TTable['load'], TContext>
+type EffectiveTableContext<TTable> = [TableContext<TTable>] extends [never] ? Readonly<Record<string, unknown>> : Extract<TableContext<TTable>, object>
+type BoundDetailContract<TDetail extends DetailBagShape, TIdentity extends RecordIdentity> = BoundDetail<DetailSchemaRecord<TDetail>, TDetail['fields'], DetailPageOptions<TDetail>, TDetail['load'], TIdentity, EffectiveDetailContext<TDetail>>
+type EffectiveDetailContext<TDetail> = [DetailContext<TDetail>] extends [never] ? Readonly<Record<string, unknown>> : Extract<DetailContext<TDetail>, object>
+type RecordBindingOptions<TIdentity extends RecordIdentity, TRecord extends object, TContext, TExtra extends object> = {
+  id: TIdentity
+  record?: TRecord
+} & TExtra & ContextBinding<TContext>
+type DetailBindingExtra = { searchParameters?: Record<string, unknown> }
+type UpdateInput<TForm> = TForm extends { schema: RawSchema<infer TInput extends object, object> } ? TInput : object
+type UpdateContext<TForm> = TForm extends { fields: infer TFields extends object } ? FormFieldsContext<TFields> : never
+type UpdateBindingExtra<TForm> = {
+  initialData?: FormDraft<UpdateInput<TForm>>
+  load?: TForm extends { load: infer TLoad } ? TLoad : never
+  searchParameters?: Record<string, unknown>
+}
 
 type CustomName<TActions> = Exclude<Extract<keyof TActions, string>, 'list' | 'create' | 'detail' | 'update' | 'delete'>
 
@@ -685,20 +724,47 @@ export type ResourceDefinitionGuard<TDefinition, TIdentityFunction extends Resou
 
 type ResourceListPagePropKeys = 'title' | 'description' | 'filters' | 'export' | 'createRoute' | 'detailRoute' | 'updateRoute'
 type ResourceListPageProps<TList> = Pick<TList, Extract<keyof TList, Exclude<ResourceListPagePropKeys, 'filters'>>>
+type ResourceListBindingExtra<TList> = TList extends { table: infer TTable }
+  ? { query?: TableQuery<TTable>; searchParameters?: Record<string, unknown> }
+  : { searchParameters?: Record<string, unknown> }
+type BoundFactory<TContext, TExtra extends object, TResult> = [TContext] extends [never]
+  ? (options?: TExtra & ContextBinding<TContext>) => TResult
+  : (options: TExtra & { context: TContext }) => TResult
+type CreateForm<TCreate> = TCreate extends { form: infer TForm extends FormBagShape } ? TForm : never
+type CreateContext<TCreate> = CreateForm<TCreate> extends { fields: infer TFields extends object } ? FormFieldsContext<TFields> : never
+type CreateInput<TCreate> = CreateForm<TCreate> extends { schema: RawSchema<infer TInput extends object, object> } ? TInput : object
+type CreateBindingExtra<TCreate> = {
+  initialData?: FormDraft<CreateInput<TCreate>>
+  load?: (context: RecordLoadContext) => MaybePromise<FormDraft<CreateInput<TCreate>> | undefined>
+  searchParameters?: Record<string, unknown>
+}
 type ResourceListFilterOptions<TFilters> = Pick<TFilters, Extract<keyof TFilters, 'defaults' | 'label' | 'resetLabel' | 'queryKeys' | 'toDraft'>>
-type ResourceListFilterContract<TFilters, TQuery extends object> = TFilters extends {
+type ResourceListFilters<TList> = TList extends { filters: infer TFilters } ? Exclude<TFilters, undefined> : never
+type ResourceListFilterContext<TFilters> = TFilters extends { fields: infer TFields extends object } ? FormFieldsContext<TFields> : never
+type ResourceListContextPart<TLeft, TRight> = [TLeft] extends [never]
+  ? TRight
+  : [TRight] extends [never]
+    ? TLeft
+    : TLeft & TRight
+type ResourceListContext<TList> = TList extends { table: infer TTable }
+  ? ResourceListContextPart<TableContext<TTable>, ResourceListFilterContext<ResourceListFilters<TList>>>
+  : never
+type EffectiveResourceListContext<TList> = [ResourceListContext<TList>] extends [never]
+  ? Readonly<Record<string, unknown>>
+  : Extract<ResourceListContext<TList>, object>
+type ResourceListFilterContract<TFilters, TQuery extends object, TContext extends object> = TFilters extends {
   schema: RawSchema<infer TInput extends object, infer TOutput extends object>
   fields: infer TFields extends object
 }
-  ? CompactFormDefinition<TInput, TOutput, TFields> & {
+  ? CompactFormDefinition<TInput, TOutput, TFields, TContext> & {
       submit?: never
     } & ResourceListFilterOptions<TFilters>
   : never
-type ResourceListFilterProp<TList, TQuery extends object, TFilterInput extends object> = TList extends { filters: infer TFilters }
-  ? { filters: ResourceListFilterContract<TFilters, TQuery> }
+type ResourceListFilterProp<TList, TQuery extends object, TFilterInput extends object, TContext extends object> = TList extends { filters: infer TFilters }
+  ? { filters: ResourceListFilterContract<Exclude<TFilters, undefined>, TQuery, TContext> }
   : 'filters' extends keyof TList
-    ? { filters?: ResourceListFilterContract<Exclude<TList['filters'], undefined>, TQuery> }
-    : { filters?: ListFilters<TQuery, TFilterInput> }
+    ? { filters?: ResourceListFilterContract<Exclude<TList['filters'], undefined>, TQuery, TContext> }
+    : { filters?: ListFilters<TQuery, TFilterInput, TContext> }
 type ResourceFormPageStaticPropKeys = 'title' | 'description' | 'backTo' | 'successMessage'
 type ResourceFormPageStaticProps<TDeclaration> = Pick<TDeclaration, Extract<keyof TDeclaration, ResourceFormPageStaticPropKeys>>
 type PageCallback = (...args: never[]) => unknown
@@ -768,27 +834,27 @@ export type ResourceBoundOperations<TDefinition, TIdentityFunction extends Resou
   (TDefinition extends { list: infer TList }
     ? TList extends { table: infer TTable extends ListTableShape }
       ? {
-          list: ResourceListPage<
+          list: BoundFactory<ResourceListContext<TList>, ResourceListBindingExtra<TList>, ResourceListPage<
             TableRecord<TTable>,
             TableQuery<TTable>,
             ListFilterInput<TList, TableQuery<TTable>>,
-            BoundTableContract<TTable>,
+            BoundTableContract<TTable, EffectiveResourceListContext<TList>>,
             ResourceListPageProps<TList>,
-            ResourceListFilterProp<TList, TableQuery<TTable>, ListFilterInput<TList, TableQuery<TTable>>>,
+            ResourceListFilterProp<TList, TableQuery<TTable>, ListFilterInput<TList, TableQuery<TTable>>, EffectiveResourceListContext<TList>>,
             TDefinition extends { delete: unknown } ? true : false
-          >
+          >>
         }
       : never
     : {}) &
   (TDefinition extends { create: infer TCreate }
     ? TCreate extends { form: infer TForm extends FormBagShape }
-      ? { create: ResourceCreatePage<BoundForm<TForm>, ResourceFormResult<TForm>, ResourceFormPageProps<TCreate, ResourceFormResult<TForm>>> }
+      ? { create: BoundFactory<CreateContext<TCreate>, CreateBindingExtra<TCreate>, ResourceCreatePage<BoundForm<TForm>, ResourceFormResult<TForm>, ResourceFormPageProps<TCreate, ResourceFormResult<TForm>>>> }
       : never
     : {}) &
   (TDefinition extends { detail: infer TDetail }
     ? DetailBag<TDetail> extends infer TBag extends DetailBagShape
       ? {
-          detail: (binding: ResourceBinding<ResourceIdentityValue<TIdentityFunction>, IdentityRecord<TIdentityFunction>>) => ResourceDetailPage<
+          detail: (binding: RecordBindingOptions<ResourceIdentityValue<TIdentityFunction>, IdentityRecord<TIdentityFunction>, DetailContext<TBag>, DetailBindingExtra>) => ResourceDetailPage<
             DetailRecord<TBag>,
             BoundDetailContract<TBag, ResourceIdentityValue<TIdentityFunction>>,
             ResourceDetailPageProps<TDetail>
@@ -799,7 +865,7 @@ export type ResourceBoundOperations<TDefinition, TIdentityFunction extends Resou
   (TDefinition extends { update: infer TUpdate }
     ? UpdateForm<TUpdate> extends infer TForm extends FormBagShape
       ? {
-          update: (binding: ResourceBinding<ResourceIdentityValue<TIdentityFunction>, IdentityRecord<TIdentityFunction>>) => ResourceUpdatePage<
+          update: (binding: RecordBindingOptions<ResourceIdentityValue<TIdentityFunction>, IdentityRecord<TIdentityFunction>, UpdateContext<TForm>, UpdateBindingExtra<TForm>>) => ResourceUpdatePage<
             BoundUpdateForm<TForm, ResourceIdentityValue<TIdentityFunction>>,
             ResourceFormResult<TForm>,
             ResourceFormPageProps<TUpdate, ResourceFormResult<TForm>>

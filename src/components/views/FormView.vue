@@ -5,7 +5,8 @@
     TInput extends object = Record<string, unknown>,
     TOutput extends object = Record<string, unknown>,
     TResult = unknown,
-    TKeys extends string = Extract<keyof TInput, string>
+    TKeys extends string = Extract<keyof TInput, string>,
+    TContext extends object = Readonly<Record<string, unknown>>
   "
 >
 import { computed, onBeforeUnmount, onMounted, ref, useSlots, watch } from 'vue'
@@ -19,8 +20,8 @@ import Dialog from '../base/Dialog.vue'
 import NavigationHeader from './NavigationHeader.vue'
 import { useFrameworkUiDefaults } from './uiDefaults'
 
-const props = defineProps<FormViewProps<TInput, TOutput, TResult, TKeys>>()
-defineSlots<FormViewSlots<TInput, TOutput, TResult, TKeys>>()
+const props = defineProps<FormViewProps<TInput, TOutput, TResult, TKeys, TContext>>()
+defineSlots<FormViewSlots<TInput, TOutput, TResult, TKeys, TContext>>()
 const form = computed(() => props.form)
 const emit = defineEmits<{
   (event: 'submitted', result: TResult, refreshError?: SubmitError): void

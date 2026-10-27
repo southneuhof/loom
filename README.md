@@ -135,8 +135,8 @@ export const users = defineResource({
 })
 ```
 
-The list and create page bags are static: `users.list` and `users.create`.
-Detail and update bind identity: `users.detail({ id })` and
+List and create bind page bags with `users.list()` and `users.create()`.
+Detail and update bind identity with `users.detail({ id })` and
 `users.update({ id })`. Update owns its draft loader and submit function. The
 loader maps record values to input values explicitly. Delete is a command;
 custom commands live in `actions` and expose guarded `can` and `run` functions.
@@ -171,9 +171,9 @@ The backend remains the final authorization boundary.
 Pass the operation bag directly to its View:
 
 ```vue
-<ListView v-bind="users.list" />
+<ListView v-bind="users.list()" />
 <DetailView v-bind="users.detail({ id })" />
-<FormView v-bind="users.create" />
+<FormView v-bind="users.create()" />
 <FormView v-bind="users.update({ id })" />
 ```
 

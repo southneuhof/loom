@@ -1,7 +1,8 @@
 import type { LabelDictionary } from '../contracts/labels'
 import type { CompactDisplayField, DisplayFieldGuard, DisplayFieldValue } from '../display/compatibility'
 import type { RawSchema, RawSchemaOutput } from '../contracts/schema'
-import type { TableColumn, TableDefinition } from '../contracts/tables'
+import type { TableColumn, TableColumnContext, TableColumnsContext, TableDefinition } from '../contracts/tables'
+import type { DisplayValueConfiguration } from '../contracts/display'
 import { assertDisplayEntry, assertSafeDisplayKey } from '../display/assertDisplayDefinition'
 
 type UnsafeKey = '__proto__' | 'prototype' | 'constructor' | `${number}`
@@ -36,11 +37,47 @@ type TableSortKeyGuard<TRecord extends object, TKey extends string, TColumn> = E
 
 type EveryTrue<TValue> = [TValue] extends [true] ? unknown : never
 
-type TableColumnGuard<TRecord extends object, TKey extends string, TColumn> = [TColumn] extends [TableColumn<TRecord, DisplayFieldValue<TRecord, TKey, TColumn>>]
-  ? Exclude<KeysOfUnion<TColumn>, AllowedColumnMember> extends never
-    ? DisplayFieldGuard<TRecord, TKey, TColumn> & TableSortKeyGuard<TRecord, TKey, TColumn>
+type TableColumnConfig<TColumn> = TColumn extends (...args: never[]) => unknown ? ReturnType<TColumn> : TColumn
+
+type TableColumnCellConfig<TCell> = TCell extends (...args: never[]) => unknown ? ReturnType<TCell> : TCell
+type AllowedCellMember = keyof DisplayValueConfiguration
+type FlatDisplayMembers = 'read' | 'renderer' | 'props' | 'format'
+
+type HasDefinedMember<TValue, TMember extends PropertyKey> = TMember extends keyof TValue
+  ? {} extends Pick<TValue, TMember> ? false : [Exclude<TValue[TMember], undefined>] extends [never] ? false : true
+  : false
+
+type HasFlatDisplayMember<TValue> = true extends {
+  [TMember in FlatDisplayMembers]: HasDefinedMember<TValue, TMember>
+}[FlatDisplayMembers] ? true : false
+
+type TableColumnCellMemberValid<TRecord extends object, TKey extends string, TCell> = TableColumnCellConfig<TCell> extends infer TConfig
+  ? TConfig extends unknown
+    ? [TConfig] extends [DisplayValueConfiguration<TRecord>]
+      ? Exclude<KeysOfUnion<TConfig>, AllowedCellMember> extends never
+        ? [DisplayFieldGuard<TRecord, TKey, TConfig>] extends [never] ? false : true
+        : false
+      : false
     : never
   : never
+
+type TableColumnCellMemberGuard<TRecord extends object, TKey extends string, TCell> = EveryTrue<TableColumnCellMemberValid<TRecord, TKey, TCell>>
+
+type TableColumnMemberGuard<TRecord extends object, TKey extends string, TConfig> = [TConfig] extends [TableColumn<TRecord, DisplayFieldValue<TRecord, TKey, TConfig>, any>]
+  ? Exclude<KeysOfUnion<TConfig>, AllowedColumnMember> extends never
+    ? TableSortKeyGuard<TRecord, TKey, TConfig> & (TConfig extends { readonly cell: infer TCell }
+        ? HasFlatDisplayMember<TConfig> extends false ? TableColumnCellMemberGuard<TRecord, TKey, TCell> : never
+        : DisplayFieldGuard<TRecord, TKey, TConfig>)
+    : never
+  : never
+
+type TableColumnMemberValid<TRecord extends object, TKey extends string, TColumn> = TableColumnConfig<TColumn> extends infer TConfig
+  ? TConfig extends unknown
+    ? [TableColumnMemberGuard<TRecord, TKey, TConfig>] extends [never] ? false : true
+    : never
+  : never
+
+type TableColumnGuard<TRecord extends object, TKey extends string, TColumn> = EveryTrue<TableColumnMemberValid<TRecord, TKey, TColumn>>
 
 type TableColumnsGuard<TRecord extends object, TColumns> = TColumns extends object
   ? TColumns extends readonly unknown[]
@@ -58,18 +95,36 @@ type CompactSortable<TColumn> = 'sortable' extends keyof TColumn
       : {}
   : {}
 
-type CompactTableColumn<TRecord extends object, TKey extends string, TColumn> = CompactDisplayField<TRecord, DisplayFieldValue<TRecord, TKey, TColumn>, TColumn> & CompactSortable<TColumn> & {
+type CompactTableCell<TColumn> = TColumn extends { readonly cell: infer TCell } ? { readonly cell: TCell } : {}
+
+type CompactTableColumn<TRecord extends object, TKey extends string, TColumn> = CompactDisplayField<TRecord, DisplayFieldValue<TRecord, TKey, TColumn>, TColumn> & CompactSortable<TColumn> & CompactTableCell<TColumn> & {
   readonly sortKey?: TColumn extends { sortKey: infer TSortKey extends Extract<keyof TRecord, string> } ? TSortKey : never
   readonly align?: 'start' | 'center' | 'end'
   readonly class?: string
   readonly headerClass?: string
 }
 
+type CompactTableEntry<TRecord extends object, TKey extends string, TColumn> = TColumn extends (...args: never[]) => unknown
+  ? TColumn
+  : CompactTableColumn<TRecord, TKey, TColumn>
+
 type CompactTableColumns<TRecord extends object, TColumns extends object> = {
-  readonly [TKey in keyof TColumns]: TKey extends string ? CompactTableColumn<TRecord, TKey, TColumns[TKey]> : never
+  readonly [TKey in keyof TColumns]: TKey extends string ? CompactTableEntry<TRecord, TKey, TColumns[TKey]> : never
 }
 
-type DefinedTable<TSchema extends RawSchema<object, object>, TColumns extends object> = TableDefinition<RawSchemaOutput<TSchema>, CompactTableColumns<RawSchemaOutput<TSchema>, TColumns>>
+type DefinedTable<TSchema extends RawSchema<object, object>, TColumns extends object> = TableDefinition<RawSchemaOutput<TSchema>, CompactTableColumns<RawSchemaOutput<TSchema>, TColumns>, Extract<TableColumnsContext<TColumns>, object>>
+
+type TableColumnArgument<TRecord extends object> = TableColumn<TRecord, unknown, any> | ((scope: TableColumnContext<any>) => TableColumn<TRecord, unknown, any>)
+
+type TableColumnsArgument<TRecord extends object, TColumns extends object> = {
+  readonly [TKey in keyof TColumns]: TableColumnArgument<TRecord>
+}
+
+type TableArgument<TSchema extends RawSchema<object, object>, TColumns extends object> = {
+  readonly schema: TSchema & TableSchemaGuard<TSchema>
+  readonly columns: TColumns & TableColumnsArgument<RawSchemaOutput<TSchema>, TColumns> & NoInfer<TableColumnsGuard<RawSchemaOutput<TSchema>, TColumns>>
+  readonly labels?: LabelDictionary
+}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -93,13 +148,9 @@ function snapshotMap<T extends object>(value: T): T {
 
 export function defineTable<
   TSchema extends RawSchema<object, object>,
-  const TColumns extends Record<string, TableColumn<RawSchemaOutput<TSchema>>>,
+  const TColumns extends object,
   const TLabels extends LabelDictionary | undefined = undefined,
->(definition: {
-  readonly schema: TSchema & TableSchemaGuard<TSchema>
-  readonly columns: TColumns & TableColumnsGuard<RawSchemaOutput<TSchema>, TColumns>
-  readonly labels?: TLabels
-}): DefinedTable<TSchema, TColumns> {
+>(definition: TableArgument<TSchema, TColumns> & { readonly labels?: TLabels }): DefinedTable<TSchema, TColumns> {
   if (!isRecord(definition)) invalidOption('definition', 'an object')
   for (const member of Object.keys(definition)) {
     if (!['schema', 'columns', 'labels'].includes(member)) invalidOption(member, 'a TableDefinition member')
@@ -109,15 +160,18 @@ export function defineTable<
   assertLabels(definition.labels)
   for (const key of Reflect.ownKeys(definition.columns)) {
     assertSafeDisplayKey(key, (invalidKey, expected) => invalidOption(`columns.${String(invalidKey)}`, expected))
-    assertDisplayEntry('table', `columns.${key}`, definition.columns[key], (_surface, location, member, expected) => {
-      invalidOption(member === 'definition' ? location : `${location}.${member}`, expected)
-    })
+    const column = definition.columns[key]
+    if (typeof column !== 'function') {
+      assertDisplayEntry('table', `columns.${key}`, column, (_surface, location, member, expected) => {
+        invalidOption(member === 'definition' ? location : `${location}.${member}`, expected)
+      })
+    }
   }
 
-  const result: DefinedTable<TSchema, TColumns> = {
+  const result = {
     schema: definition.schema,
     columns: snapshotMap(definition.columns),
     ...(definition.labels !== undefined ? { labels: { ...definition.labels } } : {}),
-  }
+  } as DefinedTable<TSchema, TColumns>
   return result
 }

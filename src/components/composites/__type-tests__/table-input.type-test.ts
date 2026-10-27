@@ -1,6 +1,7 @@
 import { z } from 'zod/v4'
 import { defineForm } from '../../../forms/defineForm'
 import { defineTable } from '../../../tables/defineTable'
+import type { FormFieldContext, TableColumnContext } from '../../../contracts'
 import type { TableInputProps } from '../form-inputs/tableInput.types'
 
 const rowSchema = z.object({ id: z.string(), name: z.string() })
@@ -12,6 +13,35 @@ type RowInput = z.input<typeof inputSchema>
 const table = defineTable({ schema: rowSchema, columns: { name: {} } })
 const form = defineForm({ schema: inputSchema, fields: { label: { renderer: 'text' } } })
 const toDraft = (row: Row): Partial<RowInput> => ({ id: row.id, label: row.name })
+
+type WorkspaceContext = { workspaceId: string }
+const contextualForm = defineForm({
+  schema: inputSchema,
+  fields: {
+    label: ({ context }: FormFieldContext<RowInput, WorkspaceContext>) => ({
+      renderer: 'text' as const,
+      props: { placeholder: context.workspaceId },
+    }),
+  },
+})
+const contextualTable = defineTable({
+  schema: rowSchema,
+  columns: {
+    name: ({ context }: TableColumnContext<WorkspaceContext>) => ({
+      read: (row: Row) => `${context.workspaceId}: ${row.name}`,
+    }),
+  },
+})
+const contextualEditor: TableInputProps<RowInput, Row, WorkspaceContext> = {
+  table: contextualTable,
+  form: contextualForm,
+  context: { workspaceId: 'north' },
+  toDraft,
+  modelValue: [],
+}
+
+// @ts-expect-error TableInput cannot satisfy a different context than its row form and display columns.
+const mismatchedContext: TableInputProps<RowInput, Row, { workspaceId: number }> = contextualEditor
 
 const editableTable: TableInputProps<RowInput, Row> = {
   table,
@@ -62,4 +92,4 @@ const conflictingFormModel: TableInputProps<RowInput, Row> = { table, form: form
 // @ts-expect-error Read-only TableInput cannot reorder its model.
 const conflictingReadOnlyReorder: TableInputProps<Row, Row> = readOnlyReorder
 
-void [editableTable, readOnlyTable, submittingEditor, missingEditorMapper, conflictingData, conflictingLoad, conflictingSubmit, conflictingFormLoad, conflictingFormModel, conflictingReadOnlyReorder]
+void [editableTable, readOnlyTable, submittingEditor, missingEditorMapper, conflictingData, conflictingLoad, conflictingSubmit, conflictingFormLoad, conflictingFormModel, conflictingReadOnlyReorder, contextualEditor, mismatchedContext]

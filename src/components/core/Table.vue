@@ -1,12 +1,11 @@
-<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>">
+<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>">
 import { computed, getCurrentInstance, onBeforeUpdate, ref, useSlots } from 'vue'
-import type { CollectionLoadContext, CollectionProps, CollectionResult, QueryValues, RowReorderPayload, TableProps } from '../../contracts'
-import { createSchemaRuntime } from '../../schemas/schemaRuntime'
+import type { CollectionProps, QueryValues, RowReorderPayload, TableProps } from '../../contracts'
 import Collection from './Collection.vue'
 import TableContent from './TableContent.vue'
 import { assertSingleDataSource } from './useCoreData'
 
-const props = withDefaults(defineProps<TableProps<TRecord, TQuery>>(), {
+const props = withDefaults(defineProps<TableProps<TRecord, TQuery, TContext>>(), {
   searchParameters: () => ({}),
   pagination: 'auto',
   pageSizeOptions: () => [10, 25, 50, 100],
@@ -15,8 +14,8 @@ const props = withDefaults(defineProps<TableProps<TRecord, TQuery>>(), {
   maxColumnWidth: 360,
 })
 
-assertSingleDataSource('Table', props.data, props.load)
 const instance = getCurrentInstance()
+assertSingleDataSource('Table', props.data, props.load, 'collection', instance?.vnode.props ?? {})
 const hasControlledQuery = ref(hasQueryProp())
 
 const emit = defineEmits<{
@@ -32,14 +31,19 @@ defineSlots<{
   [name: string]: unknown
 }>()
 const slots = useSlots()
-const querySchemaRuntime = computed(() => props.querySchema ? createSchemaRuntime(props.querySchema) : undefined)
 const forwardedSlots = computed(() => Object.fromEntries(
   Object.entries(slots).filter(([name]) => name !== 'collection'),
 ))
-const collectionRef = ref<{ refresh: () => Promise<void>; query: QueryValues; updateQuery: (patch: QueryValues) => void; replaceQuery: (values: QueryValues) => void }>()
+const collectionRef = ref<{
+  refresh: () => Promise<void>
+  query: QueryValues
+  updateQuery: (patch: QueryValues) => void
+  replaceQuery: (values: QueryValues) => void
+  readReady: boolean
+}>()
 
 onBeforeUpdate(() => {
-  assertSingleDataSource('Table', props.data, props.load)
+  assertSingleDataSource('Table', props.data, props.load, 'collection', instance?.vnode.props ?? {})
   hasControlledQuery.value = hasQueryProp()
 })
 
@@ -48,6 +52,7 @@ const collectionProps = computed<CollectionProps<TRecord, TQuery>>(() => {
     resource: props.resource,
     searchParameters: props.searchParameters,
     namespace: props.namespace,
+    querySchema: props.querySchema,
     pagination: props.pagination,
     pageSizeOptions: props.pageSizeOptions,
     defaultPageSize: props.defaultPageSize,
@@ -56,26 +61,8 @@ const collectionProps = computed<CollectionProps<TRecord, TQuery>>(() => {
     ...(hasControlledQuery.value ? { query: props.query as TQuery } : {}),
   }
   if (props.data !== undefined) return { ...options, data: props.data }
-  const load = props.load
-  return {
-    ...options,
-    load: async (context: CollectionLoadContext<TQuery>): Promise<CollectionResult<TRecord>> => {
-      const runtime = querySchemaRuntime.value
-      if (!runtime) return load(context)
-      const result = await runtime.parseAsync(context.query)
-      if (!result.success) {
-        const issue = result.issues[0]
-        const path = issue ? issue.path.map(String).join('.') || '$' : '$'
-        throw new Error(`[loom][SURFACE_OPTION_INVALID] Table query does not match querySchema at "${path}".`)
-      }
-      const query = {
-        ...(Object.hasOwn(context.query, 'page') && !Object.hasOwn(result.data, 'page') ? { page: Reflect.get(context.query, 'page') } : {}),
-        ...(Object.hasOwn(context.query, 'limit') && !Object.hasOwn(result.data, 'limit') ? { limit: Reflect.get(context.query, 'limit') } : {}),
-        ...result.data,
-      }
-      return load({ ...context, query })
-    },
-  }
+  if (!props.load) throw new Error('[loom] No Table loader supplied.')
+  return { ...options, load: props.load }
 })
 
 function updateQuery(patch: QueryValues) {
@@ -100,7 +87,13 @@ function rowReorder(payload: RowReorderPayload<TRecord>) {
 
 const exposedQuery = computed<QueryValues>(() => collectionRef.value?.query ?? {})
 
-defineExpose({ refresh, query: exposedQuery, updateQuery, replaceQuery })
+defineExpose({
+  refresh,
+  query: exposedQuery,
+  updateQuery,
+  replaceQuery,
+  readReady: computed(() => collectionRef.value?.readReady ?? false),
+})
 
 function hasQueryProp(): boolean {
   const vnodeProps = instance?.vnode.props ?? {}
@@ -116,6 +109,8 @@ function hasQueryProp(): boolean {
         :query-schema="props.querySchema"
         :columns="props.columns"
         :labels="props.labels"
+        :context="props.context"
+        :result-context="collection.context"
         :records="collection.records"
         :meta="collection.meta"
         :loading="collection.loading"

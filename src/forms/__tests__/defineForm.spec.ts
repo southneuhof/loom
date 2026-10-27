@@ -13,12 +13,12 @@ afterEach(() => {
 describe('defineForm', () => {
   it('snapshots enumerable configuration and preserves component props and callbacks', () => {
     const schema = z.object({ name: z.string(), status: z.string().optional() })
-    const visible = vi.fn(() => true)
+    const derived = vi.fn(() => 'Ada')
     const initialValue = vi.fn(() => 'Ada')
     const validate = vi.fn(() => undefined)
     const submit = vi.fn(async () => 'saved')
     const props = { placeholder: 'Name' }
-    const behavior = { visible }
+    const behavior = { derived }
     const fields = {
       name: { renderer: 'text', props, span: 2, initialValue, behavior },
       status: { renderer: 'text' },
@@ -41,13 +41,13 @@ describe('defineForm', () => {
     expect(definition.fields.name.props).toEqual({ placeholder: 'Name' })
     expect(definition.fields.name.span).toBe(2)
     expect(definition.fields.name.initialValue).toBe(initialValue)
-    expect(definition.fields.name.behavior?.visible).toBe(visible)
+    expect(definition.fields.name.behavior?.derived).toBe(derived)
     expect(definition.labels).toEqual({ name: 'Name' })
     expect(definition.validators?.[0]?.validate).toBe(validate)
     expect(definition.validators?.[0]?.triggers).toEqual(['blur'])
     expect(definition.validators?.[0]?.path).toEqual(['name'])
     expect(definition.submit).toBe(submit)
-    expect(visible).not.toHaveBeenCalled()
+    expect(derived).not.toHaveBeenCalled()
     expect(initialValue).not.toHaveBeenCalled()
     expect(validate).not.toHaveBeenCalled()
     expect(submit).not.toHaveBeenCalled()

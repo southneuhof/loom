@@ -76,7 +76,7 @@ describe('bound resource operations', () => {
       },
     })
 
-    const list = records.list
+    const list = records.list()
     const row: Row = { id: '1', name: 'One', status: 'new' }
     expect(list.recordIdentity).toBe(identity)
     expect(list.createRoute).toEqual({ name: 'records-create' })
@@ -101,8 +101,8 @@ describe('bound resource operations', () => {
     await expect(detail.detail.load({ id: '1' })).resolves.toEqual(row)
     expect(detail.backTo).toEqual({ name: 'records-list' })
     expect(loadRecord).toHaveBeenCalledOnce()
-    await expect(records.create.form.submit({ name: 'Two' })).resolves.toEqual({ id: '2', name: 'Two', status: 'new' })
-    expect(records.create.defaultTo?.({ id: '2', name: 'Two', status: 'new' })).toEqual({ name: 'records-detail', params: { id: '2' } })
+    await expect(records.create().form.submit({ name: 'Two' })).resolves.toEqual({ id: '2', name: 'Two', status: 'new' })
+    expect(records.create().defaultTo?.({ id: '2', name: 'Two', status: 'new' })).toEqual({ name: 'records-detail', params: { id: '2' } })
     const update = records.update({ id: '1', record: row })
     await expect(update.form.load({ id: '1' })).resolves.toEqual({ name: 'Row 1' })
     await expect(update.form.submit({ name: 'Changed' })).resolves.toEqual({ id: '1', name: 'Changed', status: 'updated' })
@@ -271,12 +271,12 @@ describe('bound resource operations', () => {
       delete: { permission: null, visible: ({ record }) => record?.status === 'new', run: remove },
     })
 
-    await expect(records.list.table.load({ query: {} })).resolves.toMatchObject({ data: [{ id: '1' }] })
-    expect(records.list.can('create')).toBe(false)
-    await expect(records.create.form.submit({ name: 'One' })).rejects.toThrow('[loom] Resource "open-records" action "create" is not allowed.')
+    await expect(records.list().table.load({ query: {} })).resolves.toMatchObject({ data: [{ id: '1' }] })
+    expect(records.list().can('create')).toBe(false)
+    await expect(records.create().form.submit({ name: 'One' })).rejects.toThrow('[loom] Resource "open-records" action "create" is not allowed.')
     createVisible = true
-    expect(records.list.can('create')).toBe(true)
-    await expect(records.create.form.submit({ name: 'One' })).resolves.toMatchObject({ id: '1' })
+    expect(records.list().can('create')).toBe(true)
+    await expect(records.create().form.submit({ name: 'One' })).resolves.toMatchObject({ id: '1' })
     const deletion = records.delete({ id: '1', record: { id: '1', name: 'One', status: 'new' } })
     expect(deletion.can()).toBe(true)
     await expect(deletion.run()).resolves.toBe('1')
@@ -547,7 +547,7 @@ describe('bound resource operations', () => {
       },
     })
 
-    await expect(minimalCreate.create.form.submit({ name: 'Minimal' })).resolves.toEqual({ id: 'minimal' })
+    await expect(minimalCreate.create().form.submit({ name: 'Minimal' })).resolves.toEqual({ id: 'minimal' })
     expect(minimalCreateSubmit).toHaveBeenCalledOnce()
     expect(invalidate.mock.calls.map(([filter]) => filter.queryKey)).toEqual([['resource', 'minimal-create-result']])
 
@@ -562,7 +562,7 @@ describe('bound resource operations', () => {
         form: { schema: draftSchema, fields: { name: { renderer: 'text' } }, submit: createSubmit },
       },
     })
-    const createError = await create.create.form.submit({ name: 'Created' }).then(
+    const createError = await create.create().form.submit({ name: 'Created' }).then(
       () => undefined,
       (error: unknown) => error,
     )
@@ -579,7 +579,7 @@ describe('bound resource operations', () => {
       writeOutcome: 'uncertain',
     })
     expect(createSubmit).toHaveBeenCalledOnce()
-    expect(create.create.defaultTo).toBe(false)
+    expect(create.create().defaultTo).toBe(false)
     expect(invalidate.mock.calls.map(([filter]) => filter.queryKey)).toEqual([['resource', 'invalid-create-result']])
 
     invalidate.mockClear()
@@ -612,7 +612,7 @@ describe('bound resource operations', () => {
       identity: (record: { id: string }) => record.id,
       create: { permission: null, form: { schema: draftSchema, fields: { name: { renderer: 'text' } }, submit: validSubmit } },
     })
-    const invalidationError = await validCreate.create.form.submit({ name: 'Write accepted' }).then(
+    const invalidationError = await validCreate.create().form.submit({ name: 'Write accepted' }).then(
       () => undefined,
       (error: unknown) => error,
     )
@@ -708,14 +708,14 @@ describe('bound resource operations', () => {
       },
     })
 
-    expect(records.list).toMatchObject({ title: 'Records', description: 'Current records', filters, export: exportOptions })
-    expect(records.list.createRoute).toBe(false)
-    expect(records.list.detailRoute).toBe(false)
-    expect(records.list.updateRoute).toBe(false)
-    expect(records.list.table.resource).toBe('complete-view-props')
-    expect(records.create).toMatchObject({ title: 'Create record', description: 'Add one record', backTo: false, defaultTo: false, successMessage: false })
-    expect(records.create.afterSubmit).toBe(afterSubmit)
-    expect(records.create.form.submitLabel).toBe('Create record')
+    expect(records.list()).toMatchObject({ title: 'Records', description: 'Current records', filters, export: exportOptions })
+    expect(records.list().createRoute).toBe(false)
+    expect(records.list().detailRoute).toBe(false)
+    expect(records.list().updateRoute).toBe(false)
+    expect(records.list().table.resource).toBe('complete-view-props')
+    expect(records.create()).toMatchObject({ title: 'Create record', description: 'Add one record', backTo: false, defaultTo: false, successMessage: false })
+    expect(records.create().afterSubmit).toBe(afterSubmit)
+    expect(records.create().form.submitLabel).toBe('Create record')
     expect(records.detail({ id: 'one' }).backTo).toBe(false)
   })
 })

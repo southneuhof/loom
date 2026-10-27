@@ -39,7 +39,8 @@ const resource = defineResource({
     detail: () => ({ schema, fields, load: loadRow }),
   },
 })
-const resourceTable = resource.list.table
+const resourcePage = resource.list()
+const resourceTable = resourcePage.table
 const spreadResourceTable = { ...resourceTable }
 const resourceDetail = resource.detail({ id: row.id }).detail
 const spreadResourceDetail = { ...resourceDetail }

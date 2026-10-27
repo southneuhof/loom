@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { z } from 'zod/v4'
 import type { FormProps, FormViewProps } from '../../../contracts'
+import type { FormFieldContext } from '../../../contracts/forms'
 import FormView from '../FormView.vue'
 
 type Result = { id: string; name: string }
@@ -26,8 +27,23 @@ const viewProps = {
     void preventDefaultNavigation
   },
 } satisfies FormViewProps<Input, Output, Result>
+
+type WorkspaceContext = { workspaceId: string }
+const contextualForm = {
+  schema,
+  fields: {
+    name: ({ context }: FormFieldContext<Input, WorkspaceContext>) => ({
+      renderer: 'text' as const,
+      label: context.workspaceId,
+    }),
+  },
+  submit: async ({ name }: Output) => ({ id: '1', name }),
+  context: { workspaceId: 'north' },
+}
+const contextualViewProps = { form: contextualForm } satisfies FormViewProps<Input, Output, Result, 'name', WorkspaceContext>
 </script>
 
 <template>
   <FormView v-bind="viewProps" />
+  <FormView v-bind="contextualViewProps" />
 </template>

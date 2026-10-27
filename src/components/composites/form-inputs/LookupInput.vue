@@ -1,4 +1,4 @@
-<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>">
+<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>">
 import { computed, getCurrentInstance, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import type { CollectionMeta, QueryValues } from '../../../contracts'
 import { stableValue } from '../../../query/keys'
@@ -14,7 +14,7 @@ import Checkbox from '../../inputs/CheckboxInput.vue'
 import SearchBox from '../../inputs/SearchBox.vue'
 import Table from '../../core/Table.vue'
 
-const props = withDefaults(defineProps<LookupInputProps<TRecord>>(), {
+const props = withDefaults(defineProps<LookupInputProps<TRecord, TContext>>(), {
   field: '',
   label: '',
   helperMessage: '',
@@ -161,6 +161,7 @@ function forModel(selection: readonly TRecord[], identity?: unknown): LookupMode
 }
 
 const viewKey = computed(() => props.view ?? Object.keys(props.table.columns)[0] ?? props.pick)
+const tableContext = computed(() => Object.hasOwn(props.table, 'context') ? props.table.context : props.context)
 const combinedSearchParameters = computed(() => ({
   ...props.searchParameters,
   ...(search.value ? { search: search.value } : {}),
@@ -591,6 +592,7 @@ const displayValue = computed(() => {
             <Table
               v-if="!loadPending && !loadError"
               v-bind="table"
+              :context="tableContext"
               :data="rows"
               :meta="props.data ? undefined : loadedMeta"
               :query="query"
@@ -616,7 +618,7 @@ const displayValue = computed(() => {
         </template>
       </Dialog>
     </div>
-    <Table v-if="multi && committed.length" v-bind="table" :data="committed" :pagination="false">
+    <Table v-if="multi && committed.length" v-bind="table" :context="tableContext" :data="committed" :pagination="false">
       <template v-if="!disabled" #row-actions="{ record }">
         <ConfirmationDialog :on-confirm="() => remove(record)">
           <template #trigger><Button variant="tonal" color="error" ariaLabel="Remove selected record"><Icon name="delete-bin" /></Button></template>

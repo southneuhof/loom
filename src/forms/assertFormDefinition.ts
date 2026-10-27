@@ -49,7 +49,8 @@ export function assertFormDefinition<
   TOutput extends object,
   TResult,
   TKeys extends string,
->(definition: FormDefinition<TInput, TOutput, TResult, TKeys>, schemaRuntime?: SchemaRuntime<TOutput>): void {
+  TContext extends object,
+>(definition: FormDefinition<TInput, TOutput, TResult, TKeys, TContext>, schemaRuntime?: SchemaRuntime<TOutput>): void {
   if (!isRecord(definition)) invalidOption('definition', 'an object')
   if (!Object.hasOwn(definition, 'schema') || definition.schema == null) {
     throw new Error('[loom][FORM_SCHEMA_REQUIRED] Form requires a raw schema.')
@@ -71,6 +72,7 @@ export function assertFormDefinition<
     }
     assertSafeFieldKey(key)
     const input: unknown = Reflect.get(definition.fields, key)
+    if (typeof input === 'function') continue
     if (!isFormInputRecord(input)) invalidOption(`fields.${key}`, 'a FormInput object')
     const binding = bindingFor(input)
     if (binding !== undefined) {

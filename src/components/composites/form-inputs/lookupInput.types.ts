@@ -6,18 +6,20 @@ import type {
   RecordIdentity,
   RecordLoadContext,
   RecordResult,
+  TableColumnEntry,
   TableDefinition,
 } from '../../../contracts'
 
 export type LookupModelValue<TValue extends object> = string | number | TValue | TValue[] | null
 
-export type LookupTable<TValue extends object> = TableDefinition<TValue> & {
+export type LookupTable<TValue extends object, TContext extends object = Readonly<Record<string, unknown>>> = TableDefinition<TValue, Readonly<Record<string, TableColumnEntry<NoInfer<TValue>, TContext>>>, TContext> & {
   data?: never
   load?: never
 }
 
-export type LookupInputBaseProps<TValue extends object> = {
-  table: LookupTable<TValue>
+export type LookupInputBaseProps<TValue extends object, TContext extends object = Readonly<Record<string, unknown>>> = {
+  table: LookupTable<TValue, TContext>
+  context?: TContext
   loadDetail?: Load<RecordLoadContext & { id: RecordIdentity }, RecordResult<TValue>>
   searchParameters?: Record<string, unknown>
   namespace?: QueryNamespace
@@ -37,4 +39,4 @@ export type LookupInputSource<TValue extends object> =
   | { data: readonly TValue[]; load?: never }
   | { data?: never; load: Load<CollectionLoadContext, CollectionResult<TValue>> }
 
-export type LookupInputProps<TValue extends object> = LookupInputBaseProps<TValue> & LookupInputSource<TValue>
+export type LookupInputProps<TValue extends object, TContext extends object = Readonly<Record<string, unknown>>> = LookupInputBaseProps<TValue, TContext> & LookupInputSource<TValue>
