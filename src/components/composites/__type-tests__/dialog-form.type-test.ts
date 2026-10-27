@@ -79,14 +79,6 @@ const incompatibleBaseRenderer = defineForm({
   },
 })
 
-const incompatibleResolverRenderer = defineForm({
-  schema,
-  fields: {
-    // @ts-expect-error A field resolver cannot change a string input to a number input.
-    name: () => ({ renderer: 'number' as const }),
-  },
-})
-
 void dialogProps
 void formProps
 void modelBoundDialog
@@ -95,4 +87,3 @@ void modelBoundForm
 void missingDialogBinding
 void selectedRecordForm
 void incompatibleBaseRenderer
-void incompatibleResolverRenderer

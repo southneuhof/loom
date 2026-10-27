@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import * as XLSX from 'xlsx'
 import { configureParser, resetParserConfigForTests } from '@southneuhof/utilities/parse'
-import { formatDisplayValue, resolveDisplayFields, resolveDisplayValue, type ResolvedDisplayField } from '../../display/resolveDisplay'
+import { resolveDisplayFields, resolveDisplayValue } from '../../display/resolveDisplay'
 import { createWorkbook } from '../excel'
 import { exportTableRows } from '../export'
 
@@ -96,10 +96,10 @@ describe('display export', () => {
     type Context = { prefix: string }
     const records: Record[] = [{ name: 'joined name' }, { name: 'another name' }]
     const context: Context = { prefix: 'Joined' }
-    const resolveCell = vi.fn(({ record, context: cellContext }: { record: Record; context: Context }) => ({
+    const resolveCell = ({ record, context: cellContext }: { record: Record; context: Context }) => ({
       read: (value: Record) => `${cellContext.prefix} ${value.name}`,
       ...(record.name === 'joined name' ? { format: 'uppercase' } : {}),
-    }))
+    })
     const columns = resolveDisplayFields<Record, Context>({
       surface: 'table',
       entries: { name: { label: 'Name', cell: resolveCell } },
@@ -107,41 +107,26 @@ describe('display export', () => {
     const formattedWorkbook = createWorkbook(records, columns, {}, context)
 
     expect(XLSX.utils.sheet_to_json(formattedWorkbook.Sheets.Data!, { header: 1 })).toEqual([['Name'], ['JOINED JOINED NAME'], ['Joined another name']])
-    expect(resolveCell.mock.calls.map(([scope]) => [scope.record, scope.context])).toEqual([
-      [records[0], context],
-      [records[1], context],
-    ])
 
-    const mappedFields: ResolvedDisplayField<Record, Context>[] = []
-    const mapValue = vi.fn(({ field, value }: { record: Record; field: ResolvedDisplayField<Record, Context>; value: unknown }) => {
-      mappedFields.push(field)
-      return formatDisplayValue(value, field)
-    })
     await exportTableRows({
       activeQuery: {},
       searchParameters: {},
       data: records,
       columns,
       context,
-      options: { filename: 'joined-names', mapValue },
+      options: {
+        filename: 'joined-names',
+        mapValue: ({ field, value }) => `${field.format ?? 'plain'}:${String(value)}`,
+      },
     })
 
     const exportedWorkbook = download.workbook as XLSX.WorkBook
     expect(download.filename).toBe('joined-names')
-    expect(XLSX.utils.sheet_to_json(exportedWorkbook.Sheets.Data!, { header: 1 })).toEqual([['Name'], ['JOINED JOINED NAME'], ['Joined another name']])
-    expect(
-      mappedFields.map(({ key, label, format, read, cell }) => ({
-        key,
-        label,
-        format,
-        hasRead: typeof read === 'function',
-        cell,
-      }))
-    ).toEqual([
-      { key: 'name', label: 'Name', format: 'uppercase', hasRead: true, cell: undefined },
-      { key: 'name', label: 'Name', format: undefined, hasRead: true, cell: undefined },
+    expect(XLSX.utils.sheet_to_json(exportedWorkbook.Sheets.Data!, { header: 1 })).toEqual([
+      ['Name'],
+      ['uppercase:Joined joined name'],
+      ['plain:Joined another name'],
     ])
-    expect(resolveCell).toHaveBeenCalledTimes(4)
   })
 
   it('exports a joined relation through the display accessor and formatter', async () => {

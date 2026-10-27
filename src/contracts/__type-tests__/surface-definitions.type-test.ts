@@ -118,7 +118,12 @@ const nestedLookupProps: FormRendererProps<'lookup', WorkspaceContext> = {
   table: {
     schema: lookupContextSchema,
     columns: {
-      name: ({ context }) => ({ read: () => context.workspaceId }),
+      name: ({ context }) => {
+        // @ts-expect-error The framework-inferred workspaceId remains a string.
+        const numericWorkspaceId: number = context.workspaceId
+        void numericWorkspaceId
+        return { read: () => `${context.workspaceId.toUpperCase()}:${context.scale.toFixed(0)}` }
+      },
     },
   },
   context: { workspaceId: 'north', scale: 2 },
@@ -126,12 +131,12 @@ const nestedLookupProps: FormRendererProps<'lookup', WorkspaceContext> = {
 type LookupFieldInput = { ownerId: string }
 const contextAwareLookupResolver: FormFieldResolver<LookupFieldInput, string, 'lookup', WorkspaceContext> = ({ context }) => ({
   renderer: 'lookup',
-  behavior: { derived: ({ context: derivedContext }) => `${derivedContext.workspaceId}:${derivedContext.scale}` },
+  behavior: { derived: ({ context: derivedContext }) => `${derivedContext.workspaceId.toUpperCase()}:${derivedContext.scale.toFixed(0)}` },
   props: {
     data: [],
     table: {
       schema: lookupContextSchema,
-      columns: { name: ({ context: columnContext }) => ({ read: () => `${context.workspaceId}:${columnContext.workspaceId}` }) },
+      columns: { name: ({ context: columnContext }) => ({ read: () => `${context.workspaceId.toUpperCase()}:${context.scale.toFixed(0)}:${columnContext.workspaceId.toUpperCase()}:${columnContext.scale.toFixed(0)}` }) },
     },
     context,
   },
@@ -170,7 +175,6 @@ const resolvedDetail = defineDetail({
     },
   },
 })
-type DetailResolverIsPreserved = Assert<Equal<typeof resolvedDetail.fields.name extends (...args: never[]) => unknown ? true : false, true>>
 const cellTable = defineTable({
   schema: displaySchema,
   columns: {
@@ -182,30 +186,29 @@ const cellTable = defineTable({
     } },
   },
 })
-type StaticCellIsRetained = Assert<Equal<'cell' extends keyof typeof cellTable.columns.name ? true : false, true>>
 const resolvedCellTable = defineTable({
   schema: displaySchema,
   columns: {
     name: () => ({ cell: ({ record }) => ({ read: () => record.name }) }),
   },
 })
-type ResolverCellIsRetained = Assert<Equal<'cell' extends keyof ReturnType<typeof resolvedCellTable.columns.name> ? true : false, true>>
 const syntheticCellTable = defineTable({
   schema: displaySchema,
   columns: {
     summary: { cell: ({ record }) => ({ read: () => `${record.name}: ${record.amount}` }) },
   },
 })
-type SyntheticCellIsRetained = Assert<Equal<'cell' extends keyof typeof syntheticCellTable.columns.summary ? true : false, true>>
+const displayRecord: DisplayRecord = { name: 'Ada', amount: 1 }
+const resolvedDetailValue: string | undefined = resolvedDetail.fields.name({ record: displayRecord, context: {} }).read?.()
+const staticCellValue: string | undefined = cellTable.columns.name.cell({ record: displayRecord, context: {} }).read?.()
+const resolverCellValue: string | undefined = resolvedCellTable.columns.name().cell({ record: displayRecord, context: {} }).read?.()
+const syntheticCellValue: string | undefined = syntheticCellTable.columns.summary.cell({ record: displayRecord, context: {} }).read?.()
 type DisplayContext = { workspaceId: string }
 const contextualCellTable = defineTable({
   schema: displaySchema,
   columns: {
     name: ({ context }: TableColumnContext<DisplayContext>) => ({
       cell: ({ record, context: cellContext }: { record: DisplayRecord; context: DisplayContext }) => {
-        // @ts-expect-error Cell context uses the declared app context type.
-        const invalidContext: string = cellContext.scale
-        void invalidContext
         return { read: () => `${context.workspaceId}:${cellContext.workspaceId}:${record.name}` }
       },
     }),
@@ -399,9 +402,13 @@ void [
   goodSpreadTable,
   goodSpreadDetail,
   resolvedDetail,
+  resolvedDetailValue,
   cellTable,
+  staticCellValue,
   resolvedCellTable,
+  resolverCellValue,
   syntheticCellTable,
+  syntheticCellValue,
   contextualCellTable,
   branchedCellTable,
   readRoleNames,

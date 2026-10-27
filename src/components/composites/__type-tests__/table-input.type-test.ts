@@ -40,8 +40,21 @@ const contextualEditor: TableInputProps<RowInput, Row, WorkspaceContext> = {
   modelValue: [],
 }
 
-// @ts-expect-error TableInput cannot satisfy a different context than its row form and display columns.
-const mismatchedContext: TableInputProps<RowInput, Row, { workspaceId: number }> = contextualEditor
+type NumericWorkspaceContext = { workspaceId: number }
+const mismatchedTableContext: TableInputProps<RowInput, Row, NumericWorkspaceContext> = {
+  // @ts-expect-error The nested table resolver requires a string workspaceId.
+  table: contextualTable,
+  form,
+  toDraft,
+  modelValue: [],
+}
+const mismatchedFormContext: TableInputProps<RowInput, Row, NumericWorkspaceContext> = {
+  table,
+  // @ts-expect-error The nested form resolver requires a string workspaceId.
+  form: contextualForm,
+  toDraft,
+  modelValue: [],
+}
 
 const editableTable: TableInputProps<RowInput, Row> = {
   table,
@@ -92,4 +105,4 @@ const conflictingFormModel: TableInputProps<RowInput, Row> = { table, form: form
 // @ts-expect-error Read-only TableInput cannot reorder its model.
 const conflictingReadOnlyReorder: TableInputProps<Row, Row> = readOnlyReorder
 
-void [editableTable, readOnlyTable, submittingEditor, missingEditorMapper, conflictingData, conflictingLoad, conflictingSubmit, conflictingFormLoad, conflictingFormModel, conflictingReadOnlyReorder, contextualEditor, mismatchedContext]
+void [editableTable, readOnlyTable, submittingEditor, missingEditorMapper, conflictingData, conflictingLoad, conflictingSubmit, conflictingFormLoad, conflictingFormModel, conflictingReadOnlyReorder, contextualEditor, mismatchedTableContext, mismatchedFormContext]

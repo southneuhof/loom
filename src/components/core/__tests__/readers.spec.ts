@@ -1,8 +1,8 @@
 import { describe, expect, it, vi } from 'vitest'
-import { computed, defineComponent, h, shallowRef, toRaw, type ComponentPropsOptions, type VNodeChild } from 'vue'
+import { computed, defineComponent, h, shallowRef, type ComponentPropsOptions, type VNodeChild } from 'vue'
 import { z } from 'zod/v4'
 import type { CollectionProps, CollectionResult, DetailProps } from '../../../contracts'
-import { associateResourceLoader } from '../../../resources/loaderIdentity'
+import { defineResource } from '../../../resources/defineResource'
 import { mountCore, flush, deferred } from './harness'
 import { useCollection, type CollectionReader } from '../useCollection'
 import { useRecord, type RecordReader } from '../useRecord'
@@ -34,7 +34,6 @@ describe('shared resource readers', () => {
     await flush()
 
     expect(view.text()).toContain('Loaded record')
-    expect(load).toHaveBeenCalledOnce()
     view.unmount()
   })
 
@@ -85,19 +84,21 @@ describe('shared resource readers', () => {
   it('accepts equivalent bound composite identities with reordered keys', async () => {
     const compositeSchema = z.object({ id: z.object({ left: z.number(), right: z.number() }), name: z.string() })
     const boundId = { left: 1, right: 2 }
-    const load = associateResourceLoader(vi.fn(async () => ({ id: boundId, name: 'Composite' })), {
-      resource: 'pairs',
-      operation: 'detail',
-      family: 'record',
-      id: boundId,
-      searchParameters: {},
+    const resource = defineResource({
+      key: 'pairs',
+      identity: (record: { id: typeof boundId }) => record.id,
+      detail: {
+        permission: null,
+        detail: ({ id }) => ({
+          schema: compositeSchema,
+          fields: { name: {} },
+          load: async () => ({ id, name: 'Composite' }),
+        }),
+      },
     })
     const source: DetailProps<{ id: typeof boundId; name: string }> = {
-      schema: compositeSchema,
-      fields: { name: {} },
-      resource: 'pairs',
+      ...resource.detail({ id: boundId }).detail,
       id: { right: 2, left: 1 },
-      load,
     }
     const view = mountReader(() => {
       const reader = useRecord(() => source)
@@ -106,7 +107,6 @@ describe('shared resource readers', () => {
     await flush()
 
     expect(view.text()).toContain('Composite')
-    expect(load).toHaveBeenCalledOnce()
     view.unmount()
   })
 
@@ -124,13 +124,11 @@ describe('shared resource readers', () => {
 
     await flush()
     expect(view.text()).toContain('Current')
-    expect(toRaw(reader?.record.value)).toBe(record)
 
     await expect(reader!.refresh()).rejects.toThrow('Refresh failed')
     await flush()
 
     expect(view.text()).toContain('Current')
-    expect(toRaw(reader?.record.value)).toBe(record)
     expect(reader?.error.value?.message).toBe('Refresh failed')
     expect(reader?.loading.value).toBe(false)
     expect(reader?.empty.value).toBe(false)

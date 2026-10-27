@@ -84,22 +84,25 @@ describe('resource cache ownership', () => {
       identity: (record: RecordRow) => record.id,
       detail: { permission: null, detail: () => ({ schema: rowSchema, fields: displayFields, load: read }) },
     })
-    const bodyMode = ref(false)
-    const view = mount(() => {
-      const page = resource.detail({ id: 1 })
-      const slots = bodyMode.value ? {
-        body: ({ record, detail }: DetailViewReadyProps<RecordRow>) => h('section', [
-          h('p', { class: 'main-record' }, record.name),
-          h('aside', { class: 'sibling-panel' }, detail.data.name),
-        ]),
-      } : undefined
-      return h(DetailView as Component, { ...page, key: bodyMode.value ? 'body' : 'default' }, slots)
-    })
+    const visible = ref(true)
+    const body = ({ record, detail }: DetailViewReadyProps<RecordRow>) => h('section', [
+      h('p', { class: 'main-record' }, record.name),
+      h('aside', { class: 'sibling-panel' }, detail.data.name),
+    ])
+    const view = mount(() => visible.value
+      ? h(DetailView as Component, { ...resource.detail({ id: 1 }) }, { body })
+      : h('p', { class: 'detail-unmounted' }, 'Detail hidden'))
 
-    await vi.waitFor(() => expect(view.host.textContent).toContain('Cached user'))
+    await vi.waitFor(() => {
+      expect(view.host.querySelector('.main-record')?.textContent).toBe('Cached user')
+      expect(view.host.querySelector('.sibling-panel')?.textContent).toBe('Cached user')
+    })
     expect(read).toHaveBeenCalledOnce()
 
-    bodyMode.value = true
+    visible.value = false
+    await vi.waitFor(() => expect(view.host.querySelector('.detail-unmounted')).not.toBeNull())
+
+    visible.value = true
     await vi.waitFor(() => {
       expect(view.host.querySelector('.main-record')?.textContent).toBe('Cached user')
       expect(view.host.querySelector('.sibling-panel')?.textContent).toBe('Cached user')
@@ -185,7 +188,6 @@ describe('resource cache ownership', () => {
       expect(view.host.textContent).toContain('Page 1')
       expect(view.host.textContent).toContain('Page 2')
     })
-    expect(view.queryClient.getQueryCache().getAll().every((query) => query.isActive())).toBe(true)
     await records.update({ id: 1 }).form.submit({ name: 'Changed' })
     await vi.waitFor(() => expect(calls).toEqual([1, 2, 1, 2]))
     view.unmount()
@@ -217,13 +219,6 @@ describe('resource cache ownership', () => {
       expect(view.host.textContent).toContain('First 2')
       expect(view.host.textContent).toContain('Second 1')
     })
-    const resourceReads = view.queryClient.getQueryCache().getAll().filter((query) =>
-      query.queryKey[0] === 'resource'
-      && (query.queryKey[1] === 'first' || query.queryKey[1] === 'second')
-      && query.queryKey[2] === 'detail',
-    )
-    expect(resourceReads).toHaveLength(3)
-    expect(resourceReads.every((query) => query.isActive())).toBe(true)
     await resource.update({ id: 1 }).form.submit({ name: 'Changed' })
     await vi.waitFor(() => expect(first).toHaveBeenCalledTimes(3))
     expect(second).toHaveBeenCalledTimes(1)

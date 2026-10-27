@@ -72,11 +72,9 @@ describe('surface data source ownership', () => {
     source.value = { data: props.data, load: undefined }
     await flush()
 
-    expect(errors).toHaveLength(1)
-    expect(errors[0]).toBeInstanceOf(Error)
-    expect(errors[0]).toMatchObject({
-      message: `[loom][SURFACE_DATA_SOURCE_INVALID] ${name} requires exactly one of "data" or "load".`,
-    })
+    expect(errors.map(String).join('\n')).toContain(
+      `[loom][SURFACE_DATA_SOURCE_INVALID] ${name} requires exactly one of "data" or "load".`,
+    )
     view.unmount()
   })
 })

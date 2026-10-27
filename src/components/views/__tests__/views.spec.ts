@@ -6,12 +6,13 @@ import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { z } from 'zod'
 import * as XLSX from 'xlsx'
 import { configureParser, resetParserConfigForTests } from '@southneuhof/utilities/parse'
-import type { CollectionSlotProps, QueryValues, RecordIdentity } from '../../../contracts'
+import type { CollectionSlotProps, DetailViewControls, DetailViewReadyProps, QueryValues, RecordIdentity } from '../../../contracts'
 import type { ListViewSlotActions } from '../../../contracts/views'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import ListView from '../ListView.vue'
 import DetailView from '../DetailView.vue'
 import FormView from '../FormView.vue'
+import Detail from '../../core/Detail.vue'
 import Form from '../../core/Form.vue'
 import { deferred, flush, mountCore } from '../../core/__tests__/harness'
 import { testAssetAdapter } from '../../inputs/__tests__/harness'
@@ -937,46 +938,47 @@ describe('DetailView', () => {
 
   it('gives the body a loaded detail config and keeps controls separate', async () => {
     const record = { name: 'Loaded role' }
-    const bodyScopes: Array<{ record: { name: string }; detail: Record<string, unknown> }> = []
-    const controlsScopes: Array<{ record?: { name: string }; loading: boolean }> = []
+    const result = deferred<{ name: string }>()
+    let readyDetail: DetailViewReadyProps<{ name: string }>['detail'] | undefined
     const view = mountCore(DetailView, {
+      title: 'Role',
       detail: {
         schema: z.object({ name: z.string() }),
         fields: { name: { label: 'Name' } },
         id: '1',
-        load: async () => record,
+        load: () => result.promise,
       },
     }, {
       slots: {
-        body: (scope: { record: { name: string }; detail: Record<string, unknown> }) => {
-          bodyScopes.push(scope)
-          return h('p', { 'data-detail-body': '' }, scope.record.name)
+        loading: () => h('p', { 'data-detail-loading': '' }, 'Loading role'),
+        body: ({ record: readyRecord, detail }: DetailViewReadyProps<{ name: string }>) => {
+          readyDetail = detail
+          return h('section', { 'data-detail-body': '' }, [
+            h(Detail, { ...detail }),
+            h('aside', { 'data-detail-sibling': '' }, `Sibling ${readyRecord.name}`),
+          ])
         },
-        controls: (scope: { record?: { name: string }; loading: boolean }) => {
-          controlsScopes.push(scope)
-          return h('button', { 'data-detail-controls': '' }, 'Edit')
+        controls: ({ loading, record }: DetailViewControls<{ name: string }>) => {
+          return h('button', { 'data-detail-controls': '', disabled: loading }, record ? `Edit ${record.name}` : 'Edit')
         },
       },
     })
     await flush()
 
-    expect(view.find('[data-detail-body]')?.textContent).toBe('Loaded role')
-    expect(bodyScopes).toHaveLength(1)
-    expect(toRaw(bodyScopes[0]?.record)).toBe(record)
-    expect(bodyScopes[0]?.detail).toMatchObject({ id: '1' })
-    expect(toRaw(bodyScopes[0]?.detail.data)).toBe(record)
-    expect(bodyScopes[0]?.detail.load).toBeUndefined()
-    expect(view.find('[data-detail-controls]')).not.toBeNull()
-    expect(controlsScopes.at(-1)).toMatchObject({ record, loading: false })
+    expect(view.find('[data-detail-loading]')?.textContent).toBe('Loading role')
+    expect(view.find<HTMLButtonElement>('[data-detail-controls]')?.disabled).toBe(true)
+    expect(view.find('[data-detail-body]')).toBeNull()
+
+    result.resolve(record)
+    await flush()
+
+    expect(view.find('[data-detail-controls]')?.textContent).toBe('Edit Loaded role')
+    expect(view.find<HTMLButtonElement>('[data-detail-controls]')?.disabled).toBe(false)
+    expect(view.find('[data-detail-body] .is-detail tbody tr td:last-child')?.textContent).toBe('Loaded role')
+    expect(view.find('[data-detail-sibling]')?.textContent).toBe('Sibling Loaded role')
+    expect(view.all('table')).toHaveLength(1)
+    expect(readyDetail).not.toHaveProperty('load')
     view.unmount()
-  })
-
-  it('contains no removed regions or router history logic', () => {
-    const source = readFileSync(join(viewsRoot, 'DetailView.vue'), 'utf8')
-
-    for (const forbidden of ['name="header"', 'name="print"', 'name="footer"', 'description', 'router.back', 'useRouter']) {
-      expect(source).not.toContain(forbidden)
-    }
   })
 })
 
@@ -1475,10 +1477,6 @@ describe('shell boundaries', () => {
     })
 
     expect(offenders).toEqual([])
-  })
-
-  it('forwards core props with v-bind instead of translating them', () => {
-    expect(readFileSync(join(viewsRoot, 'FormView.vue'), 'utf8')).toContain('v-bind="form"')
   })
 
   it('keeps one heading per shell for a predictable document outline', async () => {

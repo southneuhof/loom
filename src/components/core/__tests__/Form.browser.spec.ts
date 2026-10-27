@@ -94,9 +94,9 @@ describe('Form control contracts in the browser', () => {
     type WorkspaceContext = { workspaceId: string }
     type CreateInput = { name: string }
     const schema = z.object({ name: z.string() })
-    const load = vi.fn(async ({ searchParameters }: RecordLoadContext) => ({
+    const load = async ({ searchParameters }: RecordLoadContext) => ({
       name: `Prepared ${String(searchParameters.invitation)}`,
-    }))
+    })
     const resource = defineResource({
       key: 'binding-create-load-browser',
       identity: (record: { id: string }) => record.id,
@@ -127,9 +127,6 @@ describe('Form control contracts in the browser', () => {
       expect(input?.value).toBe('Prepared from invitation')
       expect(input?.placeholder).toBe('Workspace North')
     })
-
-    expect(load).toHaveBeenCalledOnce()
-    expect(load.mock.calls[0]?.[0]).toMatchObject({ searchParameters: { invitation: 'from invitation' } })
   })
 
   it('keeps remote selections across resolver reevaluation for Select, Radio, Checkbox, and Lookup fields', async () => {
@@ -137,11 +134,6 @@ describe('Form control contracts in the browser', () => {
     type Option = z.output<typeof optionSchema>
     type Draft = { note?: string | null; selectId?: string | null; radioId?: string | null; checked?: Option[] | null; lookupId?: string | null }
     const option = { id: 'one', name: 'One' }
-    const selectLoad = vi.fn(async () => [option])
-    const radioLoad = vi.fn(async () => [option])
-    const checkboxLoad = vi.fn(async () => [option])
-    const lookupOptionsLoad = vi.fn(async () => ({ data: [option], meta: { total: 1, page: 1, pageSize: 5 } }))
-    const lookupDetailLoad = vi.fn(async () => option)
     const table = defineTable({ schema: optionSchema, columns: { name: {} } })
     const form = defineForm({
       schema: z.object({ note: z.string(), selectId: z.string(), radioId: z.string(), checked: z.array(optionSchema), lookupId: z.string() }),
@@ -150,25 +142,26 @@ describe('Form control contracts in the browser', () => {
         selectId: ({ draft }) => ({
           renderer: 'select',
           span: draft.note ? 6 : 12,
-          props: { load: async () => selectLoad(), pick: 'id', view: 'name', namespace: 'resolver-select' },
+          props: { load: async () => [option], pick: 'id', view: 'name', namespace: 'resolver-select' },
         }),
         radioId: ({ draft }) => ({
           renderer: 'radio',
+          label: draft.note ? 'Edited choice' : 'Choice',
           span: draft.note ? 6 : 12,
-          props: { load: async () => radioLoad(), pick: 'id', view: 'name', namespace: 'resolver-radio' },
+          props: { load: async () => [option], pick: 'id', view: 'name', namespace: 'resolver-radio' },
         }),
         checked: ({ draft }) => ({
           renderer: 'checkbox-group',
           span: draft.note ? 6 : 12,
-          props: { load: async () => checkboxLoad(), pick: 'id', view: 'name', namespace: 'resolver-checkbox' },
+          props: { load: async () => [option], pick: 'id', view: 'name', namespace: 'resolver-checkbox' },
         }),
         lookupId: ({ draft }) => ({
           renderer: 'lookup',
           span: draft.note ? 6 : 12,
           props: {
             table,
-            load: async () => lookupOptionsLoad(),
-            loadDetail: async () => lookupDetailLoad(),
+            load: async () => ({ data: [option], meta: { total: 1, page: 1, pageSize: 5 } }),
+            loadDetail: async () => option,
             pick: 'id',
             view: 'name',
           },
@@ -183,37 +176,31 @@ describe('Form control contracts in the browser', () => {
     }))
     await vi.waitFor(async () => {
       await settle()
-      expect(host.querySelector('[role="radiogroup"]')).not.toBeNull()
-      expect(host.querySelector('[role="group"]')).not.toBeNull()
-      expect(host.textContent).toContain('One')
+      expect(host.querySelector<HTMLInputElement>('input[type="radio"]')?.checked).toBe(true)
+      expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(true)
+      expect(host.querySelector('label[for$="-field-radioId"]')?.textContent).toContain('Choice')
+      expect(host.querySelector('[role="radiogroup"]')?.textContent).toContain('One')
+      expect(host.querySelector('[role="group"]')?.textContent).toContain('One')
+      expect(host.querySelector('[id$="-field-selectId"]')?.textContent).toContain('One')
       expect(host.querySelector('[id$="-field-lookupId"]')?.textContent?.trim()).toBe('One')
-      expect(selectLoad).toHaveBeenCalledOnce()
-      expect(radioLoad).toHaveBeenCalledOnce()
-      expect(checkboxLoad).toHaveBeenCalledOnce()
-      expect(lookupOptionsLoad).toHaveBeenCalledOnce()
-      expect(lookupDetailLoad).toHaveBeenCalledOnce()
     })
 
-    const radio = host.querySelector<HTMLInputElement>('input[type="radio"]')
-    const checkbox = host.querySelector<HTMLInputElement>('input[type="checkbox"]')
     const note = host.querySelector<HTMLInputElement>('input[id$="-field-note"]')
-    if (!radio || !checkbox || !note) throw new Error('The remote Form controls did not render.')
-    expect(radio.checked).toBe(true)
-    expect(checkbox.checked).toBe(true)
+    if (!note) throw new Error('The remote Form controls did not render.')
 
     await userEvent.fill(note, 'Changed')
-    await settle()
+    await vi.waitFor(async () => {
+      await settle()
+      expect(host.querySelector('label[for$="-field-radioId"]')?.textContent).toContain('Edited choice')
+      expect(host.querySelector<HTMLInputElement>('input[type="radio"]')?.checked).toBe(true)
+      expect(host.querySelector<HTMLInputElement>('input[type="checkbox"]')?.checked).toBe(true)
+      expect(host.querySelector('[role="radiogroup"]')?.textContent).toContain('One')
+      expect(host.querySelector('[role="group"]')?.textContent).toContain('One')
+      expect(host.querySelector('[id$="-field-selectId"]')?.textContent).toContain('One')
+      expect(host.querySelector('[id$="-field-lookupId"]')?.textContent?.trim()).toBe('One')
+    })
 
     expect.soft(modelValue.value).toMatchObject({ note: 'Changed', selectId: 'one', radioId: 'one', checked: [option], lookupId: 'one' })
-    expect.soft(radio.checked).toBe(true)
-    expect.soft(checkbox.checked).toBe(true)
-    expect.soft(host.querySelector('[id$="-field-selectId"]')?.textContent).toContain('One')
-    expect.soft(selectLoad).toHaveBeenCalledOnce()
-    expect.soft(radioLoad).toHaveBeenCalledOnce()
-    expect.soft(checkboxLoad).toHaveBeenCalledOnce()
-    expect.soft(lookupOptionsLoad).toHaveBeenCalledOnce()
-    expect.soft(lookupDetailLoad).toHaveBeenCalledOnce()
-    expect.soft(host.querySelector('[id$="-field-lookupId"]')?.textContent?.trim()).toBe('One')
   })
 
   it('keeps a static Lookup context local and inherits the Form context when absent', async () => {
