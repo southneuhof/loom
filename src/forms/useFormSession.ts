@@ -14,7 +14,7 @@ import { associateResourceLoader, resourceLoaderIdentity } from '../resources/lo
 import { formInputPendingKeyOf, provideFormInputPending } from '../components/core/useFormInputState'
 import { createFormBehaviorRuntime, type FormBehaviorRuntime, type RuntimeFormField } from './behavior'
 import { createSchemaRuntime } from '../schemas/schemaRuntime'
-import { assertFormDefinition } from './assertFormDefinition'
+import { assertFormDefinition, assertFormFields } from './assertFormDefinition'
 import { fieldKeys, fieldPatch, formFieldValue } from './fieldBinding'
 import { cloneEditable, isPlainRecord, snapshotEditable } from './draftValues'
 import type { FormProps } from './props'
@@ -269,8 +269,7 @@ export function useFormSession<
       const input = typeof entry === 'function' ? resolveFieldLoaders(fieldKey, resolvedInput) : resolvedInput
       return [key, input]
     }))
-    const resolvedDefinition = { ...currentDefinition, fields: fieldEntries as FormDefinition<TInput, TOutput, TResult, TKeys, TContext>['fields'] }
-    assertFormDefinition(resolvedDefinition, runtime)
+    assertFormFields(fieldEntries, runtime.inputKeys)
     return Object.keys(fieldEntries).map((key) => {
       const fieldKey = key as Extract<TKeys, string>
       const input = Reflect.get(fieldEntries, fieldKey) as RuntimeField['input']

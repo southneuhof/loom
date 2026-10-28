@@ -18,7 +18,6 @@ export interface FormBehaviorState {
 
 export interface FormBehaviorRuntime {
   state: (key: string) => ComputedRef<FormBehaviorState>
-  visibleKeys: ComputedRef<string[]>
   settle: () => void
   connect: (write: (key: string, value: unknown) => void) => WatchStopHandle
 }
@@ -150,7 +149,6 @@ export function createFormBehaviorRuntime<TInput extends object, TKeys extends s
     if (!found) throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" has no behavior state.`)
     return found
   }
-  const visibleKeys = computed(() => options.fields.filter((field) => state(field.key).value.visible).map((field) => field.key))
   let write: ((key: string, value: unknown) => void) | undefined
   const settle = () => {
     if (!write) return
@@ -175,5 +173,5 @@ export function createFormBehaviorRuntime<TInput extends object, TKeys extends s
       for (const stop of stops) stop()
     }
   }
-  return { state, visibleKeys, settle, connect }
+  return { state, settle, connect }
 }

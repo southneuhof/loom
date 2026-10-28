@@ -65,13 +65,18 @@ export function assertFormDefinition<
   assertLabels(definition.labels)
   assertValidators(definition.validators)
 
+  assertFormFields(definition.fields, runtime.inputKeys)
+}
+
+export function assertFormFields(fields: unknown, inputKeys: readonly string[]): void {
+  if (!isRecord(fields)) invalidOption('fields', 'an ordered field map')
   const owners = new Map<string, string>()
-  for (const key of Reflect.ownKeys(definition.fields)) {
+  for (const key of Reflect.ownKeys(fields)) {
     if (typeof key !== 'string') {
       throw new Error('[loom][SURFACE_OPTION_INVALID] Form field keys must be strings.')
     }
     assertSafeFieldKey(key)
-    const input: unknown = Reflect.get(definition.fields, key)
+    const input: unknown = Reflect.get(fields, key)
     if (typeof input === 'function') continue
     if (!isFormInputRecord(input)) invalidOption(`fields.${key}`, 'a FormInput object')
     const binding = bindingFor(input)
@@ -83,7 +88,7 @@ export function assertFormDefinition<
       }
     }
     for (const name of fieldKeys(key, input)) {
-      if (typeof name !== 'string' || !runtime.inputKeys.includes(name)) {
+      if (typeof name !== 'string' || !inputKeys.includes(name)) {
         throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" targets "${String(name)}", which is not in the schema input.`)
       }
       assertSafeFieldKey(name)
