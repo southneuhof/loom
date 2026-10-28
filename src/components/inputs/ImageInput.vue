@@ -154,7 +154,7 @@ async function selectFileManagerAsset(payload: ManagedAsset): Promise<void> {
                 @dragover="handleDragOver"
                 @drop="handleDrop"
               >
-                <ImagePreview :image-u-r-l="element.value.kind === 'file' ? previewUrl(element.value) : undefined" :thumbnail-u-r-l="element.value.kind === 'file' ? previewUrl(element.value) : undefined" :asset="element.value.kind === 'asset' ? element.value.asset : undefined">
+                <ImagePreview :image-u-r-l="element.value.kind === 'file' ? previewUrl(element.value) : undefined" :thumbnail-u-r-l="element.value.kind === 'file' ? previewUrl(element.value) : undefined" :asset="element.value.kind === 'asset' ? element.value.asset : undefined" class="h-40 w-40">
                   <template #actions>
                     <Button color="error" kind="icon" ariaLabel="Remove image" :disabled="props.disabled || invalidModel" type="button" @click="controller.remove(element.id)">
                       <template #icon><Icon name="delete-bin" /></template>

@@ -138,9 +138,6 @@ function closeDialog() {
       @click="() => openDialog()"
       class="absolute flex h-full w-full cursor-pointer flex-row items-center justify-center gap-2 rounded-xl bg-black/[12%] text-on-surface opacity-0 transition-opacity duration-100 hover:opacity-100"
     ></div>
-    <div v-if="$slots['image-description']" class="absolute bottom-4 rounded-xl bg-scrim/[18%] px-4 py-2 text-sm text-white">
-      <slot name="image-description" />
-    </div>
     <slot v-if="$slots['image-thumbnail']" name="image-thumbnail" />
     <template v-else>
       <img v-if="thumbnailSrc" class="h-full w-full rounded-xl bg-surface-container-high object-cover" :src="thumbnailSrc" :alt="imageAlt" @error="onThumbnailError" />
@@ -167,6 +164,9 @@ function closeDialog() {
         <div v-else-if="invalidAsset" role="alert" class="flex h-[240px] w-[240px] items-center justify-center text-error">Invalid asset value.</div>
         <div v-else class="flex h-[240px] w-[240px] items-center justify-center rounded-xl bg-surface-container-high text-muted">
           <Icon size="lg" name="user"></Icon>
+        </div>
+        <div v-if="$slots['image-description']" class="absolute bottom-4 left-4 max-w-[calc(100%-2rem)] rounded-xl bg-scrim/[18%] px-4 py-2 text-sm text-white break-words">
+          <slot name="image-description" />
         </div>
       </div>
     </DialogContent>
