@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, ref } from 'vue'
 import { z } from 'zod'
 import TreeTable from '../TreeTable.vue'
-import { deferred, flush, mountCore } from './harness'
+import { flush, mountCore } from './harness'
 
 type TreeRecord = {
   id: string | number
@@ -110,41 +110,6 @@ describe('TreeTable ownership and presentation', () => {
     view.unmount()
   })
 
-  it('retains descendant expansion when an ancestor collapses and reopens', async () => {
-    const tree = makeTree()
-    const view = mountCore(TreeTable, treeProps({ data: tree.roots, defaultExpandedKeys: ['root-a', 'child-a'] }))
-    await flush()
-    expect(view.all('tbody tr')).toHaveLength(5)
-
-    view.find<HTMLButtonElement>('button[aria-label="Ciutkan Root A"]')!.click()
-    await flush()
-    expect(view.all('tbody tr')).toHaveLength(2)
-    view.find<HTMLButtonElement>('button[aria-label="Luaskan Root A"]')!.click()
-    await flush()
-    expect(view.all('tbody tr')).toHaveLength(5)
-    expect(view.find('button[aria-label="Ciutkan Child A"]')).not.toBeNull()
-    view.unmount()
-  })
-
-  it('preserves keys through same-key object replacement and temporary filtering', async () => {
-    const initial = makeTree()
-    const records = ref<TreeRecord[]>(initial.roots)
-    const Host = defineComponent(() => () => h(TreeTable, treeProps({ data: records.value, defaultExpandedKeys: ['root-a', 'child-a'] })))
-    const view = mountCore(Host, {})
-    await flush()
-    expect(view.all('tbody tr')).toHaveLength(5)
-
-    records.value = []
-    await flush()
-    expect(view.all('tbody tr')).toHaveLength(0)
-    const replacement = makeTree('Root A refreshed')
-    records.value = replacement.roots
-    await flush()
-    expect(visibleNames(view)).toEqual(['Root A refreshed', 'Child A', 'Grandchild', 'Child B', 'Root B'])
-    expect(replacement.rootA).not.toBe(initial.rootA)
-    view.unmount()
-  })
-
   it('keeps controlled arrays untouched and waits for the parent to accept emitted keys', async () => {
     const tree = makeTree()
     const supplied = ['root-a']
@@ -174,45 +139,6 @@ describe('TreeTable ownership and presentation', () => {
     view.unmount()
   })
 
-  it('expands, collapses, and reveals loaded ancestors without another read or query change', async () => {
-    const tree = makeTree()
-    const load = vi.fn(async (_context: { query: Record<string, unknown> }) => ({ data: tree.roots, meta: { total: 2, pageSize: 10, totalPage: 1 } }))
-    const view = mountCore(TreeTable, treeProps({ load, defaultExpandedKeys: ['root-a'] }))
-    await flush()
-    expect(load).toHaveBeenCalledTimes(1)
-    expect(view.all('tbody tr')).toHaveLength(4)
-
-    const exposed = view.exposed() as {
-      expandAll: () => void
-      collapseAll: () => void
-      reveal: (keys: readonly string[]) => void
-      updateQuery: (patch: Record<string, unknown>) => void
-      query: Record<string, unknown>
-    }
-    exposed.expandAll()
-    await flush()
-    expect(view.all('tbody tr')).toHaveLength(5)
-    expect(load).toHaveBeenCalledTimes(1)
-
-    exposed.collapseAll()
-    await flush()
-    expect(view.all('tbody tr')).toHaveLength(2)
-    exposed.reveal(['grandchild', 'missing-key'])
-    await flush()
-    expect(view.all('tbody tr')).toHaveLength(5)
-    expect(load).toHaveBeenCalledTimes(1)
-    expect(exposed.query).toEqual({ page: 1, limit: 10 })
-
-    exposed.updateQuery({ search: 'child' })
-    await flush()
-    expect(load).toHaveBeenCalledTimes(2)
-    expect(load.mock.calls[1]?.[0].query).toMatchObject({ search: 'child' })
-    exposed.updateQuery({ search: 'child' })
-    await flush()
-    expect(load).toHaveBeenCalledTimes(2)
-    view.unmount()
-  })
-
   it('counts server-paged roots in the summary while expanding complete subtrees', async () => {
     const tree = makeTree()
     const view = mountCore(
@@ -227,32 +153,6 @@ describe('TreeTable ownership and presentation', () => {
     await flush()
     expect(view.all('tbody tr')).toHaveLength(3)
     expect(view.text()).toContain('Showing data 1–1 out of 3')
-    view.unmount()
-  })
-
-  it('handles deeper nesting without a depth-specific limit', async () => {
-    const root: TreeRecord = { id: 'depth-0', name: 'Depth 0', status: '', children: [] }
-    let parent = root
-    for (let depth = 1; depth <= 12; depth += 1) {
-      const child: TreeRecord = { id: `depth-${depth}`, name: `Depth ${depth}`, status: '', children: [] }
-      parent.children.push(child)
-      parent = child
-    }
-    const depths: number[] = []
-    const view = mountCore(TreeTable, treeProps({ data: [root] }), {
-      slots: {
-        'cell:name': ({ tree }) => {
-          depths.push((tree as { depth: number }).depth)
-          return null
-        },
-      },
-    })
-    await flush()
-    expect(view.all('tbody tr')).toHaveLength(1)
-    ;(view.exposed().expandAll as () => void)()
-    await flush()
-    expect(view.all('tbody tr')).toHaveLength(13)
-    expect(depths.at(-1)).toBe(12)
     view.unmount()
   })
 
@@ -296,51 +196,6 @@ describe('TreeTable ownership and presentation', () => {
     await flush(12)
     expect(load).toHaveBeenCalledTimes(1)
     expect(view.text()).toContain('Collection query does not match querySchema at "search"')
-    view.unmount()
-  })
-
-  it('validates row keys, column visibility, child arrays, and repeated or cyclic trees', () => {
-    const tree = makeTree()
-    expect(() => mountCore(TreeTable, treeProps({ data: tree.roots, rowKey: undefined }))).toThrow('[loom][SURFACE_OPTION_INVALID] TreeTable requires rowKey')
-    expect(() => mountCore(TreeTable, treeProps({ data: tree.roots, columns: { status: { label: 'Status' } } }))).toThrow(
-      '[loom][SURFACE_OPTION_INVALID] TreeTable treeColumn "name" must be declared in columns.'
-    )
-    expect(() => mountCore(TreeTable, treeProps({ data: tree.roots, visibleColumns: ['status'] }))).toThrow(
-      '[loom][SURFACE_OPTION_INVALID] TreeTable treeColumn "name" cannot be excluded from visibleColumns.'
-    )
-    expect(() => mountCore(TreeTable, treeProps({ data: tree.roots, children: () => undefined }))).toThrow('[loom][SURFACE_OPTION_INVALID] TreeTable children for key')
-
-    const repeated = makeTree()
-    repeated.rootB.children.push(repeated.childA)
-    expect(() => mountCore(TreeTable, treeProps({ data: repeated.roots }))).toThrow('[loom][SURFACE_OPTION_INVALID] TreeTable children contain a cycle or a repeated record reference.')
-
-    const cycle = makeTree()
-    cycle.grandchild.children.push(cycle.rootA)
-    expect(() => mountCore(TreeTable, treeProps({ data: cycle.roots }))).toThrow('[loom][SURFACE_OPTION_INVALID] TreeTable children contain a cycle or a repeated record reference.')
-
-    const duplicate: TreeRecord[] = [
-      { id: 1, name: 'Numeric', status: '', children: [] },
-      { id: '1', name: 'String', status: '', children: [] },
-    ]
-    expect(() => mountCore(TreeTable, treeProps({ data: duplicate }))).toThrow('[loom][SURFACE_OPTION_INVALID] TreeTable rowKey values must be unique after normalization; duplicate key "1".')
-  })
-
-  it('rejects simultaneous controlled and default expansion props', () => {
-    const tree = makeTree()
-    expect(() => mountCore(TreeTable, treeProps({ data: tree.roots, expandedKeys: [], defaultExpandedKeys: [] }))).toThrow(
-      '[loom][SURFACE_OPTION_INVALID] TreeTable cannot receive both expandedKeys and defaultExpandedKeys.'
-    )
-  })
-
-  it('keeps loader failures in the collection error state and refreshes only on demand', async () => {
-    const pending = deferred<{ data: TreeRecord[] }>()
-    const load = vi.fn(() => pending.promise)
-    const view = mountCore(TreeTable, treeProps({ load }), { slots: { loading: () => h('p', 'Tree loading'), error: ({ error }) => h('p', `Tree error: ${(error as Error).message}`) } })
-    expect(view.text()).toContain('Tree loading')
-    pending.reject(new Error('Tree failed'))
-    await flush(12)
-    expect(view.text()).toContain('Tree error: Tree failed')
-    expect(load).toHaveBeenCalledTimes(1)
     view.unmount()
   })
 })

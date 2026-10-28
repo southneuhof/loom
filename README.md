@@ -303,14 +303,11 @@ application source.
 
 | Contract | Fixture |
 |---|---|
-| BaseInput message order and links, managed Form delegation, custom slots, and summaries | [base-input.spec.ts](src/components/inputs/__tests__/base-input.spec.ts), [form.spec.ts](src/components/core/__tests__/form.spec.ts), [Form.browser.spec.ts](src/components/core/__tests__/Form.browser.spec.ts) |
-| One numeric SelectInput prop bag in standalone, Form, and DialogForm | [SelectForm.browser.spec.ts](src/components/composites/__tests__/SelectForm.browser.spec.ts) |
-| DateInput string model and invalid pasted text | [Form.browser.spec.ts](src/components/core/__tests__/Form.browser.spec.ts), [date-input-model.type-test.ts](src/components/composites/__type-tests__/date-input-model.type-test.ts), [plan067-form-contracts.type-test.vue](src/components/composites/__type-tests__/plan067-form-contracts.type-test.vue) |
-| App-scoped assets for direct and managed inputs and previews | [AssetParity.browser.spec.ts](src/assets/__tests__/AssetParity.browser.spec.ts) |
+| Form validation, summaries, and resolver updates | [form.spec.ts](src/components/core/__tests__/form.spec.ts), [Form.browser.spec.ts](src/components/core/__tests__/Form.browser.spec.ts) |
+| DateInput rejects invalid pasted text in Form | [Form.browser.spec.ts](src/components/core/__tests__/Form.browser.spec.ts) |
 | Local File draft reset and text submit without an asset adapter | [FileInput.browser.spec.ts](src/components/inputs/__tests__/FileInput.browser.spec.ts), [file input mode types](src/components/inputs/__type-tests__/input-model-modes.type-test.vue) |
-| Shared relation display in Table, TreeTable, Detail, and extraction | [DisplayParity.browser.spec.ts](src/components/core/__tests__/DisplayParity.browser.spec.ts) |
 | Shared relation accessor and format in exports | [export.spec.ts](src/services/__tests__/export.spec.ts) |
-| Editable row mapping and submit-free row form | [TableInput.browser.spec.ts](src/components/composites/__tests__/TableInput.browser.spec.ts), [table-input.type-test.ts](src/components/composites/__type-tests__/table-input.type-test.ts) |
+| Editable row mapping and submit-free row form | [TableInput.browser.spec.ts](src/components/composites/__tests__/TableInput.browser.spec.ts) |
 | Application resource bags and extracted page props | [users.resource.ts](../../apps/web/src/routes/%28authenticated%29/settings/users/users.resource.ts), [index.route.vue](../../apps/web/src/routes/%28authenticated%29/settings/users/index.route.vue), [detail.route.vue](../../apps/web/src/routes/%28authenticated%29/settings/users/%5BuserId%5D/detail.route.vue), [edit.route.vue](../../apps/web/src/routes/%28authenticated%29/settings/users/%5BuserId%5D/edit.route.vue) |
 
 ## Checks and exports
