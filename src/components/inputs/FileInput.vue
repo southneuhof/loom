@@ -168,7 +168,7 @@ async function selectFileManagerAsset(payload: ManagedAsset): Promise<void> {
       <Button v-if="inputError || invalidModel" type="button" variant="text" :disabled="props.disabled" @click="controller.clear">
         Clear file selection
       </Button>
-      <div v-if="canAddFile" class="flex flex-col gap-2">
+      <div v-if="canAddFile && (multi || rows.length === 0)" class="flex flex-col gap-2">
         <div
           ref="dropZone"
           class="overlay flex w-full flex-col items-center justify-center gap-4 rounded-md py-8 outline-dashed outline-2 outline-outline-variant after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active"

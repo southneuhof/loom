@@ -58,12 +58,14 @@ describe('ImageInput upload surface', () => {
     await view.flush()
 
     expect(view.model.value).toEqual(uploaded)
+    expect(view.host.querySelector('.outline-dashed')).toBeNull()
     const remove = view.host.querySelector<HTMLButtonElement>('[aria-label="Remove image"]')
     expect(remove).not.toBeNull()
     remove?.click()
     await view.flush()
 
     expect(view.model.value).toBeNull()
+    expect(view.host.querySelector('.outline-dashed')).not.toBeNull()
     view.cleanup()
   })
 
@@ -81,6 +83,7 @@ describe('ImageInput upload surface', () => {
     })
     await view.flush()
 
+    expect(view.host.querySelector('.outline-dashed')).not.toBeNull()
     const remove = view.host.querySelector<HTMLButtonElement>('[aria-label="Remove image"]')
     expect(remove).not.toBeNull()
     remove?.click()

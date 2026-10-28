@@ -173,7 +173,7 @@ async function selectFileManagerAsset(payload: ManagedAsset): Promise<void> {
               <template #icon><Icon name="delete-bin" /></template>
             </Button>
           </div>
-          <Popover v-if="canAddImage" v-model="sourcePopoverOpen" contentClass="p-0">
+          <Popover v-if="canAddImage && (multi || rows.length === 0)" v-model="sourcePopoverOpen" contentClass="p-0">
             <template #trigger>
               <button
                 ref="dropZone"

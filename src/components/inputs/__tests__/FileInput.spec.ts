@@ -436,6 +436,8 @@ describe('FileInput upload surface', () => {
     })
     await view.flush()
 
+    expect(view.host.textContent?.includes('Pilih sumber file')).toBe(multi)
+
     const remove = [...view.host.querySelectorAll<HTMLButtonElement>('button')]
       .find((button) => button.textContent?.trim() === 'Hapus')
     expect(remove).toBeDefined()
@@ -443,6 +445,7 @@ describe('FileInput upload surface', () => {
     await view.flush()
 
     expect(view.model.value).toEqual(emptyValue)
+    expect(view.host.textContent).toContain('Pilih sumber file')
     view.cleanup()
   })
 
