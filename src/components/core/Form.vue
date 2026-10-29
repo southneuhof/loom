@@ -5,6 +5,7 @@ import type { SubmitError } from '../../contracts/results'
 import type { FormProps } from '../../forms/props'
 import { isConfirmedWriteRefreshError } from '../../resources/postWriteOutcome'
 import { formNativeAttributeNames } from '../../forms/props'
+import type { RuntimeFormField } from '../../forms/definitionTypes'
 import { useFormSession } from '../../forms/useFormSession'
 import { useRendererRegistry } from '../../renderers/registry'
 import Button from '../base/Button.vue'
@@ -45,7 +46,6 @@ const renderers = useRendererRegistry('form')
 const { submitLabel: defaultSubmitLabel } = useFrameworkUiDefaults()
 const visibleFields = session.visibleFields
 const draft = session.draft
-const behavior = session.behavior
 const loading = session.loading
 const loadError = session.loadError
 const dirty = session.dirty
@@ -75,27 +75,12 @@ onBeforeUpdate(() => {
   attrsRevision.value += 1
 })
 
-function fieldState(key: string) {
-  return behavior.value.state(key).value
+function fieldComponentKey(field: RuntimeFormField<TInput, TKeys>): string {
+  return `${field.renderer}:${controlGenerations.get(field.key) ?? 0}`
 }
 
-function fieldRenderer(key: string): string {
-  const field = session.fieldFor(key)
-  if (!field) throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" is not selected.`)
-  return fieldState(key).renderer ?? field.input.renderer
-}
-
-function fieldComponentKey(key: string): string {
-  return `${fieldRenderer(key)}:${controlGenerations.get(key) ?? 0}`
-}
-
-function fieldSpan(key: string): number {
-  const field = session.fieldFor(key)
-  return Math.min(12, Math.max(1, fieldState(key).span ?? field?.input.span ?? 12))
-}
-
-function fieldLabel(key: string): string {
-  return fieldState(key).label
+function fieldSpan(field: RuntimeFormField<TInput, TKeys>): number {
+  return Math.min(12, Math.max(1, field.span ?? 12))
 }
 
 function fieldValue<TKey extends TKeys>(key: TKey): FormInputSlotProps<TInput, TKey>['value'] {
@@ -117,55 +102,51 @@ function issueFor(key: string): string | undefined {
   return session.issueFor(key)
 }
 
-function fieldId(key: string): string {
-  const configured = fieldState(key).props.id
-  return typeof configured === 'string' ? configured : `${session.formId}-field-${key}`
+function fieldId(field: RuntimeFormField<TInput, TKeys>): string {
+  const configured = field.props.id
+  return typeof configured === 'string' ? configured : `${session.formId}-field-${field.key}`
 }
 
-function fieldDisabled(key: string): boolean {
-  const state = fieldState(key)
-  return props.disabled === true || state.disabled || state.props.disabled === true
+function fieldDisabled(field: RuntimeFormField<TInput, TKeys>): boolean {
+  return props.disabled === true || typeof field.behavior?.derived === 'function' || field.props.disabled === true
 }
 
-function rendererProps(key: string): Readonly<Record<string, unknown>> {
-  const field = fieldState(key)
+function rendererProps(field: RuntimeFormField<TInput, TKeys>): Readonly<Record<string, unknown>> {
   if (field.renderer !== 'table' && field.renderer !== 'lookup') return field.props
   if (Object.hasOwn(field.props, 'context') || props.context === undefined) return field.props
   return { ...field.props, context: props.context }
 }
 
-function helperMessageFor(key: string): string | undefined {
-  const helperMessage: unknown = Reflect.get(fieldState(key).props, 'helperMessage')
+function helperMessageFor(field: RuntimeFormField<TInput, TKeys>): string | undefined {
+  const helperMessage: unknown = Reflect.get(field.props, 'helperMessage')
   return typeof helperMessage === 'string' ? helperMessage : undefined
 }
 
-function authoredAriaAttribute(key: string, attribute: 'aria-describedby'): string | undefined
-function authoredAriaAttribute(key: string, attribute: 'aria-invalid'): BaseInputControlBindings['aria-invalid']
-function authoredAriaAttribute(key: string, attribute: 'aria-required'): BaseInputControlBindings['aria-required']
-function authoredAriaAttribute(key: string, attribute: 'aria-describedby' | 'aria-invalid' | 'aria-required'): unknown {
-  return Reflect.get(fieldState(key).props, attribute)
+function authoredAriaAttribute(field: RuntimeFormField<TInput, TKeys>, attribute: 'aria-describedby'): string | undefined
+function authoredAriaAttribute(field: RuntimeFormField<TInput, TKeys>, attribute: 'aria-invalid'): BaseInputControlBindings['aria-invalid']
+function authoredAriaAttribute(field: RuntimeFormField<TInput, TKeys>, attribute: 'aria-required'): BaseInputControlBindings['aria-required']
+function authoredAriaAttribute(field: RuntimeFormField<TInput, TKeys>, attribute: 'aria-describedby' | 'aria-invalid' | 'aria-required'): unknown {
+  return Reflect.get(field.props, attribute)
 }
 
-function inputSlotProps<TKey extends TKeys>(key: TKey, controlBindings: BaseInputControlBindings): FormInputSlotProps<TInput, TKey> {
-  const field = session.fieldFor(key)
-  if (!field) throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" is not selected.`)
+function inputSlotProps<TKey extends TKeys>(field: RuntimeFormField<TInput, TKey>, controlBindings: BaseInputControlBindings): FormInputSlotProps<TInput, TKey> {
   return {
-    value: fieldValue(key),
+    value: fieldValue(field.key),
     draft: draft.value,
     field: {
-      key,
-      renderer: field.input.renderer,
-      label: fieldLabel(key),
+      key: field.key,
+      renderer: field.renderer,
+      label: field.label,
       required: field.required,
-      props: { ...(field.input.props ?? {}) },
-      span: field.input.span,
+      props: { ...field.props },
+      span: field.span,
     },
-    setValue: (value) => session.setControlValue(key, value),
-    error: issueFor(key),
+    setValue: (value) => session.setControlValue(field.key, value),
+    error: issueFor(field.key),
     controlBindings,
-    touched: session.touchedField(key),
-    disabled: fieldDisabled(key),
-    validating: session.validatingField(key),
+    touched: session.touchedField(field.key),
+    disabled: fieldDisabled(field),
+    validating: session.validatingField(field.key),
     formValidating: validating.value,
   }
 }
@@ -238,37 +219,37 @@ defineExpose({
       />
 
       <div class="grid grid-cols-12 gap-x-4 gap-y-5">
-        <div v-for="field in visibleFields" :key="field.key" class="is-form-field flex min-w-0 flex-col gap-2" :style="{ gridColumn: `span ${fieldSpan(field.key)} / span ${fieldSpan(field.key)}` }">
-          <label :for="fieldId(field.key)" class="text-sm font-medium leading-5 text-on-surface">
-            {{ fieldLabel(field.key) }}
-            <span v-if="fieldState(field.key).required" class="text-error" aria-hidden="true">*</span>
+        <div v-for="field in visibleFields" :key="field.key" class="is-form-field flex min-w-0 flex-col gap-2" :style="{ gridColumn: `span ${fieldSpan(field)} / span ${fieldSpan(field)}` }">
+          <label :for="fieldId(field)" class="text-sm font-medium leading-5 text-on-surface">
+            {{ field.label }}
+            <span v-if="field.required" class="text-error" aria-hidden="true">*</span>
           </label>
 
           <BaseInput
             v-if="$slots[`input:${field.key}`]"
-            :id="fieldId(field.key)"
-            :helper-message="helperMessageFor(field.key)"
+            :id="fieldId(field)"
+            :helper-message="helperMessageFor(field)"
             :error="issueFor(field.key)"
-            :required="fieldState(field.key).required"
-            :disabled="fieldDisabled(field.key)"
-            :ariaInvalid="authoredAriaAttribute(field.key, 'aria-invalid')"
-            :ariaRequired="authoredAriaAttribute(field.key, 'aria-required')"
-            :ariaDescribedby="authoredAriaAttribute(field.key, 'aria-describedby')"
+            :required="field.required"
+            :disabled="fieldDisabled(field)"
+            :ariaInvalid="authoredAriaAttribute(field, 'aria-invalid')"
+            :ariaRequired="authoredAriaAttribute(field, 'aria-required')"
+            :ariaDescribedby="authoredAriaAttribute(field, 'aria-describedby')"
             v-slot="{ controlBindings }"
           >
-            <slot :name="`input:${field.key}`" v-bind="inputSlotProps(field.key, controlBindings)" />
+            <slot :name="`input:${field.key}`" v-bind="inputSlotProps(field, controlBindings)" />
           </BaseInput>
 
           <component
             v-else
-            :is="renderers.require(fieldRenderer(field.key))"
-            :key="fieldComponentKey(field.key)"
-            v-bind="rendererProps(field.key)"
+            :is="renderers.require(field.renderer)"
+            :key="fieldComponentKey(field)"
+            v-bind="rendererProps(field)"
             v-model="fieldModel(field.key).value"
-            :id="fieldId(field.key)"
+            :id="fieldId(field)"
             :error="issueFor(field.key)"
-            :required="fieldState(field.key).required"
-            :disabled="fieldDisabled(field.key)"
+            :required="field.required"
+            :disabled="fieldDisabled(field)"
             @validation:touch="session.touch(field.key)"
             @validation:error="session.setControlError(field.key, $event)"
           />

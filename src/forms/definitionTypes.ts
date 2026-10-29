@@ -1,4 +1,4 @@
-import type { FormInput, FormValidatorEntry } from '../contracts/forms'
+import type { FormInput, FormInputSlotField, FormValidatorEntry } from '../contracts/forms'
 import type { LabelDictionary } from '../contracts/labels'
 import type { RawSchema } from '../contracts/schema'
 import type { FormRendererKey } from '../renderers/formContracts'
@@ -32,6 +32,13 @@ export type CompactFormDefinition<
   readonly labels?: LabelDictionary
   readonly validators?: readonly FormValidatorEntry<TInput, TOutput, TContext>[]
 }
+
+export type RuntimeFormField<
+  TInput extends object,
+  TKeys extends string = Extract<keyof TInput, string>,
+> = Omit<FormInput<TInput>, 'label' | 'props' | 'visible'>
+  & Pick<FormInputSlotField<TInput, TKeys>, 'key' | 'label' | 'props' | 'required'>
+  & { readonly visible: boolean }
 
 export type { FormFieldsContext } from '../contracts/forms'
 

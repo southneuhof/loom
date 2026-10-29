@@ -1,44 +1,22 @@
-import { computed, watch, type ComputedRef, type WatchStopHandle } from 'vue'
-import type { FormBehaviorContext, FormDraftSnapshot, FormInput } from '../contracts/forms'
-import type { Label } from '../contracts/labels'
-import { resolveLabel } from '../labels/resolveLabel'
+import { computed, watch, type WatchStopHandle } from 'vue'
+import type { FormBehaviorContext, FormDraftSnapshot } from '../contracts/forms'
 import { formFieldValue } from './fieldBinding'
 import { snapshotEditable } from './draftValues'
+import type { RuntimeFormField } from './definitionTypes'
 
-export interface FormBehaviorState {
-  visible: boolean
-  disabled: boolean
-  label: string
-  renderer: string
-  props: Readonly<Record<string, unknown>>
-  span?: number
-  required: boolean
-  derived?: unknown
-}
-
-export interface FormBehaviorRuntime {
-  state: (key: string) => ComputedRef<FormBehaviorState>
-  settle: () => void
-  connect: (write: (key: string, value: unknown) => void) => WatchStopHandle
-}
-
-export interface FormBehaviorRuntimeOptions<
+export interface DerivedRuntimeOptions<
   TInput extends object,
   TKeys extends string = Extract<keyof TInput, string>,
 > {
-  fields: readonly RuntimeFormField<TInput, TKeys>[]
+  fields: () => readonly RuntimeFormField<TInput, TKeys>[]
   draft: object
   context: () => Readonly<Record<string, unknown>>
-  labels: () => Readonly<Record<string, Label | undefined>> | undefined
+  write: (key: string, value: unknown) => boolean
 }
 
-export type RuntimeFormField<
-  TInput extends object,
-  TKeys extends string = Extract<keyof TInput, string>,
-> = {
-  key: Extract<TKeys, string>
-  input: FormInput<TInput>
-  required: boolean
+export interface DerivedRuntime {
+  settle: () => void
+  stop: () => void
 }
 
 function invalidBehavior(key: string, member: string): never {
@@ -60,7 +38,7 @@ function callbackResult<TInput extends object, TKeys extends string>(
   context: Readonly<Record<string, unknown>>,
   dependencies: Set<string>,
 ): unknown {
-  const callback = field.input.behavior?.derived
+  const callback = field.behavior?.derived
   if (typeof callback !== 'function') return undefined
   const readonlyDraft = new Proxy(draft, {
     get(target, property, receiver) {
@@ -84,7 +62,7 @@ function callbackResult<TInput extends object, TKeys extends string>(
   })
   const behaviorContext: FormBehaviorContext<TInput, unknown> = {
     draft: readonlyDraft as FormDraftSnapshot<TInput>,
-    value: formFieldValue(field.key, field.input, draft),
+    value: formFieldValue(field.key, field, draft),
     context,
   }
   return callback(behaviorContext)
@@ -112,66 +90,44 @@ function cycleIn(edges: ReadonlyMap<string, readonly string[]>): string[] | unde
   return undefined
 }
 
-export function createFormBehaviorRuntime<TInput extends object, TKeys extends string>(
-  options: FormBehaviorRuntimeOptions<TInput, TKeys>,
-): FormBehaviorRuntime {
-  const effectKeys = new Set<string>(options.fields.filter((field) => field.input.behavior?.derived).map((field) => field.key))
-  const effectDependencies = new Map<string, readonly string[]>()
-  const states = new Map<string, ComputedRef<FormBehaviorState>>()
-  for (const field of options.fields) {
-    states.set(field.key, computed(() => {
-      const renderer = field.input.renderer
-      const derivedCallback = field.input.behavior?.derived
-      let derived: unknown
-      if (typeof derivedCallback === 'function') {
-        const dependencies = new Set<string>()
-        derived = callbackResult(field, options.draft, options.context(), dependencies)
-        effectDependencies.set(field.key, [...dependencies].filter((dependency) => effectKeys.has(dependency)))
-        const cycle = cycleIn(effectDependencies)
-        if (cycle) throw new Error(`[loom][SURFACE_OPTION_INVALID] Form behavior value-effect cycle: ${cycle.join(' -> ')}.`)
+export function createDerivedRuntime<TInput extends object, TKeys extends string>(
+  options: DerivedRuntimeOptions<TInput, TKeys>,
+): DerivedRuntime {
+  const results = computed<ReadonlyMap<string, unknown>>(() => {
+    const fields = options.fields()
+    const effectKeys = new Set<string>(fields.filter((field) => typeof field.behavior?.derived === 'function').map((field) => field.key))
+    const dependenciesByKey = new Map<string, readonly string[]>()
+    const derived = new Map<string, unknown>()
+    for (const field of fields) {
+      if (typeof field.behavior?.derived !== 'function') continue
+      const dependencies = new Set<string>()
+      const value = callbackResult(field, options.draft, options.context(), dependencies)
+      dependenciesByKey.set(field.key, [...dependencies].filter((dependency) => effectKeys.has(dependency)))
+      derived.set(field.key, value)
+    }
+    const cycle = cycleIn(dependenciesByKey)
+    if (cycle) throw new Error(`[loom][SURFACE_OPTION_INVALID] Form behavior value-effect cycle: ${cycle.join(' -> ')}.`)
+    return derived
+  })
+
+  const settle = () => {
+    let changed: boolean
+    do {
+      changed = false
+      for (const key of options.fields().map((field) => field.key)) {
+        const field = options.fields().find((candidate) => candidate.key === key)
+        if (!field || typeof field.behavior?.derived !== 'function') continue
+        const current = results.value
+        if (!current.has(key)) continue
+        const value = current.get(key)
+        if (Object.is(formFieldValue(key, field, options.draft), value)) continue
+        const wrote = options.write(key, value)
+        changed = wrote || changed
       }
-      const state: FormBehaviorState = {
-        visible: field.input.visible !== false,
-        disabled: typeof derivedCallback === 'function',
-        label: resolveLabel(field.key, field.input.label, options.labels()),
-        renderer,
-        props: field.input.props ?? {},
-        required: field.required,
-        ...(typeof field.input.span === 'number' ? { span: field.input.span } : {}),
-        ...(typeof derivedCallback === 'function' ? { derived } : {}),
-      }
-      return state
-    }))
+    } while (changed)
   }
 
-  const state = (key: string): ComputedRef<FormBehaviorState> => {
-    const found = states.get(key)
-    if (!found) throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" has no behavior state.`)
-    return found
-  }
-  let write: ((key: string, value: unknown) => void) | undefined
-  const settle = () => {
-    if (!write) return
-    for (const field of options.fields) {
-      if (typeof field.input.behavior?.derived !== 'function') continue
-      const value = state(field.key).value.derived
-      if (!Object.is(formFieldValue(field.key, field.input, options.draft), value)) write(field.key, value)
-    }
-  }
-  const connect = (nextWrite: (key: string, value: unknown) => void): WatchStopHandle => {
-    write = nextWrite
-    const stops: WatchStopHandle[] = []
-    for (const field of options.fields) {
-      if (typeof field.input.behavior?.derived === 'function') {
-        stops.push(watch(() => state(field.key).value.derived, (value) => {
-          if (!Object.is(formFieldValue(field.key, field.input, options.draft), value)) nextWrite(field.key, value)
-        }, { immediate: true, flush: 'sync' }))
-      }
-    }
-    return () => {
-      write = undefined
-      for (const stop of stops) stop()
-    }
-  }
-  return { state, settle, connect }
+  const stop: WatchStopHandle = watch(results, settle, { immediate: true })
+
+  return { settle, stop }
 }
