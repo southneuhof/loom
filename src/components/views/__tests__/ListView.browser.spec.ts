@@ -1,10 +1,10 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, defineComponent, h, nextTick, ref } from 'vue'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import { z } from 'zod'
 import ListView from '../ListView.vue'
 import { FrameworkPlugin } from '../../../adapters/plugin'
-import { createFrameworkQueryClient } from '../../../query'
+import { collectionKey, createFrameworkQueryClient } from '../../../query'
 import type { CollectionLoadContext, CollectionResult, CollectionSlotProps, QueryLocationAdapter, QueryValues, TableProps } from '../../../contracts'
 import type { ListViewActions } from '../../../contracts/views'
 
@@ -50,6 +50,48 @@ describe('ListView collection presentation', () => {
 
     expect(host.querySelector('[data-empty-message]')?.textContent).toBe('No roles match your search.')
     expect(host.querySelector('table')).toBeNull()
+  })
+
+  it('renders cached collection result context in the context slot', async () => {
+    const resource = 'list-view-context'
+    const namespace = 'list-view-context'
+    const queryClient = createFrameworkQueryClient({ retry: 0, staleTime: Infinity })
+    queryClient.setQueryData(collectionKey({
+      resource,
+      namespace,
+      query: { page: 1, limit: 10 },
+      searchParameters: {},
+    }), {
+      data: [{ name: 'Role from cache' }],
+      context: { summary: 'Cached collection summary' },
+    })
+    const load = vi.fn(async (_context: CollectionLoadContext<RoleQuery>): Promise<CollectionResult<Role>> => ({
+      data: [{ name: 'Role from loader' }],
+      context: { summary: 'Fresh collection summary' },
+    }))
+    const table: TableProps<Role, RoleQuery> = {
+      resource,
+      namespace,
+      schema: z.object({ name: z.string() }),
+      columns: { name: { label: 'Name' } },
+      load,
+    }
+    const host = document.createElement('div')
+    document.body.append(host)
+    const app = createApp(defineComponent({
+      setup: () => () => h(ListView, { title: 'Roles', table }, {
+        context: (scope: Record<string, unknown>) => h('p', { 'data-context-summary': '' }, JSON.stringify(scope.context)),
+      }),
+    }))
+    app.use(createRouter({ history: createMemoryHistory(), routes: [{ path: '/:pathMatch(.*)*', component: { render: () => null } }] }))
+    app.use(FrameworkPlugin, { queryClient })
+    app.mount(host)
+    apps.push(app)
+    await frame(6)
+
+    expect(load).not.toHaveBeenCalled()
+    expect(host.querySelector('[data-context-summary]')?.textContent).toBe('{"summary":"Cached collection summary"}')
+    expect(host.textContent).toContain('Role from cache')
   })
 
   it('keeps one loader, query, and records when switching table and custom views', async () => {

@@ -1,6 +1,6 @@
 <script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>">
 import { computed, getCurrentInstance, onBeforeUpdate, ref, useSlots } from 'vue'
-import type { CollectionProps, QueryValues, RowReorderPayload, TableProps } from '../../contracts'
+import type { CollectionProps, CollectionSlotProps, QueryValues, RowReorderPayload, TableProps } from '../../contracts'
 import Collection from './Collection.vue'
 import TableContent from './TableContent.vue'
 import { assertSingleDataSource } from './useCoreData'
@@ -34,7 +34,7 @@ const slots = useSlots()
 const forwardedSlots = computed(() => Object.fromEntries(
   Object.entries(slots).filter(([name]) => name !== 'collection'),
 ))
-const collectionRef = ref<{
+const collectionRef = ref<Pick<CollectionSlotProps<TRecord, TQuery>, 'context' | 'loading' | 'error'> & {
   refresh: () => Promise<void>
   query: QueryValues
   updateQuery: (patch: QueryValues) => void
@@ -86,10 +86,16 @@ function rowReorder(payload: RowReorderPayload<TRecord>) {
 }
 
 const exposedQuery = computed<QueryValues>(() => collectionRef.value?.query ?? {})
+const exposedContext = computed(() => collectionRef.value?.context)
+const exposedLoading = computed(() => collectionRef.value?.loading ?? false)
+const exposedError = computed(() => collectionRef.value?.error)
 
 defineExpose({
   refresh,
   query: exposedQuery,
+  context: exposedContext,
+  loading: exposedLoading,
+  error: exposedError,
   updateQuery,
   replaceQuery,
   readReady: computed(() => collectionRef.value?.readReady ?? false),

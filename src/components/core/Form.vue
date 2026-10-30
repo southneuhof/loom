@@ -236,6 +236,7 @@ defineExpose({
             :ariaRequired="authoredAriaAttribute(field, 'aria-required')"
             :ariaDescribedby="authoredAriaAttribute(field, 'aria-describedby')"
             v-slot="{ controlBindings }"
+            @validation:touch="session.touch(field.key)"
           >
             <slot :name="`input:${field.key}`" v-bind="inputSlotProps(field, controlBindings)" />
           </BaseInput>

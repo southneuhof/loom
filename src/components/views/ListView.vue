@@ -62,13 +62,14 @@ defineSlots<{
   header?: () => unknown;
   empty?: () => unknown;
   filters?: () => unknown;
-  context?: () => unknown;
+  context?: (props: ListViewContextSlotProps) => unknown;
   body?: (props: { table: TableProps<TRecord, TQuery, TContext> }) => unknown;
   footer?: () => unknown;
   "row-actions"?: (props: { record: TRecord }) => unknown;
 }>();
 
 type DeleteOwner = string | NonNullable<ListViewActions<TRecord>["recordIdentity"]>;
+type ListViewContextSlotProps = Pick<CollectionSlotProps<TRecord, TQuery>, "context" | "loading" | "error"> & { query: QueryValues };
 type DeleteBinding = {
   owner: DeleteOwner;
   key: string;
@@ -112,10 +113,16 @@ const surface = computed<ListViewSurface>(() => {
   };
 });
 
-const tableRef = ref<{ refresh: () => Promise<void>; query: QueryValues; updateQuery: (patch: QueryValues) => void; replaceQuery: (values: QueryValues) => void; readReady: boolean }>();
+const tableRef = ref<Pick<CollectionSlotProps<TRecord, TQuery>, "context" | "loading" | "error"> & { refresh: () => Promise<void>; query: QueryValues; updateQuery: (patch: QueryValues) => void; replaceQuery: (values: QueryValues) => void; readReady: boolean }>();
 const currentQuery = computed<QueryValues>(() => (props.table.query as QueryValues | undefined)
   ?? tableRef.value?.query
   ?? { page: 1, limit: props.table.defaultPageSize ?? 10 });
+const contextSlotProps = computed<ListViewContextSlotProps>(() => ({
+  context: tableRef.value?.context,
+  loading: tableRef.value?.loading ?? Boolean(surface.value.table.load && !slots.body),
+  error: tableRef.value?.error,
+  query: currentQuery.value,
+}));
 declaredFilterQueryKeys();
 const filterDraftState = ref<FormDraft<TFilterInput>>(filterDraftFromQuery(currentQuery.value));
 const filterDraft = computed(() => filterDraftState.value);
@@ -233,6 +240,7 @@ const passthroughSlots = computed(() =>
         "row-actions-delete",
         "footer",
         "row-actions",
+        "context",
       ].includes(name),
   ),
 );
@@ -626,7 +634,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
       </div>
     </Card>
 
-    <slot name="context" />
+    <slot name="context" v-bind="contextSlotProps" />
 
     <Card variant="outlined" color="surfaceContainer" class="gap-0 p-0">
       <slot name="body" v-bind="{ table: surface.table }">

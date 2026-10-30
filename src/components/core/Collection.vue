@@ -39,6 +39,9 @@ const slotProps = computed<CollectionSlotProps<TRecord, TQuery>>(() => ({
 defineExpose({
   refresh: collection.refresh,
   query: collection.query,
+  context: collection.context,
+  loading: collection.loading,
+  error: collection.error,
   updateQuery: collection.updateQuery,
   replaceQuery: collection.replaceQuery,
   resetQuery: collection.resetQuery,

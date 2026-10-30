@@ -3,6 +3,7 @@ import { computed, useAttrs, type PropType } from 'vue'
 import BaseInput from './BaseInput.vue'
 
 type SwitchSize = 'lg' | 'md'
+type SwitchVisualState = 'active' | 'inactive' | 'disabled' | 'disabledActive'
 
 const props = defineProps({
   onToggle: {
@@ -51,17 +52,23 @@ const emit = defineEmits<{ (event: 'validation:touch'): void }>()
 const modelValue = defineModel<boolean>({ default: false })
 const isChecked = computed(() => modelValue.value)
 const attrs = useAttrs()
+const visualState = computed<SwitchVisualState>(() => {
+  if (!props.disabled) return isChecked.value ? 'active' : 'inactive'
+  return isChecked.value ? 'disabledActive' : 'disabled'
+})
 
 const classMap = {
   track: {
     inactive: 'bg-surface-container-highest outline outline-2 outline-outline/[24%] ',
     active: 'bg-primary ',
     disabled: 'bg-surface-container-highest outline outline-2 outline-outline/[12%] cursor-not-allowed ',
+    disabledActive: 'bg-primary/[38%] outline outline-2 outline-outline/[12%] cursor-not-allowed ',
   },
   thumb: {
     inactive: 'bg-outline ',
     active: 'bg-on-primary ',
     disabled: 'bg-outline/[38%] ',
+    disabledActive: 'bg-surface ',
   },
 }
 
@@ -138,12 +145,12 @@ function nativeAttributes(): Record<string, unknown> {
         role="switch"
         :aria-checked="isChecked"
         @click="handleClick"
-        :class="`rounded-full ${sizeMap[props.size].track} ${props.disabled ? classMap.track.disabled : isChecked ? classMap.track.active : classMap.track.inactive}`"
+        :class="`rounded-full ${sizeMap[props.size].track} ${classMap.track[visualState]}`"
         :disabled="props.disabled"
       >
         <div class="flex h-full w-full">
           <div
-            :class="`rounded-full transition-all ${sizeMap[props.size].thumb} ${props.disabled ? classMap.thumb.disabled : isChecked ? classMap.thumb.active : classMap.thumb.inactive} ${isChecked && !props.disabled ? sizeMap[props.size].thumbActive : ''}`"
+            :class="`rounded-full transition-all ${sizeMap[props.size].thumb} ${classMap.thumb[visualState]} ${isChecked ? sizeMap[props.size].thumbActive : ''}`"
           ></div>
         </div>
       </button>
