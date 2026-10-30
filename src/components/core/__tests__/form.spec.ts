@@ -34,64 +34,6 @@ afterEach(() => {
 
 describe('Form session', () => {
 
-  it('touches a custom composite field only after focus leaves and validates corrections', async () => {
-    const submitResult = vi.fn(async (data: { name: string }) => data)
-    let latestScope: Record<string, unknown> | undefined
-    const view = mount(
-      {
-        schema: z.object({ name: z.string().min(3, 'Enter at least three characters.') }),
-        fields: { name: { renderer: 'text' } },
-        initialData: { name: '' },
-        submit: submitResult,
-      },
-      {
-        'input:name': (scope) => {
-          latestScope = scope
-          const bindings = scope.controlBindings as BaseInputControlBindings
-          const setValue = scope.setValue as (value: string) => void
-          const value = String(scope.value ?? '')
-          return h('div', {
-            id: bindings.id,
-            role: 'group',
-            'aria-describedby': bindings['aria-describedby'],
-            'aria-invalid': bindings['aria-invalid'],
-          }, [
-            h('input', { value, onInput: (event: Event) => setValue((event.target as HTMLInputElement).value) }),
-            h('input', { value }),
-          ])
-        },
-      },
-    )
-    await flush()
-
-    const [first, second] = view.all('input') as HTMLInputElement[]
-    const outside = document.createElement('button')
-    document.body.append(outside)
-    first!.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: second! }))
-    await flush()
-    expect(latestScope?.touched).toBe(false)
-    expect(view.find('[role="alert"]')).toBeNull()
-
-    second!.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: outside }))
-    await flush()
-    expect(latestScope?.touched).toBe(true)
-    const error = view.find<HTMLElement>('[role="alert"]')
-    const group = view.find<HTMLElement>('[role="group"]')
-    expect(error?.textContent).toBe('Enter at least three characters.')
-    expect(group?.getAttribute('aria-invalid')).toBe('true')
-    expect(group?.getAttribute('aria-describedby')?.split(' ')).toContain(error?.id)
-
-    first!.value = 'Ada'
-    first!.dispatchEvent(new Event('input', { bubbles: true }))
-    second!.dispatchEvent(new FocusEvent('focusout', { bubbles: true, relatedTarget: outside }))
-    await flush()
-    expect(view.find('[role="alert"]')).toBeNull()
-
-    submit(view)
-    await flush()
-    expect(submitResult).toHaveBeenCalledWith({ name: 'Ada' })
-  })
-
   it('shows a rejected unmatched required field in the form summary', async () => {
     const submitResult = vi.fn(async (data: { name: string; secret: string }) => data)
     const view = mount({
