@@ -1,4 +1,7 @@
 import type { RawSchema, RawSchemaOutput, SchemaIssue, SchemaParseResult } from '../contracts/schema'
+import type { ZodType } from 'zod'
+
+type ZodParseContext = NonNullable<Parameters<ZodType['parseAsync']>[1]>
 
 type SchemaRecord = Record<PropertyKey, unknown>
 
@@ -235,6 +238,10 @@ export function createSchemaRuntime<TSchema extends RawSchema<object, object>>(
     throw new Error('[loom][FORM_SCHEMA_INPUT_UNSUPPORTED] Form schema must be a raw Zod object schema.')
   }
 
+  const parseSchemaAsync: (
+    input: unknown,
+    params?: ZodParseContext,
+  ) => ReturnType<typeof schema.parseAsync> = schema.parseAsync.bind(schema)
   const shape = assertFiniteObjectInput(runtime)
   const inputKeys = Object.keys(shape)
   const requiredKeys = new Set<string>()
@@ -251,7 +258,9 @@ export function createSchemaRuntime<TSchema extends RawSchema<object, object>>(
     requiredKeys,
     parseAsync: async (input) => {
       try {
-        const data = await schema.parseAsync(input)
+        const data = await parseSchemaAsync(input, {
+          error: (issue) => issue.input == null ? 'This field is required.' : undefined,
+        })
         if (!isRecord(data)) {
           return { success: false, issues: [{ path: [], message: 'Expected the schema to produce an object.' }] }
         }
