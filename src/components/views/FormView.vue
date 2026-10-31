@@ -12,13 +12,14 @@
 import { computed, onBeforeUnmount, onMounted, ref, useSlots, watch } from 'vue'
 import { onBeforeRouteLeave, useRouter, type RouteLocationRaw } from 'vue-router'
 import { toast } from 'vue-sonner'
-import type { AfterSubmitContext, FormExposed, FormViewProps, FormViewSlots, SubmitError } from '../../contracts'
+import type { AfterSubmitContext, FormExposed, FormViewProps, FormViewSlots, RouteTarget, SubmitError } from '../../contracts'
 import Form from '../core/Form.vue'
 import Button from '../base/Button.vue'
 import Card from '../base/Card.vue'
 import Dialog from '../base/Dialog.vue'
 import NavigationHeader from './NavigationHeader.vue'
 import { useFrameworkUiDefaults } from './uiDefaults'
+import { withCurrentQuery } from './routeQuery'
 
 const props = defineProps<FormViewProps<TInput, TOutput, TResult, TKeys, TContext>>()
 defineSlots<FormViewSlots<TInput, TOutput, TResult, TKeys, TContext>>()
@@ -79,11 +80,11 @@ async function submitted(result: TResult, refreshError?: SubmitError) {
   if (successMessage && refreshError === undefined) toast.success(successMessage)
 
   let handled = false
-  const navigate = async (to: RouteLocationRaw) => {
+  const navigate = async (to: RouteTarget) => {
     handled = true
     allowNextLeave.value = true
     try {
-      const navigation = await router.replace(to)
+      const navigation = await router.replace(to as RouteLocationRaw)
       if (navigation) allowNextLeave.value = false
     } catch (error) {
       allowNextLeave.value = false
@@ -92,7 +93,8 @@ async function submitted(result: TResult, refreshError?: SubmitError) {
   }
   try {
     const target = props.defaultTo
-    const defaultTo = target === false ? undefined : typeof target === 'function' ? target(result) : target
+    const destination = target === false ? undefined : typeof target === 'function' ? target(result) : target
+    const defaultTo = destination === undefined ? undefined : withCurrentQuery(destination, router.currentRoute.value.query, router)
     const context: AfterSubmitContext<TResult> = {
       result,
       defaultTo,

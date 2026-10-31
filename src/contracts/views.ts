@@ -1,4 +1,4 @@
-import type { RouteLocationRaw } from 'vue-router'
+import type { RouteLocationAsPathGeneric, RouteLocationAsRelativeGeneric } from 'vue-router'
 import type { FormProps } from '../forms/props'
 import type { ListExportOptions } from '../services/excel'
 import type { DetailProps, TableProps } from './components'
@@ -8,10 +8,12 @@ import type { MaybePromise, RecordIdentity } from './load'
 import type { ResourceOperation } from './access'
 import type { SubmitError } from './results'
 
+export type RouteTarget = string | RouteLocationAsRelativeGeneric | RouteLocationAsPathGeneric
+
 export interface AfterSubmitContext<TResult> {
   result: TResult
-  defaultTo: RouteLocationRaw | undefined
-  navigate: (to: RouteLocationRaw) => Promise<void>
+  defaultTo: RouteTarget | undefined
+  navigate: (to: RouteTarget) => Promise<void>
   preventDefaultNavigation: () => void
 }
 
@@ -25,8 +27,8 @@ export type FormViewProps<
   form: FormProps<TInput, TOutput, TResult, TKeys, TContext>
   title?: string
   description?: string
-  backTo?: RouteLocationRaw | false
-  defaultTo?: RouteLocationRaw | ((result: TResult) => RouteLocationRaw | undefined) | false
+  backTo?: RouteTarget | false
+  defaultTo?: RouteTarget | ((result: TResult) => RouteTarget | undefined) | false
   afterSubmit?: (context: AfterSubmitContext<TResult>) => MaybePromise<void>
   successMessage?: string | false
 }
@@ -57,9 +59,9 @@ export type ListFilters<TQuery extends object = Record<string, unknown>, TInput 
 }
 
 export interface ListViewActions<TRecord extends object = Record<string, unknown>> {
-  createRoute?: RouteLocationRaw | false
-  detailRoute?: ((record: TRecord) => RouteLocationRaw | undefined) | false
-  updateRoute?: ((record: TRecord) => RouteLocationRaw | undefined) | false
+  createRoute?: RouteTarget | false
+  detailRoute?: ((record: TRecord) => RouteTarget | undefined) | false
+  updateRoute?: ((record: TRecord) => RouteTarget | undefined) | false
   can?: (operation: ResourceOperation, record?: TRecord) => boolean
   deleteRecord?: (record: TRecord) => Promise<unknown>
   recordIdentity?: (record: TRecord) => RecordIdentity
@@ -117,5 +119,5 @@ export type DetailViewControls<TRecord extends object = Record<string, unknown>>
 export type DetailViewProps<TRecord extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>> = {
   detail: DetailProps<TRecord, TContext>
   title?: string
-  backTo?: RouteLocationRaw | false
+  backTo?: RouteTarget | false
 }

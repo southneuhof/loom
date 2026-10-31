@@ -19,8 +19,8 @@ import type {
   TableProps,
 } from "../../contracts";
 import type { FormDraftSnapshot } from "../../contracts/forms";
-import type { ListViewActions, ListViewDeleteState, ListViewProps, ListViewSlotActions } from "../../contracts/views";
-import type { RouteLocationRaw } from "vue-router";
+import type { ListViewActions, ListViewDeleteState, ListViewProps, ListViewSlotActions, RouteTarget } from "../../contracts/views";
+import { useRouter, type RouteLocationRaw } from "vue-router";
 import { useFrameworkAdapters } from "../../adapters/projectAdapters";
 import { resolveDisplayFields } from "../../display/resolveDisplay";
 import { coerceQueryValues, stableValue } from "../../query";
@@ -37,8 +37,10 @@ import Switch from "../inputs/Switch.vue";
 import { exportTableRows } from "../../services";
 import { useTablePreferences } from "../core/useTablePreferences";
 import { isConfirmedWriteRefreshError, normalizeWriteError } from "../../resources/postWriteOutcome";
+import { withCurrentQuery } from "./routeQuery";
 
 const props = defineProps<ListViewProps<TRecord, TQuery, TFilterInput, TContext>>();
+const router = useRouter();
 const adapters = useFrameworkAdapters();
 const emit = defineEmits<{
   (event: "update:query", query: QueryValues): void;
@@ -54,15 +56,16 @@ defineSlots<{
    * renders only when its action is declared and permitted, so custom content
    * never needs its own permission checks. Props are for nuance only.
    */
-  "row-actions-view"?: (props: { record: TRecord; can?: ListViewActions<TRecord>["can"]; target: import("vue-router").RouteLocationRaw }) => unknown;
-  "row-actions-edit"?: (props: { record: TRecord; can?: ListViewActions<TRecord>["can"]; target: import("vue-router").RouteLocationRaw }) => unknown;
+  "row-actions-view"?: (props: { record: TRecord; can?: ListViewActions<TRecord>["can"]; target: RouteTarget }) => unknown;
+  "row-actions-edit"?: (props: { record: TRecord; can?: ListViewActions<TRecord>["can"]; target: RouteTarget }) => unknown;
   "row-actions-delete"?: (props: { record: TRecord; can?: ListViewActions<TRecord>["can"]; deleteRecord?: ListViewSlotActions<TRecord>["deleteRecord"]; deleteState: ListViewDeleteState }) => unknown;
-  "create-action"?: (props: { can?: ListViewActions<TRecord>["can"]; target: import("vue-router").RouteLocationRaw }) => unknown;
+  "create-action"?: (props: { can?: ListViewActions<TRecord>["can"]; target: RouteTarget }) => unknown;
   "resource-action"?: () => unknown;
   header?: () => unknown;
   empty?: () => unknown;
   filters?: () => unknown;
   context?: (props: ListViewContextSlotProps) => unknown;
+  toolbar?: () => unknown;
   body?: (props: { table: TableProps<TRecord, TQuery, TContext> }) => unknown;
   footer?: () => unknown;
   "row-actions"?: (props: { record: TRecord }) => unknown;
@@ -84,13 +87,17 @@ let nextIdentityOwnerToken = 0;
 
 type ListViewSurface = {
   table: TableProps<TRecord, TQuery, TContext>;
-  createRoute?: RouteLocationRaw;
-  detailRoute?: (record: TRecord) => RouteLocationRaw | undefined;
-  updateRoute?: (record: TRecord) => RouteLocationRaw | undefined;
+  createRoute?: RouteTarget;
+  detailRoute?: (record: TRecord) => RouteTarget | undefined;
+  updateRoute?: (record: TRecord) => RouteTarget | undefined;
   can?: ListViewActions<TRecord>["can"];
   deleteRecord?: ListViewActions<TRecord>["deleteRecord"];
   recordIdentity?: ListViewActions<TRecord>["recordIdentity"];
 };
+
+function withCurrentQueryIfPresent(target: RouteTarget | undefined): RouteTarget | undefined {
+  return target === undefined ? undefined : withCurrentQuery(target, router.currentRoute.value.query, router);
+}
 
 const surface = computed<ListViewSurface>(() => {
   if (props.deleteRecord !== undefined && typeof props.deleteRecord !== "function") {
@@ -99,14 +106,17 @@ const surface = computed<ListViewSurface>(() => {
   if (props.deleteRecord && typeof props.recordIdentity !== "function") {
     throw new Error("[loom][SURFACE_OPTION_INVALID] ListView deleteRecord requires recordIdentity.");
   }
+  const createRoute = props.createRoute === false ? undefined : props.createRoute;
+  const detailRoute = props.detailRoute === false ? undefined : props.detailRoute;
+  const updateRoute = props.updateRoute === false ? undefined : props.updateRoute;
   return {
     table: {
       ...props.table,
       pagination: props.table.pagination ?? "always",
     },
-    createRoute: props.createRoute === false ? undefined : props.createRoute,
-    detailRoute: props.detailRoute === false ? undefined : props.detailRoute,
-    updateRoute: props.updateRoute === false ? undefined : props.updateRoute,
+    createRoute: withCurrentQueryIfPresent(createRoute),
+    detailRoute: detailRoute ? (record) => withCurrentQueryIfPresent(detailRoute(record)) : undefined,
+    updateRoute: updateRoute ? (record) => withCurrentQueryIfPresent(updateRoute(record)) : undefined,
     can: props.can,
     deleteRecord: props.deleteRecord,
     recordIdentity: props.recordIdentity,
@@ -241,6 +251,7 @@ const passthroughSlots = computed(() =>
         "footer",
         "row-actions",
         "context",
+        "toolbar",
       ].includes(name),
   ),
 );
@@ -593,28 +604,23 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
                   </slot>
                 </template>
               </Dialog>
-              <slot
-                name="export-controls"
-                :export="exportRows"
-                :exporting="exporting"
+              <Button
+                v-if="canExport"
+                kind="icon"
+                variant="standard"
+                ariaLabel="Export Excel"
+                :disabled="exporting"
+                @click="exportRows"
               >
-                <Button
-                  v-if="canExport"
-                  kind="icon"
-                  variant="standard"
-                  ariaLabel="Export Excel"
-                  :disabled="exporting"
-                  @click="exportRows"
-                >
-                  <template #icon><Icon name="file-excel" /></template>
-                </Button>
-              </slot>
+                <template #icon><Icon name="file-excel" /></template>
+              </Button>
+              <slot name="toolbar" />
             </div>
           </div>
           <div v-if="surface.createRoute || $slots['resource-action']" class="flex flex-row justify-end gap-2">
             <template v-if="surface.createRoute && (surface.can?.('create') ?? true)">
               <slot name="create-action" v-bind="{ can: surface.can, target: surface.createRoute }">
-                <RouterLink :to="surface.createRoute">
+                <RouterLink :to="surface.createRoute as RouteLocationRaw">
                   <Button>
                     <template #icon><Icon name="add" /></template>{{ props.actionLabels?.create ?? 'Create' }}
                   </Button>
@@ -671,7 +677,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
                         <RouterLink
                           v-slot="{ href, navigate }"
                           custom
-                          :to="surface.detailRoute(record)!"
+                          :to="surface.detailRoute(record)! as RouteLocationRaw"
                         >
                           <Button
                             kind="icon"
@@ -690,7 +696,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
                         <RouterLink
                           v-slot="{ href, navigate }"
                           custom
-                          :to="surface.updateRoute(record)!"
+                          :to="surface.updateRoute(record)! as RouteLocationRaw"
                         >
                           <Button
                             kind="icon"

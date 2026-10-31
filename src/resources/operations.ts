@@ -228,16 +228,22 @@ type ListFilterInput<TList, TQuery extends object> = TList extends { filters: in
     : Partial<TQuery>
   : Partial<TQuery>
 
-type ResourceFormViewProps<TResult> = Omit<FormViewProps<object, object, TResult>, 'form'>
+type ResourceFormViewProps<TResult> = Omit<FormViewProps<object, object, TResult>, 'form' | 'backTo' | 'defaultTo'> & {
+  backTo?: RouteLocationRaw | false
+  defaultTo?: RouteLocationRaw | ((result: TResult) => RouteLocationRaw | undefined) | false
+}
 
 export type ResourceListDeclaration<TTable extends ListTableShape = ListTableShape, TRecord extends object = Record<string, unknown>, TFilterInput extends object = Partial<TableQuery<TTable>>> = Omit<
   ListViewProps<TRecord, TableQuery<TTable>, TFilterInput>,
-  'table' | 'can' | 'deleteRecord' | 'recordIdentity'
+  'table' | 'can' | 'deleteRecord' | 'recordIdentity' | 'createRoute' | 'detailRoute' | 'updateRoute'
 > & {
   permission: string | null
   route?: ResourceStaticRoute
   visible?: (context: { access: AccessAdapter }) => boolean
   table: TTable
+  createRoute?: RouteLocationRaw | false
+  detailRoute?: ((record: TRecord) => RouteLocationRaw | undefined) | false
+  updateRoute?: ((record: TRecord) => RouteLocationRaw | undefined) | false
 }
 
 export type ResourceCreateDeclaration<TForm extends FormBagShape = FormBagShape> = ResourceFormViewProps<ResourceFormResult<TForm>> & {
@@ -251,11 +257,12 @@ export type ResourceDetailDeclaration<
   TIdentity extends RecordIdentity,
   TIdentityRecord extends object,
   TFactory extends (binding: ResourceBinding<TIdentity, TIdentityRecord>) => DetailBagShape = (binding: ResourceBinding<TIdentity, TIdentityRecord>) => DetailBagShape,
-> = Omit<DetailViewProps<TIdentityRecord>, 'detail'> &
+> = Omit<DetailViewProps<TIdentityRecord>, 'detail' | 'backTo'> &
   ResourceVisibility<TIdentityRecord> & {
     permission: string | null
     route?: ResourceRoute<TIdentity>
     detail: TFactory
+    backTo?: RouteLocationRaw | false
   }
 
 type ResourceUpdateViewProps<TFactory extends (binding: never) => UpdateFormBagShape> = ResourceFormViewProps<ResourceFormResult<ReturnType<TFactory>>>
@@ -795,8 +802,9 @@ export type ResourceCreatePage<TForm extends object, TResult, TPageProps extends
 }
 
 export type ResourceDetailPage<TRecord extends object, TDetail extends object, TPageProps extends object> = TPageProps &
-  Partial<Omit<DetailViewProps<TRecord>, 'detail'>> & {
+  Partial<Omit<DetailViewProps<TRecord>, 'detail' | 'backTo'>> & {
     detail: TDetail
+    backTo?: RouteLocationRaw | false
   }
 
 export type ResourceUpdatePage<TForm extends object, TResult, TPageProps extends object> = TPageProps & Partial<ResourceFormViewProps<TResult>> & {

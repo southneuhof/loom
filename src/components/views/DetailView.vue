@@ -1,11 +1,10 @@
 <script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>">
 import { computed, useSlots } from 'vue'
-import type { DetailViewProps, DetailViewReadyProps } from '../../contracts'
+import type { DetailViewProps, DetailViewReadyProps, RouteTarget } from '../../contracts'
 import { useRecord } from '../core/useRecord'
 import Detail from '../core/Detail.vue'
 import Card from '../base/Card.vue'
 import NavigationHeader from './NavigationHeader.vue'
-import type { RouteLocationRaw } from 'vue-router'
 
 const props = defineProps<DetailViewProps<TRecord, TContext>>()
 const detail = computed(() => props.detail)
@@ -16,7 +15,7 @@ const readyProps = computed<DetailViewReadyProps<TRecord, TContext> | undefined>
   const { load: _load, data: _data, ...configuration } = detail.value
   return { record, detail: { ...configuration, data: record } }
 })
-const defaultBackTo: RouteLocationRaw = { name: 'dashboard' }
+const defaultBackTo: RouteTarget = { name: 'dashboard' }
 const backTo = computed(() => props.backTo === false ? undefined : props.backTo ?? defaultBackTo)
 const slots = useSlots()
 const detailSlotNames = () => Object.keys(slots).filter((name) => name.startsWith('value:'))

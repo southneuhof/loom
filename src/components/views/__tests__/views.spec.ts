@@ -118,18 +118,10 @@ describe('ListView', () => {
         data: [{ name: 'name' }],
       },
       export: { filename: 'context' },
-    }, {
-      slots: {
-        'export-controls': (scope: { export: () => Promise<void> }) => h('button', {
-          type: 'button',
-          'data-export': '',
-          onClick: scope.export,
-        }, 'Export'),
-      },
     })
 
     try {
-      view.find('[data-export]')!.click()
+      view.find('[aria-label="Export Excel"]')!.click()
       await vi.waitFor(() => expect(exportedWorkbook.value).toBeDefined())
       const workbook = exportedWorkbook.value as XLSX.WorkBook
       expect(XLSX.utils.sheet_to_json(workbook.Sheets.Data!, { header: 1 })).toEqual([
