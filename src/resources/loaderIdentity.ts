@@ -1,12 +1,8 @@
 import type { RecordIdentity } from '../contracts/load'
 
-export type ResourceLoaderOperation = 'list' | 'create' | 'detail' | 'update'
-export type ResourceLoaderFamily = 'collection' | 'options' | 'record' | 'form'
-
 export interface ResourceLoaderIdentity {
   readonly resource: string
-  readonly operation: ResourceLoaderOperation
-  readonly family: ResourceLoaderFamily
+  readonly operation: string
   readonly id?: RecordIdentity
   readonly searchParameters: Readonly<Record<string, unknown>>
 }
@@ -30,10 +26,16 @@ export function resourceLoaderOwner(source: unknown, explicit: string | undefine
   return identity?.resource ?? explicit ?? fallback
 }
 
-export function resourceLoaderParameters(
-  source: unknown,
-  explicit: Readonly<Record<string, unknown>> | undefined,
-): Readonly<Record<string, unknown>> {
+export function resourceLoaderParameters(source: unknown, explicit: Readonly<Record<string, unknown>> | undefined): Readonly<Record<string, unknown>> {
   const identity = resourceLoaderIdentity(source)
   return { ...(identity?.searchParameters ?? {}), ...(explicit ?? {}) }
+}
+
+export function bindResourceRead<TLoad extends (...args: never[]) => unknown>(resource: string, operation: string, load: TLoad): TLoad {
+  const owner = resourceLoaderIdentity(load)
+  if (owner && (owner.resource !== resource || owner.operation !== operation)) {
+    throw new Error(`[loom][RESOURCE_LOADER_OWNER_CONFLICT] Action belongs to "${owner.resource}.${owner.operation}", not "${resource}.${operation}".`)
+  }
+  if (!owner) associateResourceLoader(load, { resource, operation, searchParameters: {} })
+  return load
 }

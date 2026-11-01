@@ -95,6 +95,8 @@ export type ResourceRoutePermission = string | readonly [string, ...string[]] | 
 
 export type ResourceCustomPermission<TRun extends (...args: never[]) => unknown> = string | readonly string[] | ((...args: Parameters<TRun>) => string | readonly string[] | null) | null
 
+export type ResourceReadAction = (context: CollectionLoadContext<never>) => MaybePromise<CollectionResult<object>>
+
 export interface ResourceCustomCommand<
   TRun extends (...args: never[]) => unknown = (...args: never[]) => unknown,
   TIdentity extends RecordIdentity = RecordIdentity,
@@ -292,7 +294,7 @@ export type ResourceDefinitionInput<TIdentityFunction extends ResourceIdentityFu
   detail?: ResourceDetailDeclaration<ResourceIdentityValue<TIdentityFunction>, TIdentityRecord>
   update?: ResourceUpdateDeclaration<ResourceIdentityValue<TIdentityFunction>, TIdentityRecord>
   delete?: ResourceDeleteDeclaration<ResourceIdentityValue<TIdentityFunction>, TIdentityRecord>
-  actions?: Record<string, ResourceCustomCommand<(...args: never[]) => unknown, ResourceIdentityValue<TIdentityFunction>, TIdentityRecord>>
+  actions?: Record<string, ResourceReadAction | ResourceCustomCommand<(...args: never[]) => unknown, ResourceIdentityValue<TIdentityFunction>, TIdentityRecord>>
 }
 
 export type IdentityRecord<TIdentityFunction> = TIdentityFunction extends (record: infer TRecord) => RecordIdentity
@@ -400,7 +402,7 @@ type UpdateBindingExtra<TForm> = {
   searchParameters?: Record<string, unknown>
 }
 
-type CustomName<TActions> = Exclude<Extract<keyof TActions, string>, 'list' | 'create' | 'detail' | 'update' | 'delete'>
+type CustomName<TActions> = Extract<keyof TActions, string>
 
 type CustomActionRoute<TAction, TIdentity extends RecordIdentity> = 'route' extends keyof TAction
   ? TAction extends { route?: infer TRoute }
@@ -409,7 +411,9 @@ type CustomActionRoute<TAction, TIdentity extends RecordIdentity> = 'route' exte
   : ResourceRoute<TIdentity>
 
 export type BoundCustomActions<TActions, TIdentity extends RecordIdentity, TRecord extends object> = {
-  [TKey in CustomName<TActions>]: TActions[TKey] extends { run: infer TRun }
+  [TKey in CustomName<TActions>]: TActions[TKey] extends ResourceReadAction
+    ? TActions[TKey]
+    : TActions[TKey] extends { run: infer TRun }
     ? TRun extends (...args: never[]) => unknown
       ? ResourceCustomHandle<TRun, TIdentity, TRecord, CustomActionRoute<TActions[TKey], TIdentity>>
       : never
@@ -567,7 +571,7 @@ type ActionValue<TActions, TKey extends PropertyKey> = TActions extends unknown 
 type ReservedAction = 'list' | 'create' | 'detail' | 'update' | 'delete'
 type ActionKeys<TActions> = KeysOfUnion<TActions>
 type InvalidCustomActionKeys<TActions> = {
-  [TKey in ActionKeys<TActions>]-?: TKey extends string ? (TKey extends ReservedAction ? TKey : [EveryTrue<CustomActionMemberValid<ActionValue<TActions, TKey>>>] extends [true] ? never : TKey) : TKey
+  [TKey in ActionKeys<TActions>]-?: TKey extends string ? (ActionValue<TActions, TKey> extends ResourceReadAction ? never : TKey extends ReservedAction ? TKey : [EveryTrue<CustomActionMemberValid<ActionValue<TActions, TKey>>>] extends [true] ? never : TKey) : TKey
 }[ActionKeys<TActions>]
 
 type ResourceCustomActionPermissionDiagnostic = {

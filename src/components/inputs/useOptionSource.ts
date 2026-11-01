@@ -26,6 +26,7 @@ export function useOptionSource<TOption extends object>(
       return identity || props.resource !== undefined
         ? resourceOptionsKey({
           resource,
+          operation: identity?.operation,
           namespace: props.namespace ?? identity?.operation ?? owner,
           searchParameters: parameters,
         })

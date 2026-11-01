@@ -32,6 +32,23 @@ afterEach(() => {
 })
 
 describe('bound resource operations', () => {
+  it('keeps collection actions callable beside guarded commands and rejects conflicting owners', async () => {
+    installRuntime({ allows: () => false })
+    const load = async () => ({ data: [{ id: 'one', name: 'One' }] })
+    const run = vi.fn(async () => 'written')
+    const resource = defineResource({
+      key: 'shared-reads',
+      identity: (record: { id: string }) => record.id,
+      actions: { list: load, archive: { run, permission: 'archive' } },
+    })
+
+    await expect(resource.actions.list()).resolves.toEqual({ data: [{ id: 'one', name: 'One' }] })
+    await expect(resource.actions.archive.run()).rejects.toThrow('is not allowed')
+    expect(run).not.toHaveBeenCalled()
+    expect(() => defineResource({ key: 'another-owner', actions: { list: load } })).toThrow('RESOURCE_LOADER_OWNER_CONFLICT')
+    expect(() => defineResource({ key: 'shared-reads', actions: { dataset: load } })).toThrow('RESOURCE_LOADER_OWNER_CONFLICT')
+  })
+
   it('returns complete stable primitive bags and registers normalized route requirements', async () => {
     installRuntime()
     const identity = (record: Row) => record.id

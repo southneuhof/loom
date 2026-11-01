@@ -5,6 +5,9 @@ import LookupInput from '../form-inputs/LookupInput.vue'
 import { defineTable } from '../../../tables/defineTable'
 import type { CollectionLoadContext, CollectionMeta, CollectionResult, Load, RecordIdentity, RecordLoadContext } from '../../../contracts'
 import { deferred } from '../../core/__tests__/harness'
+import { FrameworkPlugin } from '../../../adapters/plugin'
+import { createFrameworkQueryClient } from '../../../query/client'
+import { defineResource } from '../../../resources/defineResource'
 
 vi.mock('../../base/Dialog.vue', async () => {
   const { defineComponent, h } = await import('vue')
@@ -81,6 +84,8 @@ const options = [{ id: 'one', name: 'Option one' }, { id: 'two', name: 'Option t
 
 function mountLookup(mountOptions: {
   model: unknown
+  namespace?: string
+  queryClient?: ReturnType<typeof createFrameworkQueryClient>
   loadDetail?: Load<RecordLoadContext & { id: RecordIdentity }, Option>
   load?: Load<CollectionLoadContext, CollectionResult<Option>>
   searchParameters?: Record<string, unknown>
@@ -96,6 +101,7 @@ function mountLookup(mountOptions: {
       table,
       ...(mountOptions.load ? { load: mountOptions.load } : { data: options }),
       searchParameters: searchParameters.value,
+      namespace: mountOptions.namespace,
       pick: 'id',
       view: 'name',
       multi: mountOptions.multi,
@@ -105,6 +111,7 @@ function mountLookup(mountOptions: {
       'onUpdate:modelValue': (value: unknown) => { model.value = value },
     }),
   }))
+  app.use(FrameworkPlugin, { queryClient: mountOptions.queryClient ?? createFrameworkQueryClient({ retry: 0, staleTime: Infinity }) })
   app.mount(host)
   apps.push(app)
   return {
@@ -130,6 +137,51 @@ afterEach(() => {
 })
 
 describe('LookupInput selection labels', () => {
+  it('shares resource reads, isolates namespaces and actions, and refreshes through the resource owner', async () => {
+    let name = 'Before'
+    const load = vi.fn(async () => ({ data: [{ id: 'one', name }] }))
+    const otherLoad = vi.fn(async () => ({ data: [{ id: 'other', name: 'Other action' }] }))
+    const definition = {
+      key: 'lookup-sharing',
+      actions: { dataset: load, other: otherLoad },
+    }
+    const resource = defineResource(definition)
+    const queryClient = createFrameworkQueryClient({ retry: 0, staleTime: Infinity })
+    const first = mountLookup({ model: null, load: resource.actions.dataset, queryClient })
+    const second = mountLookup({ model: null, load: resource.actions.dataset, queryClient })
+    const isolated = mountLookup({
+      model: null,
+      load: resource.actions.dataset,
+      namespace: 'isolated',
+      queryClient,
+    })
+    const other = mountLookup({
+      model: null,
+      load: resource.actions.other,
+      namespace: 'isolated',
+      queryClient,
+    })
+
+    await vi.waitFor(() => {
+      expect(first.row(0).textContent).toBe('Before')
+      expect(second.row(0).textContent).toBe('Before')
+      expect(isolated.row(0).textContent).toBe('Before')
+      expect(other.row(0).textContent).toBe('Other action')
+    })
+    expect(load).toHaveBeenCalledTimes(2)
+    expect(otherLoad).toHaveBeenCalledOnce()
+
+    name = 'After'
+    definition.key = 'changed-owner'
+    await resource.invalidate()
+    await vi.waitFor(() => {
+      expect(first.row(0).textContent).toBe('After')
+      expect(second.row(0).textContent).toBe('After')
+      expect(isolated.row(0).textContent).toBe('After')
+    })
+    expect(load).toHaveBeenCalledTimes(4)
+  })
+
   it('loads options from its explicit source with the active query and search parameters', async () => {
     const load = vi.fn(async () => ({ data: options, meta: { total: 2, page: 1, pageSize: 5 } }))
     const view = mountLookup({ model: null, load, searchParameters: { parentId: 'parent' } })

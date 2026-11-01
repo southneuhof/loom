@@ -166,6 +166,18 @@ The binder owns resource identity, route access registration, permission
 checks, cache namespaces, and invalidation after successful standard writes.
 The backend remains the final authorization boundary.
 
+The same `actions` map accepts callable collection reads. Their owner comes
+from the resource key, and their operation name comes from the action key.
+Pass a read directly to an input, such as `roles.actions.list`. The input does
+not need repeated ownership props or a management page binding. Callable reads
+use the existing `CollectionResult` contract and do not inherit page permissions.
+Command objects keep their guarded `can` and `run` behavior.
+
+A resource that declares only callable collection reads can omit identity and
+page operations. It still exposes its key, actions, and resource invalidation.
+Option and lookup reads share the existing query runtime. Cache identity
+includes the operation, explicit namespace, and effective request parameters.
+
 ## Use page views
 
 Pass the operation bag directly to its View:

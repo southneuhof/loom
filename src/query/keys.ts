@@ -45,6 +45,8 @@ export interface RecordKeyInput {
 
 export interface ResourceOptionsKeyInput {
   resource: string
+  operation?: string
+  query?: QueryValues
   namespace: QueryNamespace
   searchParameters?: QueryValues
 }
@@ -57,8 +59,8 @@ export function resourceOptionsKeyPrefix(resource: string): QueryKey {
   return [...resourceKey(resource), 'options']
 }
 
-export function resourceOptionsKey({ resource, namespace, searchParameters }: ResourceOptionsKeyInput): QueryKey {
-  return [...resourceOptionsKeyPrefix(resource), namespace, stableValue(searchParameters ?? {})]
+export function resourceOptionsKey({ resource, operation, namespace, query, searchParameters }: ResourceOptionsKeyInput): QueryKey {
+  return [...resourceOptionsKeyPrefix(resource), operation ?? null, namespace, stableValue({ ...searchParameters, ...query })]
 }
 
 export function collectionKey({ resource, query, searchParameters, namespace }: CollectionKeyInput): QueryKey {

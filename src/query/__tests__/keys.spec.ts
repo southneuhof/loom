@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { collectionKey, isSameKey, recordKey, resourceKey, stableValue } from '../keys'
+import { collectionKey, isSameKey, recordKey, resourceKey, resourceOptionsKey, stableValue } from '../keys'
 
 describe('query identities', () => {
   it('produces equal keys for equal logical inputs regardless of property order', () => {
@@ -49,6 +49,26 @@ describe('query identities', () => {
     const form = recordKey({ resource: 'roles', id: 1, variant: 'form', namespace: 'update' })
     expect(display.slice(0, 4)).toEqual(form.slice(0, 4))
     expect(display).not.toEqual(form)
+  })
+
+  it('separates collection pages and action names within an explicit option namespace', () => {
+    const input = {
+      resource: 'roles',
+      operation: 'dataset',
+      namespace: 'editor',
+      searchParameters: { active: true },
+    }
+    const first = resourceOptionsKey({ ...input, query: { page: 1, limit: 5 } })
+    expect(first).not.toEqual(resourceOptionsKey({ ...input, query: { page: 2, limit: 5 } }))
+    expect(first).not.toEqual(resourceOptionsKey({ ...input, query: { page: 1, limit: 10 } }))
+    expect(first).not.toEqual(resourceOptionsKey({ ...input, operation: 'assigned', query: { page: 1, limit: 5 } }))
+    expect(first).toEqual(
+      resourceOptionsKey({
+        ...input,
+        searchParameters: { active: false, page: 2 },
+        query: { active: true, page: 1, limit: 5 },
+      })
+    )
   })
 
   it('serializes nested structures deterministically', () => {

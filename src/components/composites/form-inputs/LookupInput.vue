@@ -1,7 +1,9 @@
 <script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>">
 import { computed, getCurrentInstance, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
-import type { CollectionMeta, QueryValues } from '../../../contracts'
-import { stableValue } from '../../../query/keys'
+import type { CollectionLoadContext, CollectionResult, QueryValues } from '../../../contracts'
+import { resourceOptionsKey, stableValue } from '../../../query/keys'
+import { useLoader } from '../../../query/loader'
+import { resourceLoaderIdentity, resourceLoaderParameters } from '../../../resources/loaderIdentity'
 import type { LookupInputProps, LookupModelValue } from './lookupInput.types'
 import BaseInput from '../../inputs/BaseInput.vue'
 import Button from '../../base/Button.vue'
@@ -46,20 +48,14 @@ const committed = shallowRef<TRecord[]>([])
 const staged = shallowRef<TRecord[]>([])
 const committedIdentity = ref<unknown>()
 const stagedIdentity = ref<unknown>()
-const loadedRows = shallowRef<TRecord[]>([])
-const loadedMeta = ref<CollectionMeta>()
-const loadPending = ref(false)
-const loadError = ref<string>()
 const hydrationError = ref<string>()
 const search = ref('')
 const dialogOpen = ref(false)
 const query = ref<QueryValues>({ page: 1, limit: 5 })
-let loadController: AbortController | undefined
-let loadGeneration = 0
 let detailController: AbortController | undefined
 let detailGeneration = 0
 let stagingGeneration = 0
-let skipNextQueryLoad = false
+const sourceRevision = ref(0)
 
 type SourceMode = 'data' | 'load'
 type SelectionContext = {
@@ -166,7 +162,32 @@ const combinedSearchParameters = computed(() => ({
   ...props.searchParameters,
   ...(search.value ? { search: search.value } : {}),
 }))
-const rows = computed<TRecord[]>(() => sourceMode() === 'data' ? [...(props.data ?? [])] : loadedRows.value)
+const owner = `lookup-${getCurrentInstance()?.uid ?? Math.random().toString(36).slice(2)}`
+const source = useLoader<CollectionLoadContext, CollectionResult<TRecord>>({
+  key: computed(() => {
+    const identity = resourceLoaderIdentity(props.load)
+    const parameters = resourceLoaderParameters(props.load, combinedSearchParameters.value)
+    return identity
+      ? resourceOptionsKey({
+          resource: identity.resource,
+          operation: identity.operation,
+          namespace: props.namespace ?? identity.operation,
+          query: query.value,
+          searchParameters: parameters,
+        })
+      : ['lookup-options', owner, props.namespace ?? null, sourceRevision.value, stableValue({ ...parameters, ...query.value })]
+  }),
+  context: computed(() => ({
+    query: { ...query.value },
+    searchParameters: resourceLoaderParameters(props.load, combinedSearchParameters.value),
+  })),
+  load: computed(() => props.load),
+  enabled: computed(() => sourceMode() === 'load'),
+})
+const loadedMeta = computed(() => source.data.value?.meta)
+const loadPending = computed(() => sourceMode() === 'load' && source.loading.value)
+const loadError = computed(() => (sourceMode() === 'load' ? source.error.value?.message : undefined))
+const rows = computed<TRecord[]>(() => (sourceMode() === 'data' ? [...(props.data ?? [])] : (source.data.value?.data ?? [])))
 const baseInputProps = computed(() => ({
   field: props.field,
   label: props.label,
@@ -177,35 +198,8 @@ const baseInputProps = computed(() => ({
 }))
 
 async function loadOptions() {
-  const load = props.load
-  if (sourceMode() !== 'load' || !load) return
-  loadController?.abort()
-  const controller = new AbortController()
-  loadController = controller
-  const generation = ++loadGeneration
-  loadPending.value = true
-  loadError.value = undefined
-  try {
-    const result = await load({ query: { ...query.value }, searchParameters: { ...combinedSearchParameters.value }, signal: controller.signal })
-    if (generation !== loadGeneration || controller.signal.aborted) return
-    loadedRows.value = [...result.data]
-    loadedMeta.value = result.meta
-  } catch (reason) {
-    if (!controller.signal.aborted && generation === loadGeneration) {
-      loadError.value = reason instanceof Error ? reason.message : String(reason)
-    }
-  } finally {
-    if (generation === loadGeneration) loadPending.value = false
-  }
+  if (sourceMode() === 'load') await source.refresh().catch(() => undefined)
 }
-
-watch(query, () => {
-  if (skipNextQueryLoad) {
-    skipNextQueryLoad = false
-    return
-  }
-  void loadOptions()
-}, { deep: true, immediate: true })
 
 const loadContext = computed(() => ({
   mode: sourceMode(),
@@ -215,21 +209,10 @@ const loadContext = computed(() => ({
 }))
 
 watch(loadContext, (next, previous) => {
-  if (next.mode !== 'load') {
-    loadGeneration += 1
-    loadController?.abort()
-    loadedRows.value = []
-    loadedMeta.value = undefined
-    loadPending.value = false
-    loadError.value = undefined
-    return
-  }
+  if (next.load !== previous.load || next.mode !== previous.mode) sourceRevision.value += 1
+  if (next.mode !== 'load') return
   const searchChanged = JSON.stringify(stableValue(previous.searchParameters)) !== JSON.stringify(stableValue(next.searchParameters))
-  if (searchChanged && query.value.page !== 1) {
-    skipNextQueryLoad = true
-    query.value = { ...query.value, page: 1 }
-  }
-  void loadOptions()
+  if (searchChanged && query.value.page !== 1) query.value = { ...query.value, page: 1 }
 }, { deep: true })
 
 function updateQuery(values: QueryValues) {
@@ -493,9 +476,7 @@ watch(dialogOpen, (open) => {
 })
 
 onBeforeUnmount(() => {
-  loadGeneration += 1
   invalidateDetailLoad()
-  loadController?.abort()
 })
 
 function toggle(record: TRecord) {

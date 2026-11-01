@@ -5,7 +5,7 @@ import { isCancelledError } from '@tanstack/vue-query'
 import { stableValue } from '../query/keys'
 import { checkIdentityValue, isRecordIdentity } from './identity'
 import { useResourceRuntime } from './runtime'
-import { associateResourceLoader } from './loaderIdentity'
+import { associateResourceLoader, bindResourceRead } from './loaderIdentity'
 import { markConfirmedWriteRefreshError } from './postWriteOutcome'
 import { registerResourceRouteRequirement } from './routeAccess'
 import { isStandardRowOperation } from './operations'
@@ -253,7 +253,7 @@ function wrapCollectionLoad<TContext extends CollectionLoadContext, TResult>(
     assertAllowed(resourceKey, runtime.adapters.access, 'list', permission, visible)
     return await load({ ...context, searchParameters: { ...searchParameters, ...context.searchParameters } })
   }
-  return associateResourceLoader(bound, { resource: resourceKey, operation: 'list', family: 'collection', searchParameters })
+  return associateResourceLoader(bound, { resource: resourceKey, operation: 'list', searchParameters })
 }
 
 function wrapRecordLoad<TRecord extends object, TResult>(
@@ -272,7 +272,7 @@ function wrapRecordLoad<TRecord extends object, TResult>(
     const boundContext = bindRecordContext(resourceKey, operation, id, context)
     return await load({ ...boundContext, searchParameters: { ...searchParameters, ...boundContext.searchParameters } })
   }
-  return associateResourceLoader(bound, { resource: resourceKey, operation, family: operation === 'detail' ? 'record' : 'form', id, searchParameters })
+  return associateResourceLoader(bound, { resource: resourceKey, operation, id, searchParameters })
 }
 
 function wrapCreateLoad<TRecord extends object, TResult>(
@@ -287,7 +287,7 @@ function wrapCreateLoad<TRecord extends object, TResult>(
     assertAllowed(resourceKey, runtime.adapters.access, 'create', permission, visible)
     return await load({ ...context, searchParameters: { ...searchParameters, ...context.searchParameters } })
   }
-  return associateResourceLoader(bound, { resource: resourceKey, operation: 'create', family: 'form', searchParameters })
+  return associateResourceLoader(bound, { resource: resourceKey, operation: 'create', searchParameters })
 }
 
 type ResourcePostWriteCode = 'RESOURCE_RESULT_INVALID' | 'RESOURCE_POST_WRITE_INVALIDATION_FAILED'
@@ -767,6 +767,10 @@ export function bindResource<
   if (definition.actions) {
     const actions: Record<string, unknown> = {}
     for (const [actionName, action] of Object.entries(definition.actions)) {
+      if (typeof action === 'function') {
+        actions[actionName] = bindResourceRead(resourceKey, actionName, action)
+        continue
+      }
       if (standardOperations.includes(actionName as typeof standardOperations[number])) {
         throw new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" standard operation "${actionName}" belongs at the top level.`)
       }

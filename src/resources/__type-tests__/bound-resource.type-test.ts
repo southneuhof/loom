@@ -4,7 +4,7 @@ import { defineTable } from '../../tables/defineTable'
 import type { CollectionLoadContext, CollectionResult, DetailFieldContext, FormDraft, FormDraftSnapshot, FormFieldContext, QueryValues, RawSchema, RecordIdentity, RecordLoadContext, TableColumnContext } from '../../contracts'
 import type { ListFilters, ListViewProps } from '../../contracts/views'
 import type { ListExportOptions } from '../../services/excel'
-import type { ResourceCreateDeclaration, ResourceListDeclaration } from '../operations'
+import type { ResourceCreateDeclaration, ResourceListDeclaration, ResourceReadAction } from '../operations'
 import type { FormRendererProps } from '../../renderers/formContracts'
 
 type Row = { id: string; name: string; status: string }
@@ -689,3 +689,13 @@ const badDetailIdentity = {
 
 // @ts-expect-error detail rows must include the identity record
 defineResource({ key: 'bad-detail-identity', identity: (record: Row) => record.id, detail: { permission: null, detail: () => badDetailIdentity } })
+
+const readAction = async (context: CollectionLoadContext<{ search?: string }>) => ({
+  data: [{ id: 'one', caption: context.query.search ?? 'One' }],
+})
+const readResource = defineResource({ key: 'read-only', actions: { dataset: readAction } })
+type ReadActionIsExact = Assert<Equal<typeof readResource.actions.dataset, typeof readAction>>
+type ReadResourceKeyIsExact = Assert<Equal<typeof readResource.key, 'read-only'>>
+type NonCollectionActionIsRejected = Assert<Equal<(() => Promise<{ id: string }>) extends ResourceReadAction ? true : false, false>>
+const readTypeProof: [ReadActionIsExact, ReadResourceKeyIsExact, NonCollectionActionIsRejected] = [true, true, true]
+void readTypeProof
