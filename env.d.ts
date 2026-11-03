@@ -45,3 +45,8 @@ type CRUDListProps = Partial<ListConfig> & {
 }
 type CRUDDetailProps = Partial<DetailConfig>
 type FrameworkInputConfig = import('./src/model-config').InputConfig
+
+declare module "*.png" {
+  const url: string
+  export default url
+}

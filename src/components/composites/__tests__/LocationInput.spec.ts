@@ -23,21 +23,6 @@ vi.mock('vue3-google-map', async () => {
   }
 })
 
-vi.mock('../../base/Popover.vue', async () => {
-  const { defineComponent, h } = await import('vue')
-  return {
-    default: defineComponent({
-      setup(_, { slots }) {
-        const setOpen = () => undefined
-        return () => h('div', [
-          h('div', { class: 'location-popover-trigger' }, slots.trigger?.({ setOpen })),
-          h('div', { class: 'location-popover-content' }, slots.content?.({ setOpen })),
-        ])
-      },
-    }),
-  }
-})
-
 vi.mock('../../inputs/SearchBox.vue', async () => {
   const { defineComponent, h } = await import('vue')
   return {
@@ -82,7 +67,7 @@ function mountLocation(operations: LocationOperations, initialValue?: Coordinate
   app.use(FrameworkPlugin, { queryClient: createFrameworkQueryClient({ retry: 0, staleTime: 0 }) })
   app.mount(host)
   apps.push(app)
-  return { app, host, model }
+  return { app, host: document.body, model }
 }
 
 async function flush() {
@@ -93,7 +78,7 @@ async function flush() {
 }
 
 function searchInput(host: HTMLElement) {
-  return host.querySelector<HTMLInputElement>('.location-popover-trigger input')!
+  return host.querySelector<HTMLInputElement>('input[placeholder="Cari lokasi..."]')!
 }
 
 function enter(inputElement: HTMLInputElement, value: string) {
@@ -130,6 +115,45 @@ afterEach(() => {
 })
 
 describe('LocationInput model form', () => {
+  it('shows an empty state only after search completes and closes on Escape', async () => {
+    const pending = deferred<readonly LocationPrediction[]>()
+    const view = mountLocation({
+      mapConfig: async () => ({ apiKey: 'map-key' }),
+      autocomplete: () => pending.promise,
+      detail: async () => ({ lat: 0, lng: 0 }),
+    })
+    await flush()
+    enter(searchInput(view.host), 'missing')
+    await flush()
+    expect(view.host.textContent).toContain('Mencari...')
+    expect(view.host.textContent).not.toContain('No results')
+    pending.resolve([])
+    await flush()
+    expect(view.host.textContent).toContain('No results')
+    searchInput(view.host).dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    await flush()
+    expect(view.host.textContent).not.toContain('No results')
+  })
+
+  it('selects a search result with ArrowDown and Enter', async () => {
+    const view = mountLocation({
+      mapConfig: async () => ({ apiKey: 'map-key' }),
+      autocomplete: async () => [{ id: 'harbor', primaryText: 'Harbor' }],
+      detail: async () => ({ lat: -6, lng: 111 }),
+    })
+    await flush()
+    enter(searchInput(view.host), 'harbor')
+    await flush()
+    searchInput(view.host).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
+    searchInput(view.host).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    await flush()
+    expect(view.model.value).toEqual({ lat: -6, lng: 111 })
+    expect(view.host.querySelector('[role="option"]')).toBeNull()
+    searchInput(view.host).click()
+    await flush()
+    expect(view.host.querySelector('[role="option"]')?.textContent).toContain('Harbor')
+  })
+
   it('uses a unique generated input id and keeps explicit ids', async () => {
     const operations: LocationOperations = {
       mapConfig: async () => ({ apiKey: 'map-key' }),
@@ -193,7 +217,7 @@ describe('LocationInput model form', () => {
     enter(searchInput(view.host), 'harbor')
     await flush()
     expect(operations.autocomplete).toHaveBeenCalledWith({ input: 'harbor', signal: expect.any(AbortSignal) })
-    const suggestion = [...view.host.querySelectorAll<HTMLElement>('[role="button"]')]
+    const suggestion = [...view.host.querySelectorAll<HTMLElement>('[role="option"]')]
       .find((element) => element.textContent?.trim() === 'Harbor')
     expect(suggestion).not.toBeUndefined()
     if (!suggestion) throw new Error('Expected a location suggestion.')
@@ -281,7 +305,7 @@ describe('LocationInput model form', () => {
     view.host.querySelector<HTMLButtonElement>('button[aria-label="Gunakan lokasi saat ini"]')!.click()
     enter(searchInput(view.host), 'harbor')
     await flush()
-    const suggestion = [...view.host.querySelectorAll<HTMLButtonElement>('[role="button"]')]
+    const suggestion = [...view.host.querySelectorAll<HTMLButtonElement>('[role="option"]')]
       .find((button) => button.textContent?.trim() === 'Harbor')
     if (!suggestion) throw new Error('Location prediction did not render.')
     suggestion.click()

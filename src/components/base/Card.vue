@@ -194,7 +194,7 @@ const handleRootKeydown = (event: KeyboardEvent) => {
 <template>
   <div
     v-bind="forwardedAttrs"
-    :role="isInteractive ? 'button' : undefined"
+    :role="typeof attrs.role === 'string' ? attrs.role : isInteractive ? 'button' : undefined"
     :tabindex="isInteractive ? 0 : undefined"
     :aria-disabled="disabled ? 'true' : undefined"
     :class="mergedClass"

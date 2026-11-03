@@ -11,6 +11,7 @@ import Icon from '@southneuhof/loom/components/base/Icon.vue'
 
 const props = defineProps({
   ...commonProps,
+  mapProvider: { type: String as PropType<"google" | "openstreetmap">, default: "google" },
   operations: { type: Object as PropType<LocationOperations>, required: true },
 })
 
@@ -29,7 +30,7 @@ const tempLocation = ref()
           <Button v-bind="controlBindings"><Icon name="add" />Tambah Lokasi</Button>
         </template>
         <template #content="{ setOpen }">
-          <LocationInput v-model="tempLocation" :operations="operations" />
+          <LocationInput v-model="tempLocation" :operations="operations" :map-provider="mapProvider" />
           <Button @click="() => [modelValue?.push(tempLocation), setOpen(false)]">Simpan</Button>
         </template>
       </Dialog>
@@ -44,7 +45,7 @@ const tempLocation = ref()
                 </Card>
               </template>
               <template #content="{ setOpen }">
-                <LocationInput v-model="tempLocation" :operations="operations" />
+                <LocationInput v-model="tempLocation" :operations="operations" :map-provider="mapProvider" />
                 <Button @click="() => setOpen(false)">Simpan</Button>
               </template>
             </Dialog>

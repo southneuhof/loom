@@ -12,7 +12,7 @@ export interface LocationPrediction {
 }
 
 export interface LocationOperations {
-  autocomplete(context: { input: string; signal?: AbortSignal }): MaybePromise<readonly LocationPrediction[]>
-  detail(context: { id: string; signal?: AbortSignal }): MaybePromise<Coordinate>
-  mapConfig(context: { signal?: AbortSignal }): MaybePromise<{ apiKey: string }>
+  autocomplete(context: { mapProvider?: 'google' | 'openstreetmap'; input: string; signal?: AbortSignal }): MaybePromise<readonly LocationPrediction[]>
+  detail(context: { mapProvider?: 'google' | 'openstreetmap'; id: string; signal?: AbortSignal }): MaybePromise<Coordinate>
+  mapConfig(context: { mapProvider?: 'google' | 'openstreetmap'; signal?: AbortSignal }): MaybePromise<{ apiKey: string }>
 }
