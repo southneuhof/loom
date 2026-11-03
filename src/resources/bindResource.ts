@@ -1,5 +1,6 @@
+import type { FormOutputs } from '../forms/outputs'
 import type { AccessAdapter, CollectionLoadContext, QueryNamespace, RecordIdentity, RecordLoadContext, ResourceOperation } from '../contracts'
-import { invalidateResourceData } from '../query/client'
+import { type ResourceInvalidation, invalidateResourceData } from '../query/client'
 import { withWriteRefreshFeedbackSuppressed } from '../query/feedback'
 import { isCancelledError } from '@tanstack/vue-query'
 import { stableValue } from '../query/keys'
@@ -10,6 +11,9 @@ import { markConfirmedWriteRefreshError } from './postWriteOutcome'
 import { registerResourceRouteRequirement } from './routeAccess'
 import { isStandardRowOperation } from './operations'
 import type {
+  LoadedResourceDefinition,
+  ResourceRecordLoad,
+  ResourceFormBag,
   BoundCustomActions,
   BoundResource,
   IdentityRecord,
@@ -54,6 +58,7 @@ function assertPermission(resourceKey: string, operation: string, permission: un
 function assertOperation(resourceKey: string, operation: string, entry: unknown): asserts entry is Record<string, unknown> {
   if (!isRecord(entry)) throw new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" operation "${operation}" must be an object.`)
   assertPermission(resourceKey, operation, entry.permission)
+  if (operation === 'update' && 'load' in entry && typeof entry.load !== 'function') throw new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" update load must be a function.`)
   if (entry.visible !== undefined && typeof entry.visible !== 'function') {
     throw new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" operation "${operation}" visible must be a function.`)
   }
@@ -339,9 +344,9 @@ function postWriteError(
   return confirmed ? markConfirmedWriteRefreshError(error) : error
 }
 
-function refreshResource(runtime: ReturnType<typeof useResourceRuntime>, resourceKey: string, id?: RecordIdentity): Promise<void> {
+function refreshResource(runtime: ReturnType<typeof useResourceRuntime>, resourceKey: string, id?: RecordIdentity, outcome: ResourceInvalidation['outcome'] = 'refresh'): Promise<void> {
   return withWriteRefreshFeedbackSuppressed(runtime.queryClient, resourceKey, id, () =>
-    invalidateResourceData(runtime.queryClient, { resource: resourceKey, ...(id === undefined ? {} : { id }) }),
+    invalidateResourceData(runtime.queryClient, { resource: resourceKey, ...(id === undefined ? {} : { id }), outcome }),
   )
 }
 
@@ -352,7 +357,7 @@ async function invalidateAfterWrite(
   id?: RecordIdentity,
   result?: unknown,
 ): Promise<void> {
-  const refresh = () => refreshResource(runtime, resourceKey, id)
+  const refresh = () => refreshResource(runtime, resourceKey, id, operation === 'delete' ? 'removed' : 'refresh')
   try {
     await refresh()
   } catch (error) {
@@ -412,12 +417,14 @@ function wrapSubmit<TIdentityFunction extends ResourceIdentityFunction, TRecord 
   identity: TIdentityFunction,
   id: ResourceIdentityValue<TIdentityFunction> | undefined,
   record: TRecord | undefined,
-  submit: (output: TSubmitInput) => TSubmitResult,
-): (output: TSubmitInput) => Promise<Awaited<TSubmitResult>> {
-  return async (output): Promise<Awaited<TSubmitResult>> => {
+  submit: (output: TSubmitInput, ...args: never[]) => TSubmitResult,
+  context: object = {},
+): (output: TSubmitInput, scope?: { outputs: FormOutputs }) => Promise<Awaited<TSubmitResult>> {
+  return async (output, scope?: { outputs: FormOutputs }): Promise<Awaited<TSubmitResult>> => {
     const runtime = useResourceRuntime()
     assertAllowed(resourceKey, runtime.adapters.access, operation, permission, visible, operation === 'update' ? record : undefined)
-    const result = await submit(output)
+    const invoke = submit as unknown as (output: TSubmitInput, scope: { context: object; outputs: FormOutputs }) => TSubmitResult
+    const result = await invoke(output, { context, outputs: scope?.outputs ?? { get: () => undefined } })
     const resultId = resultIdentity(resourceKey, identity, result, operation)
     if (resultId === undefined || (operation === 'update' && (id === undefined || !sameIdentity(resultId, id)))) {
       await invalidateInvalidResult(
@@ -542,7 +549,7 @@ function routePermissionPolicyError(resourceKey: string, actionName: string): Er
 
 export function bindResource<
   TIdentityFunction extends ResourceIdentityFunction,
-  const TDefinition extends ResourceDefinitionInput<TIdentityFunction>,
+  const TDefinition extends ResourceDefinitionInput<TIdentityFunction> | LoadedResourceDefinition<TIdentityFunction, ResourceRecordLoad, ResourceFormBag>,
 >(definition: TDefinition): BoundResource<
   ResourceIdentityValue<TIdentityFunction>,
   TDefinition['key'],
@@ -647,7 +654,7 @@ export function bindResource<
           const binding = snapshotRecordBinding(resourceKey, identity, record, 'delete')
           const runtime = useResourceRuntime()
           assertAllowed(resourceKey, runtime.adapters.access, 'delete', deleteDeclaration.permission, deleteDeclaration.visible, binding.record)
-          const result = await deleteDeclaration.run(binding.id)
+          const result = await deleteDeclaration.run(binding.record)
           await invalidateAfterWrite(runtime, resourceKey, 'delete', binding.id, result)
           return result
         }
@@ -655,6 +662,25 @@ export function bindResource<
       }
       return list
     }
+  }
+
+  const completion = {
+    destinations: (result: object, values: Readonly<Record<string, unknown>>, original?: object) => {
+      const runtime = useResourceRuntime()
+      const current = { ...original, ...values, ...result } as IdentityRecord<TIdentityFunction>
+      const destinations: RouteLocationRaw[] = []
+      const detail = definition.detail
+      if (detail?.route && standardAllowed(runtime.adapters.access, 'detail', detail.permission, detail.visible, current)) {
+        const target = routeTarget(detail.route, resolveIdentity(resourceKey, identity, current, 'navigation'))
+        if (target) destinations.push(target)
+      }
+      const list = definition.list
+      if (list?.route && standardAllowed(runtime.adapters.access, 'list', list.permission, list.visible)) {
+        const target = staticRouteTarget(list.route)
+        if (target) destinations.push(target)
+      }
+      return destinations
+    },
   }
 
   if (definition.create) {
@@ -672,8 +698,10 @@ export function bindResource<
       const searchParameters = { ...(form.searchParameters ?? {}), ...(options.searchParameters ?? {}) }
       const load = options.load ?? form.load
       return {
+        completion,
+        ...(definition.list?.route ? { backTo: staticRouteTarget(definition.list.route) } : {}),
         ...withoutMembers(declaration, ['permission', 'route', 'visible', 'form']),
-        ...(target !== undefined ? { defaultTo: target } : {}),
+        ...(declaration.defaultTo !== undefined && target !== undefined ? { defaultTo: target } : {}),
         form: {
           ...form,
           ...(options.context !== undefined ? { context: options.context } : {}),
@@ -681,7 +709,7 @@ export function bindResource<
           searchParameters,
           resource: resourceKey,
           namespace: form.namespace ?? `${resourceKey}.create`,
-          submit: wrapSubmit(resourceKey, 'create', declaration.permission, declaration.visible, identity, undefined, undefined, submit),
+          submit: wrapSubmit(resourceKey, 'create', declaration.permission, declaration.visible, identity, undefined, undefined, submit, options.context ?? form.context),
           ...(load ? { load: wrapCreateLoad(resourceKey, declaration.permission, declaration.visible, load, searchParameters) } : {}),
         },
       }
@@ -716,6 +744,54 @@ export function bindResource<
     const declaration = definition.update
     page.update = (binding: { id: ResourceIdentityValue<TIdentityFunction>; record?: IdentityRecord<TIdentityFunction>; context?: object; initialData?: object; load?: (context: RecordLoadContext) => unknown; searchParameters?: Record<string, unknown> }) => {
       const bound = snapshotBinding(resourceKey, identity, binding, 'update')
+      if ('load' in declaration) {
+        const load = declaration.load
+        const searchParameters = { ...binding.searchParameters }
+        const target = formTarget(resourceKey, identity, declaration.defaultTo, definition.detail?.route, definition.list?.route)
+        const boundLoad = associateResourceLoader(async (context: RecordLoadContext) => {
+          const runtime = useResourceRuntime()
+          if (!permissionRequest(runtime.adapters.access, 'update', declaration.permission)) {
+            throw new Error(`[loom] Resource "${resourceKey}" action "update" is not allowed.`)
+          }
+          const value = await load({ ...bindRecordContext(resourceKey, 'update', bound.id, context), searchParameters: { ...searchParameters, ...context.searchParameters } })
+          if (value === undefined) return undefined
+          const original = snapshotRecord(value)
+          const originalId = resolveIdentity(resourceKey, identity, original as IdentityRecord<TIdentityFunction>, 'update')
+          if (!sameIdentity(originalId, bound.id)) throw new Error('[loom][RESOURCE_IDENTITY_INVALID] Loaded edit record conflicts with its bound id.')
+          assertAllowed(resourceKey, runtime.adapters.access, 'update', declaration.permission, declaration.visible, original)
+          return original
+        }, { resource: resourceKey, operation: 'update', id: bound.id, searchParameters })
+        return {
+          completion,
+          ...(definition.list?.route ? { backTo: staticRouteTarget(definition.list.route) } : {}),
+          ...withoutMembers(declaration, ['permission', 'route', 'visible', 'form', 'load']),
+          ...(declaration.defaultTo !== undefined && target !== undefined ? { defaultTo: target } : {}),
+          form: {
+            load: boundLoad,
+            id: bound.id,
+            resource: resourceKey,
+            namespace: `${resourceKey}.update.${identityToken(bound.id)}`,
+            searchParameters,
+            resolve: (record: object) => {
+              const original = snapshotRecord(record)
+              const originalId = resolveIdentity(resourceKey, identity, original as IdentityRecord<TIdentityFunction>, 'update')
+              if (!sameIdentity(originalId, bound.id)) throw new Error('[loom][RESOURCE_IDENTITY_INVALID] Loaded edit record conflicts with its bound id.')
+              assertAllowed(resourceKey, useResourceRuntime().adapters.access, 'update', declaration.permission, declaration.visible, original)
+              const primitive = declaration.form({ id: bound.id, record: original, context: binding.context ?? {} })
+              if (primitive.load !== undefined) throw new Error('[loom][SURFACE_DATA_SOURCE_INVALID] A loaded update form cannot declare another loader.')
+              return {
+                ...primitive,
+                ...(binding.context !== undefined ? { context: binding.context } : {}),
+                initialData: { ...original, ...primitive.initialData },
+                id: bound.id,
+                resource: resourceKey,
+                namespace: primitive.namespace ?? `${resourceKey}.update.${identityToken(bound.id)}`,
+                submit: wrapSubmit(resourceKey, 'update', declaration.permission, declaration.visible, identity, bound.id, original, primitive.submit, binding.context ?? primitive.context),
+              }
+            },
+          },
+        }
+      }
       const primitive = declaration.form(bound)
       const submit = primitive.submit
       const searchParameters = { ...(primitive.searchParameters ?? {}), ...(binding.searchParameters ?? {}) }
@@ -735,12 +811,14 @@ export function bindResource<
         id: bound.id,
         resource: resourceKey,
         namespace: primitive.namespace ?? `${resourceKey}.update.${identityToken(bound.id)}`,
-        submit: wrapSubmit(resourceKey, 'update', declaration.permission, declaration.visible, identity, bound.id, bound.record, submit),
+        submit: wrapSubmit(resourceKey, 'update', declaration.permission, declaration.visible, identity, bound.id, bound.record, submit, binding.context ?? primitive.context),
         load: wrapRecordLoad(resourceKey, 'update', declaration.permission, declaration.visible, bound.id, bound.record, load, searchParameters),
       }
       return {
+        completion,
+        ...(definition.list?.route ? { backTo: staticRouteTarget(definition.list.route) } : {}),
         ...withoutMembers(declaration, ['permission', 'route', 'visible', 'form']),
-        ...(target !== undefined ? { defaultTo: target } : {}),
+        ...(declaration.defaultTo !== undefined && target !== undefined ? { defaultTo: target } : {}),
         form,
       }
     }
@@ -748,7 +826,7 @@ export function bindResource<
 
   if (definition.delete) {
     const declaration = definition.delete
-    page.delete = (binding: { id: ResourceIdentityValue<TIdentityFunction>; record?: IdentityRecord<TIdentityFunction> }) => {
+    page.delete = (binding: { id: ResourceIdentityValue<TIdentityFunction>; record: IdentityRecord<TIdentityFunction> }) => {
       const bound = snapshotBinding(resourceKey, identity, binding, 'delete')
       return {
         can: () => standardAllowed(useResourceRuntime().adapters.access, 'delete', declaration.permission, declaration.visible, bound.record),
@@ -756,7 +834,8 @@ export function bindResource<
         run: async () => {
           const runtime = useResourceRuntime()
           assertAllowed(resourceKey, runtime.adapters.access, 'delete', declaration.permission, declaration.visible, bound.record)
-          const result = await declaration.run(bound.id)
+          if (!bound.record) throw new Error('[loom][RESOURCE_RECORD_REQUIRED] Delete requires its selected record.')
+          const result = await declaration.run(bound.record)
           await invalidateAfterWrite(runtime, resourceKey, 'delete', bound.id, result)
           return result
         },

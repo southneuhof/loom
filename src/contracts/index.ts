@@ -30,6 +30,8 @@ export type {
   FormInputSlotField,
   FormInputSlotProps,
   FormActionSlotProps,
+  FormSubmitContext,
+  FormSubmitOptions,
   FormExposed,
   FormSlots,
   FormDefinitionValidatorContext,

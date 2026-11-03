@@ -1,4 +1,15 @@
-<script setup lang="ts" generic="TInput extends object, TOutput extends object, TResult, TKeys extends string = Extract<keyof TInput, string>, TContext extends object = Readonly<Record<string, unknown>>">
+<script
+  setup
+  lang="ts"
+  generic="
+    TInput extends object,
+    TOutput extends object,
+    TResult,
+    TKeys extends string = Extract<keyof TInput, string>,
+    TContext extends object = Readonly<Record<string, unknown>>,
+    TFields extends object = {}
+  "
+>
 import { computed, getCurrentInstance, onBeforeUnmount, onBeforeUpdate, ref, useAttrs, useSlots, watch } from 'vue'
 import type { FormDraftSnapshot, FormExposed } from '../../contracts/forms'
 import type { SchemaParseResult } from '../../contracts/schema'
@@ -11,7 +22,7 @@ import { useFrameworkUiDefaults } from '../views/uiDefaults'
 
 defineOptions({ inheritAttrs: false })
 
-const props = withDefaults(defineProps<DialogFormProps<TInput, TOutput, TResult, TKeys, TContext>>(), {
+const props = withDefaults(defineProps<DialogFormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>>(), {
   closeOnSubmitted: true,
 })
 defineSlots<DialogFormSlots<TInput, TKeys>>()
@@ -78,10 +89,10 @@ const open = computed({
   },
 })
 
-const formBindings = computed<FormProps<TInput, TOutput, TResult, TKeys, TContext>>(() => {
+const formBindings = computed<FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>>(() => {
   propRevision.value
   const bindings = Object.fromEntries(forwardedPropNames.filter((name) => name !== 'class' && name !== 'style' && hasCurrentProp(name)).map((name) => [name, propValue(name)]))
-  if (typeof props.submit === 'function' || hasDraftModel.value) return bindings as FormProps<TInput, TOutput, TResult, TKeys, TContext>
+  if (typeof props.submit === 'function' || hasDraftModel.value) return bindings as FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>
   throw new Error('[loom][FORM_BINDING_REQUIRED] DialogForm requires a function-valued submit prop or a present modelValue prop.')
 })
 
@@ -89,12 +100,12 @@ const nativeFormAttrs = computed<Record<string, unknown>>(() => {
   propRevision.value
   return Object.fromEntries(Object.entries(attrs).filter(([name]) => name.startsWith('data-')))
 })
-const forwardedFormProps = computed<FormProps<TInput, TOutput, TResult, TKeys, TContext>>(
+const forwardedFormProps = computed<FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>>(
   () =>
     ({
       ...formBindings.value,
       ...nativeFormAttrs.value,
-    }) as FormProps<TInput, TOutput, TResult, TKeys, TContext>
+    }) as FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>
 )
 const formSlotNames = () => Object.keys(slots).filter((name) => name === 'loading' || name === 'load-error' || name.startsWith('input:'))
 const dirty = computed(() => form.value?.dirty === true)
@@ -108,7 +119,9 @@ const submitLabel = computed(() => props.submitLabel ?? defaultSubmitLabel)
 const submittingLabel = computed(() => props.submittingLabel ?? submitLabel.value)
 const hasSubmit = computed(() => typeof props.submit === 'function')
 const cancelDisabled = computed(() => props.disabled === true || submitting.value || submitPending.value || validating.value || checkingClose.value)
-const submitDisabled = computed(() => props.disabled === true || submitting.value || submitPending.value || postWriteError.value !== undefined || validating.value || inputPending.value || checkingClose.value)
+const submitDisabled = computed(
+  () => props.disabled === true || submitting.value || submitPending.value || postWriteError.value !== undefined || validating.value || inputPending.value || checkingClose.value
+)
 
 watch(open, (value, previous) => {
   if (value === previous) return
@@ -190,9 +203,9 @@ function handleSubmitted(result: TResult, refreshError: SubmitError | undefined,
   if (props.closeOnSubmitted !== false) open.value = false
 }
 
-function submit(): Promise<void> | undefined {
+function submit(options?: Parameters<FormExposed<TInput, TOutput>['submit']>[0]): Promise<void> | undefined {
   submitGeneration += 1
-  return form.value?.submit()
+  return form.value?.submit(options)
 }
 
 function noteSubmit(): void {

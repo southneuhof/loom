@@ -44,13 +44,10 @@ function assertValidators(value: unknown): void {
   }
 }
 
-export function assertFormDefinition<
-  TInput extends object,
-  TOutput extends object,
-  TResult,
-  TKeys extends string,
-  TContext extends object,
->(definition: FormDefinition<TInput, TOutput, TResult, TKeys, TContext>, schemaRuntime?: SchemaRuntime<TOutput>): void {
+export function assertFormDefinition<TInput extends object, TOutput extends object, TResult, TKeys extends string, TContext extends object, TFields extends object = {}>(
+  definition: FormDefinition<TInput, TOutput, TResult, TKeys, TContext, TFields>,
+  schemaRuntime?: SchemaRuntime<TOutput>
+): void {
   if (!isRecord(definition)) invalidOption('definition', 'an object')
   if (!Object.hasOwn(definition, 'schema') || definition.schema == null) {
     throw new Error('[loom][FORM_SCHEMA_REQUIRED] Form requires a raw schema.')
@@ -81,9 +78,14 @@ export function assertFormFields(fields: unknown, inputKeys: readonly string[]):
     if (!isFormInputRecord(input)) invalidOption(`fields.${key}`, 'a FormInput object')
     const binding = bindingFor(input)
     if (binding !== undefined) {
-      if (!isRecord(binding) || Object.keys(binding).some((member) => !['keys', 'read', 'write'].includes(member))
-        || !Array.isArray(binding.keys) || binding.keys.length === 0
-        || typeof binding.read !== 'function' || typeof binding.write !== 'function') {
+      if (
+        !isRecord(binding) ||
+        Object.keys(binding).some((member) => !['keys', 'read', 'write'].includes(member)) ||
+        !Array.isArray(binding.keys) ||
+        binding.keys.length === 0 ||
+        typeof binding.read !== 'function' ||
+        typeof binding.write !== 'function'
+      ) {
         invalidOption(`fields.${key}.binding`, 'an object with nonempty keys, read, and write')
       }
     }

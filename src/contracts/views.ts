@@ -1,14 +1,19 @@
+import type { QueryNamespace } from './query'
 import type { RouteLocationAsPathGeneric, RouteLocationAsRelativeGeneric } from 'vue-router'
 import type { FormProps } from '../forms/props'
 import type { ListExportOptions } from '../services/excel'
 import type { DetailProps, TableProps } from './components'
-import type { FormDefinition, FormDraft, FormSlots } from './forms'
+import type { FormDefinition, FormDraft, FormDraftSnapshot, FormSlots } from './forms'
 import type { QueryValues } from './query'
-import type { MaybePromise, RecordIdentity } from './load'
+import type { MaybePromise, RecordIdentity, RecordLoadContext } from './load'
 import type { ResourceOperation } from './access'
 import type { SubmitError } from './results'
 
 export type RouteTarget = string | RouteLocationAsRelativeGeneric | RouteLocationAsPathGeneric
+
+export interface FormCompletion<TResult> {
+  readonly destinations: (result: TResult, values: Readonly<Record<string, unknown>>, original?: object) => readonly RouteTarget[]
+}
 
 export interface AfterSubmitContext<TResult> {
   result: TResult
@@ -17,18 +22,30 @@ export interface AfterSubmitContext<TResult> {
   preventDefaultNavigation: () => void
 }
 
+export interface LoadedFormSource<TForm extends object> {
+  readonly load: (context: RecordLoadContext) => MaybePromise<object | undefined>
+  readonly resolve: (record: object) => TForm
+  readonly id: RecordIdentity
+  readonly resource: string
+  readonly namespace: QueryNamespace
+  readonly searchParameters?: Record<string, unknown>
+  readonly disabled?: boolean
+}
+
 export type FormViewProps<
   TInput extends object = Record<string, unknown>,
   TOutput extends object = Record<string, unknown>,
   TResult = unknown,
   TKeys extends string = Extract<keyof TInput, string>,
   TContext extends object = Readonly<Record<string, unknown>>,
+  TFields extends object = {},
 > = {
-  form: FormProps<TInput, TOutput, TResult, TKeys, TContext>
+  form: FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields> | LoadedFormSource<FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>>
   title?: string
   description?: string
   backTo?: RouteTarget | false
   defaultTo?: RouteTarget | ((result: TResult) => RouteTarget | undefined) | false
+  completion?: FormCompletion<TResult>
   afterSubmit?: (context: AfterSubmitContext<TResult>) => MaybePromise<void>
   successMessage?: string | false
 }
@@ -39,11 +56,13 @@ export type FormViewSlots<
   TResult,
   TKeys extends string = Extract<keyof TInput, string>,
   TContext extends object = Readonly<Record<string, unknown>>,
+  TFields extends object = {},
 > = FormSlots<TInput, TKeys> & {
+  saved?: (props: { readonly result: TResult; readonly values: Readonly<Record<string, unknown>>; readonly retryNavigation: () => Promise<void> }) => unknown
   header?: () => unknown
   controls?: () => unknown
-  body?: (props: { readonly form: FormProps<TInput, TOutput, TResult, TKeys, TContext> }) => unknown
-  footer?: () => unknown
+  body?: (props: { readonly form: FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields> }) => unknown
+  footer?: (props: { readonly draft: FormDraftSnapshot<TInput> | undefined }) => unknown
 }
 
 export type ListFilters<TQuery extends object = Record<string, unknown>, TInput extends object = Partial<TQuery>, TContext extends object = Readonly<Record<string, unknown>>> = Omit<

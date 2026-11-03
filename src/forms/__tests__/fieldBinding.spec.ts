@@ -44,10 +44,29 @@ describe('form field bindings', () => {
     await flush()
     expect(model.mock.calls).toEqual([[{ name: 'Harbor', latitude: -6, longitude: 111 }]])
     await exposed(view).submit()
-    expect(submit).toHaveBeenCalledWith({ name: 'Harbor', latitude: -6, longitude: 111 })
+    expect(submit).toHaveBeenCalledWith({ name: 'Harbor', latitude: -6, longitude: 111 }, expect.objectContaining({ context: {} }))
     exposed(view).reset()
     await flush()
     expect(position(view).value).toBe('0,0')
+  })
+
+  it('clears a server issue on a bound key when its control changes', async () => {
+    const view = mountCore(Form, {
+      schema,
+      fields,
+      initialData: { name: 'Harbor', latitude: 0, longitude: 0 },
+      submit: () => Promise.reject(new Error('Rejected')),
+      normalizeError: () => ({ message: 'Rejected', issues: [{ path: ['latitude'], message: 'Position is unavailable' }] }),
+    })
+    mounted.push(view)
+    await flush()
+    await exposed(view).submit()
+    await flush()
+    expect(view.text()).toContain('Position is unavailable')
+    position(view).value = '1,2'
+    position(view).dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+    expect(view.text()).not.toContain('Position is unavailable')
   })
 
   it('shows coordinate errors on the bound field and retains edits during a late load', async () => {
@@ -98,7 +117,7 @@ describe('form field bindings', () => {
     await flush()
     expect(update.mock.calls).toEqual([[{ name: 'Harbor', latitude: null, longitude: null }]])
     await exposed(view).submit()
-    if (nullable) expect(submit).toHaveBeenCalledWith({ name: 'Harbor', latitude: null, longitude: null })
+    if (nullable) expect(submit).toHaveBeenCalledWith({ name: 'Harbor', latitude: null, longitude: null }, expect.objectContaining({ context: {} }))
     else {
       expect(submit).not.toHaveBeenCalled()
       expect(view.all('[role="alert"]')).toHaveLength(1)

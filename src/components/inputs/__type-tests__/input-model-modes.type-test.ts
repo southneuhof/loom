@@ -1,11 +1,15 @@
 import type { AssetValue } from '../../../assets/contracts'
 import type { FileInputModelValue } from '../fileInput.types'
 import type { TextareaInputModelValue } from '../textareaInput.types'
+import type { RadioInputModelValue } from '../selectInput.types'
 
 type Equal<TLeft, TRight> = (<T>() => T extends TLeft ? 1 : 2) extends (<T>() => T extends TRight ? 1 : 2)
   ? (<T>() => T extends TRight ? 1 : 2) extends (<T>() => T extends TLeft ? 1 : 2) ? true : false
   : false
 type Assert<T extends true> = T
+
+type BooleanRadioData = Assert<Equal<RadioInputModelValue<{ data: readonly { id: boolean; name: string }[] }>, boolean>>
+type BooleanRadioLoad = Assert<Equal<RadioInputModelValue<{ load: () => Promise<{ data: { code: boolean; label: string }[] }>; pick: 'code' }>, boolean>>
 
 type TextareaNumberMode = Assert<Equal<TextareaInputModelValue<readonly ['number']>, number | undefined>>
 type TextareaTextMode = Assert<Equal<TextareaInputModelValue<readonly ['text']>, string | undefined>>

@@ -3,14 +3,14 @@ import { type HTMLAttributes, computed, useAttrs } from 'vue'
 import { DialogClose, DialogContent, type DialogContentEmits, type DialogContentProps, DialogOverlay, DialogPortal, useForwardPropsEmits } from 'reka-ui'
 import { twMerge } from 'tailwind-merge'
 
-const props = defineProps<DialogContentProps & { class?: HTMLAttributes['class'] }>()
+const props = withDefaults(defineProps<DialogContentProps & { class?: HTMLAttributes['class']; closeOnOutsideClick?: boolean; closeOnEscape?: boolean }>(), { closeOnOutsideClick: true, closeOnEscape: true })
 const emits = defineEmits<DialogContentEmits>()
 const attrs = useAttrs()
 
 defineOptions({ inheritAttrs: false })
 
 const delegatedProps = computed(() => {
-  const { class: _, ...delegated } = props
+  const { class: _, closeOnOutsideClick: _outside, closeOnEscape: _escape, ...delegated } = props
 
   return { ...delegated, ...attrs }
 })
@@ -20,7 +20,8 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits) as any
 const allowedOutsideInteractionSelector = '.tox, .tox-tinymce-aux, [data-mce-bogus], [data-reka-popper-content-wrapper], [data-reka-menu-content]'
 
 function shouldPreventOutsideClose(target: EventTarget | null) {
-  if (!(target instanceof HTMLElement)) return false
+  if (target instanceof Node && !(target instanceof Element)) target = target.parentElement
+  if (!(target instanceof Element)) return false
   return Boolean(target.closest(allowedOutsideInteractionSelector) || target.hasAttribute('data-mce-bogus'))
 }
 </script>
@@ -36,18 +37,19 @@ function shouldPreventOutsideClose(target: EventTarget | null) {
           props.class as any
         )
       "
+      @escapeKeyDown="(event) => { if (!props.closeOnEscape) event.preventDefault() }"
       @pointerDownOutside="(e) => {
-        if (shouldPreventOutsideClose(e.target)) {
+        if (!props.closeOnOutsideClick || shouldPreventOutsideClose(e.detail?.originalEvent?.target ?? e.target)) {
           e.preventDefault()
         }
       }"
       @interactOutside="(e) => {
-        if (shouldPreventOutsideClose(e.target)) {
+        if (!props.closeOnOutsideClick || shouldPreventOutsideClose(e.detail?.originalEvent?.target ?? e.target)) {
           e.preventDefault()
         }
       }"
       @focusOutside="(e) => {
-        if (shouldPreventOutsideClose(e.target)) {
+        if (!props.closeOnOutsideClick || shouldPreventOutsideClose(e.detail?.originalEvent?.target ?? e.target)) {
           e.preventDefault()
         }
       }"

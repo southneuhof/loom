@@ -32,17 +32,17 @@ describe('defineForm', () => {
     values.tags.push('external')
     date.setFullYear(2030)
     await (first.exposed().submit as () => Promise<void>)()
-    expect(submit).toHaveBeenLastCalledWith(expected)
+    expect(submit).toHaveBeenLastCalledWith(expected, expect.objectContaining({ context: {} }))
     const draft = second.exposed().draft as { date: Date }
     draft.date.setFullYear(2040)
     await (second.exposed().submit as () => Promise<void>)()
-    expect(submit).toHaveBeenLastCalledWith(expected)
+    expect(submit).toHaveBeenLastCalledWith(expected, expect.objectContaining({ context: {} }))
     first.find<HTMLInputElement>('input')!.value = 'changed'
     first.find<HTMLInputElement>('input')!.dispatchEvent(new Event('input', { bubbles: true }))
     await flush()
     const reset = first.exposed().reset as () => void
     reset()
     await (first.exposed().submit as () => Promise<void>)()
-    expect(submit).toHaveBeenLastCalledWith(expected)
+    expect(submit).toHaveBeenLastCalledWith(expected, expect.objectContaining({ context: {} }))
   })
 })

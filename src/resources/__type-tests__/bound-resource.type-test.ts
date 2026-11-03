@@ -69,7 +69,7 @@ const rows = defineResource({
   },
   delete: {
     permission: 'rows.delete',
-    run: async (id) => id,
+    run: async (record) => record.id,
   },
   actions: {
     verify: {
@@ -280,7 +280,7 @@ const updateAfterSubmit: NonNullable<typeof updatePage.afterSubmit> = async ({ r
   void status
 }
 void updateAfterSubmit
-const deletedResult: Promise<string> = rows.delete({ id: '1' }).run()
+const deletedResult: Promise<string> = rows.delete({ id: '1', record: { id: '1', name: 'One', status: 'new' } }).run()
 const boundListIdentity: (record: Row) => RecordIdentity = rowsList.recordIdentity
 const customActionResult: Promise<string> = rows.actions.verify.run('1')
 const listPermission: 'rows.list' = rows.permissions.list

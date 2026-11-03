@@ -21,15 +21,15 @@ export type SelectedKey<TProps, TOption> = TProps extends { pick: infer TKey }
   ? TKey extends keyof TOption ? TKey : never
   : 'id' extends keyof TOption ? 'id' : never
 
-export type SelectedValue<TProps, TOption> = SelectedKey<TProps, TOption> extends keyof TOption
-  ? TOption[SelectedKey<TProps, TOption>] extends string | number ? TOption[SelectedKey<TProps, TOption>] : string | number
-  : string | number
+export type SelectedValue<TProps, TOption, TAllowed = string | number> = SelectedKey<TProps, TOption> extends keyof TOption
+  ? TOption[SelectedKey<TProps, TOption>] extends TAllowed ? TOption[SelectedKey<TProps, TOption>] : TAllowed
+  : TAllowed
 
 export type RadioInputModelValue<TProps> = [OptionFromProps<TProps>] extends [never]
-  ? string | number
+  ? string | number | boolean
   : OptionFromProps<TProps> extends infer TOption
-    ? TOption extends object ? SelectedValue<TProps, TOption> : string | number
-    : string | number
+    ? TOption extends object ? SelectedValue<TProps, TOption, string | number | boolean> : string | number | boolean
+    : string | number | boolean
 
 type UniqueIDOption<TProps, TOption> = TProps extends { uniqueIDAs: infer TKey extends string }
   ? Omit<TOption, SelectedKey<TProps, TOption>> & Record<TKey, SelectedValue<TProps, TOption>>

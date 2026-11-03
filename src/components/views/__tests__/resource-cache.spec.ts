@@ -262,10 +262,10 @@ describe('resource cache ownership', () => {
     await flush()
     expect(read).toHaveBeenCalledTimes(2)
     reject = false
-    await records.delete({ id: 1 }).run()
-    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(4))
+    await records.delete({ id: 1, record: { id: 1, name: 'Value' } }).run()
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(2))
     await records.invalidate()
-    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(6))
+    await vi.waitFor(() => expect(read).toHaveBeenCalledTimes(4))
     view.unmount()
   })
 })

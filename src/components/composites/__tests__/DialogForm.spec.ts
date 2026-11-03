@@ -216,7 +216,7 @@ describe('DialogForm', () => {
 
     expect(originalSubmit).not.toHaveBeenCalled()
     expect(effectiveSubmit).toHaveBeenCalledOnce()
-    expect(effectiveSubmit).toHaveBeenCalledWith({ name: 'Ada' })
+    expect(effectiveSubmit).toHaveBeenCalledWith({ name: 'Ada' }, expect.objectContaining({ context: {} }))
     expect(view.events.submitted).toEqual(['effective'])
     expect(view.view.exposed().open).toBe(false)
     expect(view.events.openUpdates).toEqual([false])

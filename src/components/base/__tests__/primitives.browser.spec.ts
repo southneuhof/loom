@@ -103,6 +103,26 @@ describe("shared primitive browser behavior", () => {
     expect(document.body.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it("dismisses ordinary dialogs from outside and Escape", async () => {
+    const host = mount(Dialog, {}, {
+      trigger: () => h("button", { type: "button" }, "Open dialog"),
+      title: () => "Dismissible dialog",
+      content: () => h("p", "Content"),
+    });
+    host.querySelector("button")!.click();
+    await settle();
+    expect(document.body.querySelector('[role="dialog"]')?.getAttribute("data-state")).toBe("open");
+    document.body.dispatchEvent(new MouseEvent("pointerdown", { bubbles: true }));
+    await settle();
+    expect(document.body.querySelector('[role="dialog"]')?.getAttribute("data-state")).not.toBe("open");
+    host.querySelector("button")!.click();
+    await settle();
+    expect(document.body.querySelector('[role="dialog"]')?.getAttribute("data-state")).toBe("open");
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await settle();
+    expect(document.body.querySelector('[role="dialog"]')?.getAttribute("data-state")).not.toBe("open");
+  });
+
   it("opens the popover in the body and closes it from outside", async () => {
     const host = document.createElement("div");
     document.body.append(host);

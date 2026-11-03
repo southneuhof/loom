@@ -337,3 +337,52 @@ describe the current checks.
 | `@southneuhof/loom/adapters/*` | Application adapter contracts |
 | `@southneuhof/loom/router/*` | Router utilities |
 | `@southneuhof/loom/file-manager` | Optional file-manager integration |
+
+
+## Record-dependent forms and deletion
+
+An update operation can declare `load` before its form factory. Loom checks the
+loaded identity and access before it calls `form({ record, context })`. FormView
+retains that original for one editor and exposes it as `record`. Form owns the
+editable draft. Explicit initialData maps record values when input shapes differ.
+
+Delete callbacks receive the selected record. Both list deletion and a bound
+delete use a copied record for policy and mutation. The record can supply a version.
+Deleted-record queries become stale without an immediate refetch.
+
+## Local controls and form state
+
+A form renderer can be a registered name or a Vue component. Authored component
+props and model values remain checked through Form, DialogForm, and FormView.
+One control can still bind several schema keys. Slots receive `setError` and the
+same effective disabled state as managed renderers.
+
+Submit callbacks receive parsed values and a second scope with caller `context`
+and form-local `outputs`. `submit({ values })` supplies values for one attempt
+before visibility and validation. It does not change the displayed draft.
+
+Use `defineFormOutput<T>()` for a transient component result used by other fields.
+Field resolvers receive `publish` and `outputs`. Outputs stay outside write values
+and dirty state. Reset clears this transient session. Components own their requests.
+
+Inline TableInput uses `mode: 'inline'`, `fields`, and `createRow`. The parent
+schema validates rows. Loom owns temporary UI identities, indexed errors, touched
+state, insertion, removal, reordering, and focus. Cell slots retain domain rules.
+
+During submission, Form passes disabled through the normal input contract.
+Component compliance with disabled is a separate component concern. No parent
+update queue or extra draft-write guard is part of this contract.
+
+## Completion and dialog dismissal
+
+Resource FormView retains successful save state if navigation cannot finish.
+Retry repeats navigation only. Explicit defaultTo takes precedence over inferred
+accessible detail and list destinations. afterSubmit and defaultTo false retain
+caller control. The footer receives draft and the saved slot receives result,
+parsed values, and retryNavigation.
+
+Dialogs close on an outside click and Escape by default. Set closeOnOutsideClick
+or closeOnEscape false only for an explicit application requirement. Editor popup
+interactions remain inside their owning dialog. Headerless dialogs retain a close
+control. There is one CollectionResult contract with optional metadata. Pagination
+is request behavior rather than a separate result category.

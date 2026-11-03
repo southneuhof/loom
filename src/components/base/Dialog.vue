@@ -4,6 +4,8 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import Icon from './Icon.vue'
 
 const props = defineProps({
+  closeOnOutsideClick: { type: Boolean, default: true },
+  closeOnEscape: { type: Boolean, default: true },
   disabled: {
     type: Boolean,
     default: false,
@@ -32,7 +34,7 @@ watch(open, () => {
     <DialogTrigger asChild v-slot="triggerBindings">
       <slot name="trigger" v-bind="{ setOpen, disabled, ...triggerBindings }" />
     </DialogTrigger>
-    <DialogContent class="flex max-h-[95vh] flex-col" :class="$attrs.class" :style="$attrs.style">
+    <DialogContent :close-on-outside-click="props.closeOnOutsideClick" :close-on-escape="props.closeOnEscape" class="flex max-h-[95vh] flex-col" :class="$attrs.class" :style="$attrs.style">
       <DialogHeader v-if="$slots['title'] || $slots['description']" class="sticky top-0 z-10 border-b-[1px] border-outline-variant bg-surface-container px-6 pb-6 pt-6">
         <DialogClose
           class="focus:ring-ring data-[state=open]:bg-accent data-[state=open]:text-muted-foreground absolute right-4 top-4 rounded-sm opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:pointer-events-none"
@@ -47,6 +49,7 @@ watch(open, () => {
           <slot name="description" v-bind="{ setOpen }" />
         </DialogDescription>
       </DialogHeader>
+      <DialogClose v-else class="absolute right-4 top-4 rounded-sm"><Icon name="close" /><span class="sr-only">Close</span></DialogClose>
       <div v-if="$slots['content']" class="flex flex-col gap-4 overflow-auto p-6">
         <slot name="content" v-bind="{ setOpen }" />
       </div>

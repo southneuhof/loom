@@ -26,11 +26,11 @@ const props = defineProps({
   pick: { type: String, default: 'id' },
   variant: { type: String as PropType<'native' | 'card'>, default: 'native' },
   direction: { type: String as PropType<'row' | 'column'>, default: 'row' },
-  defaultValue: { type: [String, Number] as PropType<string | number>, default: undefined },
+  defaultValue: { type: [String, Number, Boolean] as PropType<string | number | boolean>, default: undefined },
   searchParameters: { type: Object as PropType<Record<string, unknown>>, default: () => ({}) },
   ...commonProps,
 })
-const modelValue = defineModel<string | number>()
+const modelValue = defineModel<string | number | boolean>()
 const emit = defineEmits<{ (event: 'validation:touch'): void }>()
 const source = useOptionSource(props)
 const { options: data, loading, error, refresh } = source
@@ -70,7 +70,7 @@ let previousContext = readContext()
 let previousModel = modelValue.value
 let initialState = true
 
-function setModelValue(value: string | number | undefined): void {
+function setModelValue(value: string | number | boolean | undefined): void {
   if (Object.is(modelValue.value, value)) return
   modelValue.value = value
   previousModel = value
@@ -85,7 +85,7 @@ function reconcileStaticValue(): void {
 }
 
 function choose(value: unknown): void {
-  if (props.disabled || (typeof value !== 'string' && typeof value !== 'number')) return
+  if (props.disabled || (typeof value !== 'string' && typeof value !== 'number' && typeof value !== 'boolean')) return
   suppressDefault = false
   setModelValue(value)
   emit('validation:touch')

@@ -321,7 +321,7 @@ describe('FileInput upload surface', () => {
     expect(view.text()).toContain('first.pdf')
     view.find('form')!.dispatchEvent(new Event('submit'))
     await flush()
-    expect(submit).toHaveBeenCalledWith({ file: asset('first.pdf') })
+    expect(submit).toHaveBeenCalledWith({ file: asset('first.pdf') }, expect.objectContaining({ context: {} }))
     view.unmount()
   })
 
@@ -416,7 +416,7 @@ describe('FileInput upload surface', () => {
     expect(view.find<HTMLButtonElement>('button[type="submit"]')?.disabled).toBe(false)
     view.find('form')!.dispatchEvent(new Event('submit'))
     await flush()
-    expect(submit).toHaveBeenCalledWith({ files: [asset('first.pdf'), asset('second.pdf')] })
+    expect(submit).toHaveBeenCalledWith({ files: [asset('first.pdf'), asset('second.pdf')] }, expect.objectContaining({ context: {} }))
     view.unmount()
   })
 
@@ -469,7 +469,7 @@ describe('FileInput upload surface', () => {
     view.find('form')!.dispatchEvent(new Event('submit'))
     await flush()
 
-    expect(submit).toHaveBeenCalledWith({ files: [asset('sibling.pdf'), asset('recovery.pdf')] })
+    expect(submit).toHaveBeenCalledWith({ files: [asset('sibling.pdf'), asset('recovery.pdf')] }, expect.objectContaining({ context: {} }))
     view.unmount()
   })
 
@@ -532,7 +532,7 @@ describe('FileInput upload surface', () => {
     expect(exposed.inputPending).toBe(false)
     view.find('form')!.dispatchEvent(new Event('submit'))
     await flush()
-    expect(submit).toHaveBeenCalledWith({ toggle: '' })
+    expect(submit).toHaveBeenCalledWith({ toggle: '' }, expect.objectContaining({ context: {} }))
     view.unmount()
   })
 
@@ -592,7 +592,7 @@ describe('FileInput upload surface', () => {
     expect(exposed.inputPending).toBe(false)
     view.find('form')!.dispatchEvent(new Event('submit'))
     await flush()
-    expect(submit).toHaveBeenCalledWith({ files: [asset('first.pdf')] })
+    expect(submit).toHaveBeenCalledWith({ files: [asset('first.pdf')] }, expect.objectContaining({ context: {} }))
     view.unmount()
   })
 

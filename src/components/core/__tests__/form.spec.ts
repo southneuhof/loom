@@ -1,9 +1,13 @@
-import { defineComponent, h, onMounted, ref } from 'vue'
+import { defineComponent, h, onMounted, onUnmounted, ref } from 'vue'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 import Form from '../Form.vue'
+import TextInput from '../../inputs/TextInput.vue'
+import type { FormFieldContext } from '../../../contracts/forms'
+import type { FormPublisher } from '../../../forms/outputs'
 import { useFormInputPending } from '../useFormInputState'
 import { deferred, flush, mountCore } from './harness'
+import { defineFormOutput } from '../../../forms/outputs'
 import type { FrameworkAdaptersInput } from '../../../adapters/projectAdapters'
 
 const mounted: Array<ReturnType<typeof mountCore>> = []
@@ -33,6 +37,200 @@ afterEach(() => {
 })
 
 describe('Form session', () => {
+  it('isolates published outputs from drafts, writes and other editor identities', async () => {
+    const output = defineFormOutput<{ eligible: boolean }>()
+    const Publisher = defineComponent({
+      props: { modelValue: String },
+      emits: { evaluated: (_value: { eligible: boolean }) => true, 'update:modelValue': (_value: string) => true },
+      setup(_props, { emit }) { return () => h('button', { type: 'button', onClick: () => emit('evaluated', { eligible: true }) }, 'Evaluate') },
+    })
+    const write = vi.fn(async (value: object) => value)
+    const id = ref(1)
+    let previousPublish: FormPublisher | undefined
+    const fields = {
+      name: ({ publish }: FormFieldContext<{ name: string; dependent?: string }>) => {
+        previousPublish ??= publish
+        return { renderer: Publisher, props: { onEvaluated: (value: { eligible: boolean }) => publish(output, value) } }
+      },
+      dependent: ({ outputs }: FormFieldContext<{ name: string; dependent?: string }>) => ({ renderer: 'text', visible: outputs.get(output)?.eligible === true }),
+    }
+    const form = { schema: z.object({ name: z.string(), dependent: z.string().optional() }), fields, initialData: { name: 'Ada' }, submit: write }
+    const Host = defineComponent({ setup: () => () => h(Form, { ...form, id: id.value }) })
+    const first = mountCore(Host, {})
+    const second = mount(form)
+    mounted.push(first)
+    await flush()
+    first.find<HTMLButtonElement>('button')!.click()
+    await flush()
+    expect(first.find('input')).not.toBeNull()
+    expect(second.find('input')).toBeNull()
+    const inner = first.find('form')!
+    inner.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+    await flush()
+    expect(write.mock.calls[0]?.[0]).toEqual({ name: 'Ada' })
+    second.find<HTMLButtonElement>('button')!.click()
+    await flush()
+    expect(second.find('input')).not.toBeNull()
+    expect(second.exposed().dirty).toBe(false)
+    const reset = second.exposed().reset
+    if (typeof reset !== 'function') throw new Error('Missing reset')
+    reset()
+    await flush()
+    expect(second.find('input')).toBeNull()
+    id.value = 2
+    await flush()
+    expect(first.find('input')).toBeNull()
+    previousPublish?.(output, { eligible: true })
+    await flush()
+    expect(first.find('input')).toBeNull()
+  })
+
+  it('applies attempt visibility to control validity without clearing the editable draft', async () => {
+    const Invalid = defineComponent({
+      props: { modelValue: String },
+      emits: { 'validation:error': (_message: string) => true },
+      setup(_props, { emit }) { onMounted(() => emit('validation:error', 'Complete all answers')); return () => h('input') },
+    })
+    const write = vi.fn(async (value: object) => value)
+    const view = mount({
+      schema: z.object({ intent: z.enum(['pending', 'complete']).default('complete'), answers: z.string().optional() }),
+      initialData: { intent: 'complete', answers: 'partial' },
+      fields: { answers: ({ draft }: FormFieldContext<{ intent: 'pending' | 'complete'; answers?: string }>) => ({ renderer: Invalid, visible: draft.intent !== 'pending' }) },
+      submit: write,
+    })
+    await flush()
+    const run = view.exposed().submit
+    if (typeof run !== 'function') throw new Error('Missing submit')
+    await run({ values: { intent: 'pending' } })
+    expect(write.mock.calls[0]?.[0]).toEqual({ intent: 'pending' })
+    expect(view.exposed().draft).toEqual({ intent: 'complete', answers: 'partial' })
+    await run()
+    expect(write).toHaveBeenCalledOnce()
+    expect(view.exposed().dirty).toBe(false)
+  })
+
+  it('renders a direct component without registration and retains form validation and disabled state', async () => {
+    const LocalInput = defineComponent({
+      props: { modelValue: String, disabled: Boolean, error: String, required: Boolean, id: String },
+      emits: { 'update:modelValue': (value: string) => typeof value === 'string' },
+      setup(props, { emit }) {
+        return () => h(TextInput, { ...props, constraint: ['text'], 'onUpdate:modelValue': (value) => emit('update:modelValue', String(value)) })
+      },
+    })
+    const disabled = ref(false)
+    const write = vi.fn(async (value: { name: string }) => value)
+    const view = mount({
+      schema: z.object({ name: z.string().min(2) }),
+      fields: { name: () => ({ renderer: LocalInput, props: { disabled: disabled.value } }) },
+      initialData: { name: '' },
+      submit: write,
+    })
+    await flush()
+    submit(view)
+    await flush()
+    expect(write).not.toHaveBeenCalled()
+    expect(view.find('[aria-invalid="true"]')).not.toBeNull()
+    setText(view, 'name', 'Ada')
+    await flush()
+    submit(view)
+    await flush()
+    expect(write).toHaveBeenCalledExactlyOnceWith({ name: 'Ada' }, expect.objectContaining({ context: {} }))
+    disabled.value = true
+    await flush()
+    expect(view.find<HTMLInputElement>('input')?.disabled).toBe(true)
+  })
+
+  it('remounts a changed direct renderer while retaining its form-owned draft', async () => {
+    const leftUnmounted = vi.fn()
+    const rightMounted = vi.fn()
+    const Left = defineComponent({
+      setup() {
+        onUnmounted(leftUnmounted)
+        return () => h(TextInput)
+      },
+    })
+    const Right = defineComponent({
+      setup() {
+        onMounted(rightMounted)
+        return () => h(TextInput)
+      },
+    })
+    const renderer = ref(Left)
+    const view = mount({
+      schema: z.object({ name: z.string() }),
+      fields: { name: () => ({ renderer: renderer.value }) },
+      initialData: { name: 'Ada' },
+      submit: vi.fn(),
+    })
+    await flush()
+    renderer.value = Right
+    await flush()
+    expect(leftUnmounted).toHaveBeenCalledOnce()
+    expect(rightMounted).toHaveBeenCalledOnce()
+    expect(view.exposed().draft).toEqual({ name: 'Ada' })
+  })
+
+  it('uses attempt values before validation without changing the draft or the next native submit', async () => {
+    const validator = vi.fn((_context: unknown) => undefined)
+    const write = vi.fn(async (value: { intent: string; name: string }) => value)
+    const view = mount({
+      schema: z
+        .object({ name: z.string(), intent: z.enum(['pending', 'complete']).default('complete') })
+        .refine((value) => value.intent !== 'pending', { message: 'Pending rejected' })
+        .transform((value) => ({ ...value, name: value.name.toUpperCase() })),
+      initialData: { name: 'Ada' },
+      fields: { name: { renderer: 'text' } },
+      validators: [{ validate: validator }],
+      submit: write,
+    })
+    await flush()
+    const run = view.exposed().submit
+    if (typeof run !== 'function') throw new Error('Missing submit')
+    await run({ values: { intent: 'pending' } })
+    expect(view.text()).toContain('Pending rejected')
+    expect(write).not.toHaveBeenCalled()
+    expect(view.exposed().draft).toEqual({ name: 'Ada' })
+    expect(view.exposed().dirty).toBe(false)
+    submit(view)
+    await flush()
+    expect(write).toHaveBeenCalledExactlyOnceWith({ name: 'ADA', intent: 'complete' }, expect.objectContaining({ context: {} }))
+    expect(validator).toHaveBeenCalledOnce()
+  })
+
+  it('captures the first attempt values and keeps hidden fields omitted', async () => {
+    const waiting = deferred<void>()
+    const seen: unknown[] = []
+    const write = vi.fn(async (value: object) => {
+      seen.push(value)
+      await waiting.promise
+      return value
+    })
+    const validator = vi.fn((_context: unknown) => undefined)
+    const view = mount({
+      schema: z.object({ name: z.string(), secret: z.string().optional(), intent: z.string() }),
+      fields: { name: { renderer: 'text' }, secret: { renderer: 'text', visible: false } },
+      initialData: { name: 'Ada', secret: 'saved', intent: 'complete' },
+      validators: [{ validate: validator }],
+      submit: write,
+    })
+    await flush()
+    const run = view.exposed().submit
+    if (typeof run !== 'function') throw new Error('Missing submit')
+    const values = { intent: 'pending', secret: 'injected' }
+    const first = run({ values })
+    values.intent = 'changed'
+    const second = run({ values: { intent: 'complete' } })
+    await flush()
+    expect(seen).toEqual([{ name: 'Ada', intent: 'pending' }])
+    expect(validator.mock.calls[0]?.[0]).toMatchObject({ draft: { intent: 'pending' }, data: { intent: 'pending' } })
+    expect(view.exposed().dirty).toBe(false)
+    expect(view.exposed().draft).toEqual({ name: 'Ada', secret: 'saved', intent: 'complete' })
+    waiting.resolve()
+    await Promise.all([first, second])
+    expect(write).toHaveBeenCalledOnce()
+  })
+
+
 
   it('shows a rejected unmatched required field in the form summary', async () => {
     const submitResult = vi.fn(async (data: { name: string; secret: string }) => data)
@@ -187,7 +385,7 @@ describe('Form session', () => {
     await flush()
 
     expect(submitResult).toHaveBeenCalledOnce()
-    expect(submitResult).toHaveBeenCalledWith({ amount: 12 })
+    expect(submitResult).toHaveBeenCalledWith({ amount: 12 }, expect.objectContaining({ context: {} }))
   })
 
   it('keeps invalid number text from submitting a previously committed value', async () => {
@@ -219,7 +417,7 @@ describe('Form session', () => {
     await flush()
 
     expect(submitResult).toHaveBeenCalledOnce()
-    expect(submitResult).toHaveBeenCalledWith({ amount: 12 })
+    expect(submitResult).toHaveBeenCalledWith({ amount: 12 }, expect.objectContaining({ context: {} }))
   })
 
   it('unsets a cleared optional number instead of submitting zero', async () => {
@@ -283,7 +481,7 @@ describe('Form session', () => {
     submit(view)
     await flush()
     expect(submitResult).toHaveBeenCalledOnce()
-    expect(submitResult).toHaveBeenCalledWith({})
+    expect(submitResult).toHaveBeenCalledWith({}, expect.objectContaining({ context: { visible: false } }))
 
     view.find<HTMLButtonElement>('[data-testid="toggle-amount"]')?.click()
     await flush()
@@ -292,7 +490,7 @@ describe('Form session', () => {
     await flush()
 
     expect(submitResult).toHaveBeenCalledTimes(2)
-    expect(submitResult).toHaveBeenLastCalledWith({})
+    expect(submitResult).toHaveBeenLastCalledWith({}, expect.objectContaining({ context: { visible: true } }))
     expect(view.text()).not.toContain('Enter a valid number.')
 
     const shownInput = view.host.querySelector<HTMLInputElement>('input')
@@ -314,7 +512,7 @@ describe('Form session', () => {
     await flush()
 
     expect(submitResult).toHaveBeenCalledTimes(3)
-    expect(submitResult).toHaveBeenLastCalledWith({ amount: 15 })
+    expect(submitResult).toHaveBeenLastCalledWith({ amount: 15 }, expect.objectContaining({ context: { visible: true } }))
   })
 
   it('invalidates submit validation when a control reports local text errors', async () => {
@@ -387,7 +585,7 @@ describe('Form session', () => {
     await flush()
 
     expect(submitResult).toHaveBeenCalledOnce()
-    expect(submitResult).toHaveBeenCalledWith({ name: 'ADA' })
+    expect(submitResult).toHaveBeenCalledWith({ name: 'ADA' }, expect.objectContaining({ context: {} }))
   })
 
   it('discards validation when the draft changes before the validator resolves', async () => {
@@ -445,6 +643,26 @@ describe('Form session', () => {
     submit(view)
     await flush()
     expect(submitResult).toHaveBeenCalledOnce()
+  })
+
+  it('passes disabled to managed controls and custom slots during submission', async () => {
+    const pending = deferred<void>()
+    const view = mountCore(Form, {
+      schema: z.object({ name: z.string(), custom: z.string() }),
+      fields: { name: { renderer: 'text' }, custom: { renderer: 'text' } },
+      initialData: { name: 'Ada', custom: 'Value' },
+      submit: () => pending.promise,
+    }, { slots: { 'input:custom': (scope) => h('input', { 'data-custom': '', disabled: scope.disabled }) } })
+    mounted.push(view)
+    await flush()
+    submit(view)
+    await flush()
+    expect(view.find<HTMLInputElement>('input:not([data-custom])')?.disabled).toBe(true)
+    expect(view.find<HTMLInputElement>('[data-custom]')?.disabled).toBe(true)
+    pending.resolve()
+    await flush()
+    expect(view.find<HTMLInputElement>('input:not([data-custom])')?.disabled).toBe(false)
+    expect(view.find<HTMLInputElement>('[data-custom]')?.disabled).toBe(false)
   })
 
   it.each(['fulfill', 'reject'] as const)('keeps a late %s mutation result with its original session', async (settlement) => {
@@ -527,6 +745,6 @@ describe('Form session', () => {
     await flush()
 
     expect(submitResult).toHaveBeenCalledOnce()
-    expect(submitResult).toHaveBeenCalledWith({ shown: 'visible', retained: 'kept', fallback: 'schema default' })
+    expect(submitResult).toHaveBeenCalledWith({ shown: 'visible', retained: 'kept', fallback: 'schema default' }, expect.objectContaining({ context: {} }))
   })
 })

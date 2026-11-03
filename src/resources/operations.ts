@@ -12,7 +12,7 @@ import type {
   ResourceOperation,
   TableProps,
 } from '../contracts'
-import type { DetailViewProps, FormViewProps, ListFilters, ListViewActions, ListViewProps } from '../contracts/views'
+import type { DetailViewProps, FormViewProps, LoadedFormSource, ListFilters, ListViewActions, ListViewProps } from '../contracts/views'
 import type { RawSchema, RawSchemaOutput } from '../contracts/schema'
 import type { RouteLocationRaw, RouteMap } from 'vue-router'
 import type { CompactFormDefinition, FormDefinitionError } from '../forms/definitionTypes'
@@ -81,7 +81,7 @@ export interface ResourceFormBag<TInput extends object = object, TOutput extends
   id?: never
   resource?: never
   load?: (context: RecordLoadContext) => MaybePromise<FormDraft<TInput> | undefined>
-  submit: (output: TOutput) => MaybePromise<TResult>
+  submit: (output: TOutput, scope: { context: object }) => MaybePromise<TResult>
 }
 
 export interface ResourceDetailBag<TRecord extends object = object> extends Omit<DetailProps<TRecord>, 'data' | 'load' | 'id' | 'resource'> {
@@ -139,7 +139,7 @@ type ListTableShape = {
   context?: object
 }
 
-type FormBagShape = {
+export type FormBagShape = {
   schema: RawSchema
   fields: object
   submit: (...args: never[]) => unknown
@@ -280,10 +280,25 @@ export type ResourceUpdateDeclaration<
     form: TFactory
   }
 
+export type ResourceRecordLoad = (context: RecordLoadContext) => MaybePromise<object | undefined>
+export type LoadedResourceRecord<TLoad extends ResourceRecordLoad> = Exclude<Awaited<ReturnType<TLoad>>, undefined>
+export type LoadedUpdateBinding<TLoad extends ResourceRecordLoad, TIdentity extends RecordIdentity, TContext extends object = {}> = {
+  readonly id: TIdentity
+  readonly context: TContext
+  readonly record: Readonly<LoadedResourceRecord<TLoad>>
+}
+export type ResourceLoadedUpdateDeclaration<TLoad extends ResourceRecordLoad, TIdentity extends RecordIdentity, TForm extends FormBagShape, TContext extends object = {}> = ResourceFormViewProps<ResourceFormResult<TForm>> & {
+  permission: string | null
+  route?: ResourceRoute<TIdentity>
+  visible?: (context: { record?: LoadedResourceRecord<TLoad>; access: AccessAdapter }) => boolean
+  load: TLoad
+  form: (binding: LoadedUpdateBinding<TLoad, TIdentity, TContext>) => TForm
+}
+
 export type ResourceDeleteDeclaration<TIdentity extends RecordIdentity, TIdentityRecord extends object> = ResourceVisibility<TIdentityRecord> & {
   permission: string | null
   route?: ResourceRoute<TIdentity>
-  run: (id: TIdentity) => MaybePromise<unknown>
+  run: (record: TIdentityRecord) => MaybePromise<unknown>
 }
 
 export type ResourceDefinitionInput<TIdentityFunction extends ResourceIdentityFunction, TIdentityRecord extends object = IdentityRecord<TIdentityFunction>, TFilterInput extends object = object> = {
@@ -305,7 +320,7 @@ export type IdentityRecord<TIdentityFunction> = TIdentityFunction extends (recor
       : object
   : object
 
-export type FormSubmitResult<TForm> = TForm extends { submit: (output: infer _TOutput) => infer TResult } ? Awaited<TResult> : never
+export type FormSubmitResult<TForm> = TForm extends { submit: (...args: never[]) => infer TResult } ? Awaited<TResult> : never
 
 type ResourceFormResult<TForm> = unknown extends FormSubmitResult<TForm> ? never : FormSubmitResult<TForm>
 
@@ -363,7 +378,7 @@ type BoundForm<TForm extends FormBagShape> = TForm extends {
   ? ResourceFormContract<TInput, TOutput, ResourceFormResult<TForm>, TFields, ResourceFormOptions<TForm>, EffectiveFormContext<TFields>> & ResourceFormLoad<TForm, TInput>
   : never
 
-type BoundUpdateForm<TForm extends FormBagShape, TIdentity extends RecordIdentity> = BoundForm<TForm> & {
+export type BoundUpdateForm<TForm extends FormBagShape, TIdentity extends RecordIdentity> = BoundForm<TForm> & {
   id: TIdentity
 }
 
@@ -411,9 +426,7 @@ type CustomActionRoute<TAction, TIdentity extends RecordIdentity> = 'route' exte
   : ResourceRoute<TIdentity>
 
 export type BoundCustomActions<TActions, TIdentity extends RecordIdentity, TRecord extends object> = {
-  [TKey in CustomName<TActions>]: TActions[TKey] extends ResourceReadAction
-    ? TActions[TKey]
-    : TActions[TKey] extends { run: infer TRun }
+  [TKey in CustomName<TActions>]: TActions[TKey] extends ResourceReadAction ? TActions[TKey] : TActions[TKey] extends { run: infer TRun }
     ? TRun extends (...args: never[]) => unknown
       ? ResourceCustomHandle<TRun, TIdentity, TRecord, CustomActionRoute<TActions[TKey], TIdentity>>
       : never
@@ -437,7 +450,7 @@ type DetailRecord<TDetail> = TDetail extends { load: infer TLoad }
 
 type DetailSchemaRecord<TDetail> = TDetail extends { schema: RawSchema<unknown, infer TRecord> } ? (TRecord extends object ? TRecord : never) : never
 
-type FormSubmitInput<TForm> = TForm extends { submit: (output: infer TInput) => unknown } ? (TInput extends object ? TInput : never) : never
+type FormSubmitInput<TForm> = TForm extends { submit: (...args: infer TArgs) => unknown } ? (TArgs[0] extends object ? TArgs[0] : never) : never
 
 type FormOutputGuard<TForm> = [FormOutputOf<TForm>] extends [never]
   ? never
@@ -683,7 +696,7 @@ type ResourceUpdateFactoryDiagnostic<TFactory, TIdentityRecord extends object> =
   ? {}
   : { form: FactoryResultDiagnostic<TFactory, UpdateSubmitOutputContractDiagnostic<TFactory, TIdentityRecord>> }
 
-type ResourceUpdateDiagnostic<TUpdate, TIdentityRecord extends object> = ExtraMemberDiagnostic<TUpdate, ResourceUpdateDeclaration<RecordIdentity, TIdentityRecord>> &
+type ResourceUpdateDiagnostic<TUpdate, TIdentityRecord extends object> = ExtraMemberDiagnostic<TUpdate, ResourceUpdateDeclaration<RecordIdentity, TIdentityRecord> & { load?: ResourceRecordLoad }> &
   (TUpdate extends { form: infer TFactory } ? ResourceUpdateFactoryDiagnostic<TFactory, TIdentityRecord> : {})
 
 type ResourceDefinitionDiagnostic<TDefinition, TIdentityRecord extends object> = ExtraMemberDiagnostic<TDefinition, ResourceDefinitionInput<ResourceIdentityFunction>> &
@@ -827,7 +840,7 @@ type DeleteRoute<TDelete, TIdentity extends RecordIdentity> = 'route' extends ke
     : ResourceRoute<TIdentity>
   : ResourceRoute<TIdentity>
 
-type BoundDelete<TIdentity extends RecordIdentity, TRecord extends object, TResult, TRoute> = (binding: ResourceBinding<TIdentity, TRecord>) => {
+type BoundDelete<TIdentity extends RecordIdentity, TRecord extends object, TResult, TRoute> = (binding: ResourceBinding<TIdentity, TRecord> & { record: TRecord }) => {
   run: () => Promise<TResult>
   can: () => boolean
   route?: TRoute
@@ -902,4 +915,11 @@ export type BoundResource<
 
 export function isStandardRowOperation(operation: string): operation is Extract<ResourceOperation, 'detail' | 'update' | 'delete'> {
   return operation === 'detail' || operation === 'update' || operation === 'delete'
+}
+
+export type LoadedResourceDefinition<TIdentityFunction extends ResourceIdentityFunction, TLoad extends ResourceRecordLoad, TForm extends FormBagShape> = Omit<ResourceDefinitionInput<TIdentityFunction>, 'update'> & {
+  update: ResourceLoadedUpdateDeclaration<TLoad, ResourceIdentityValue<TIdentityFunction>, TForm>
+}
+export type LoadedResourceUpdatePage<TForm extends FormBagShape, TIdentity extends RecordIdentity> = Partial<ResourceFormViewProps<ResourceFormResult<TForm>>> & {
+  form: LoadedFormSource<BoundUpdateForm<TForm, TIdentity>>
 }

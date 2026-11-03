@@ -294,7 +294,7 @@ describe('Form control contracts in the browser', () => {
     save.click()
     await vi.waitFor(() => expect(submitResult).toHaveBeenCalledOnce())
 
-    expect(submitResult).toHaveBeenCalledWith({ date: '2026-02-20' })
+    expect(submitResult.mock.calls[0]?.[0]).toEqual({ date: '2026-02-20' })
   })
 
   it('keeps invalid numeric TextInput drafts local and submits only valid or unset values', async () => {

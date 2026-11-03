@@ -216,7 +216,11 @@ watch(loadContext, (next, previous) => {
 }, { deep: true })
 
 function updateQuery(values: QueryValues) {
-  query.value = { ...values }
+  query.value = {
+    ...values,
+    page: typeof values.page === 'number' && Number.isSafeInteger(values.page) && values.page > 0 ? values.page : query.value.page,
+    limit: typeof values.limit === 'number' && Number.isSafeInteger(values.limit) && values.limit > 0 ? values.limit : query.value.limit,
+  }
 }
 
 function selectionIdentity(records: readonly TRecord[], identity: unknown): unknown {

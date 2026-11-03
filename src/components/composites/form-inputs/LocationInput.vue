@@ -215,6 +215,7 @@ onBeforeUnmount(() => {
               ><Button
                 kind="icon"
                 variant="standard"
+                type="button"
                 ariaLabel="Gunakan lokasi saat ini"
                 @click="getCurrentLocation"
                 >

@@ -100,7 +100,7 @@ describe('useFormSession loading and identity', () => {
     await callExposed(view, 'submit')
 
     expect(fieldInput(view, 'slug').value).toBe('grace')
-    expect(submitResult).toHaveBeenCalledWith({ name: ' Grace ', slug: 'grace' })
+    expect(submitResult).toHaveBeenCalledWith({ name: ' Grace ', slug: 'grace' }, expect.objectContaining({ context: {} }))
   })
 
   it('blocks every submit entry after an uncertain post-write failure', async () => {

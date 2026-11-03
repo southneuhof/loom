@@ -12,6 +12,29 @@ import { createFrameworkQueryClient } from '../../../query'
 afterEach(() => vi.restoreAllMocks())
 
 describe('explicit option sources', () => {
+  it('preserves boolean radio defaults and user choices without string conversion', async () => {
+    const touch = vi.fn()
+    const mounted = mountInput<boolean | undefined>(RadioGroupInput, {
+      model: undefined,
+      props: {
+        data: [{ id: false, name: 'No' }, { id: true, name: 'Yes' }],
+        defaultValue: false,
+        'onValidation:touch': touch,
+      },
+    })
+    await mounted.flush()
+    expect(mounted.model.value).toBe(false)
+    expect(touch).not.toHaveBeenCalled()
+    mounted.host.querySelectorAll<HTMLElement>('.group\\/radio')[1]?.click()
+    await mounted.flush()
+    expect(mounted.model.value).toBe(true)
+    mounted.host.querySelectorAll<HTMLElement>('.group\\/radio')[0]?.click()
+    await mounted.flush()
+    expect(mounted.model.value).toBe(false)
+    expect(touch).toHaveBeenCalledTimes(2)
+    mounted.cleanup()
+  })
+
   it('passes standard collection context to a resource list action', async () => {
     type Option = { id: number; name: string }
     const load = vi.fn(async (

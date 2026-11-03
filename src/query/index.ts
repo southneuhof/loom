@@ -13,6 +13,7 @@ export {
   createFrameworkQueryClient,
   useFrameworkQueryClient,
   invalidateResourceData,
+  invalidateResourceOptions,
 } from './client'
 export type { ResourceInvalidation } from './client'
 

@@ -86,6 +86,6 @@ describe('TimeInput form confirmation', () => {
 
     host.querySelector<HTMLButtonElement>('button[type="submit"]')!.click()
     await vi.waitFor(() => expect(submitted).toHaveBeenCalledOnce())
-    expect(submitted).toHaveBeenCalledWith({ time: confirmed })
+    expect(submitted.mock.calls[0]?.[0]).toEqual({ time: confirmed })
   })
 })

@@ -1,7 +1,9 @@
-import { computed, getCurrentInstance, nextTick, onUnmounted, provide, reactive, ref, shallowReactive, shallowRef, useId, watch, type ComputedRef } from 'vue'
+import { remapArrayPath, type FormArrayContext } from './arrayField'
+import { createFormOutputs, type FormPublisher } from './outputs'
+import { markRaw, toRaw, computed, getCurrentInstance, nextTick, onUnmounted, provide, reactive, ref, shallowReactive, shallowRef, useId, watch, type ComputedRef } from 'vue'
 import { isCancelledError } from '@tanstack/vue-query'
 import { toast } from 'vue-sonner'
-import type { FormDefinition, FormDraft, FormDraftSnapshot, FormFieldContext, FormInput } from '../contracts/forms'
+import type { FormSubmitOptions, FormDefinition, FormDraft, FormDraftSnapshot, FormFieldContext, FormInput } from '../contracts/forms'
 import type { RecordLoadContext } from '../contracts/load'
 import type { SchemaIssue, SchemaParseResult } from '../contracts/schema'
 import type { SubmitError } from '../contracts/results'
@@ -29,13 +31,10 @@ export interface FormSessionEvents<TInput extends object, TResult> {
   reset: () => void
 }
 
-export interface FormSession<
-  TInput extends object,
-  TOutput extends object,
-  TResult,
-  TKeys extends string = Extract<keyof TInput, string>,
-> {
+export interface FormSession<TInput extends object, TOutput extends object, TResult, TKeys extends string = Extract<keyof TInput, string>> {
+  arrayFields: FormArrayContext
   draft: ComputedRef<FormDraftSnapshot<TInput>>
+  submittedValues: ComputedRef<Readonly<TOutput> | undefined>
   dirty: ComputedRef<boolean>
   submitting: ComputedRef<boolean>
   submitPending: ComputedRef<boolean>
@@ -60,7 +59,7 @@ export interface FormSession<
   touchedField: (key: string) => boolean
   touch: (key: string) => void
   validate: () => Promise<SchemaParseResult<TOutput>>
-  submit: () => Promise<void>
+  submit: (options?: FormSubmitOptions<TInput>) => Promise<void>
   reset: () => void
   refresh: () => Promise<void>
   focusFirstInvalid: () => Promise<void>
@@ -78,8 +77,7 @@ function equalValue(left: unknown, right: unknown): boolean {
   }
   if (!isPlainRecord(left) || !isPlainRecord(right)) return false
   const keys = Object.keys(left)
-  return keys.length === Object.keys(right).length
-    && keys.every((key) => Object.hasOwn(right, key) && equalValue(left[key], right[key]))
+  return keys.length === Object.keys(right).length && keys.every((key) => Object.hasOwn(right, key) && equalValue(left[key], right[key]))
 }
 
 function equalRecord(left: Readonly<Record<string, unknown>>, right: Readonly<Record<string, unknown>>): boolean {
@@ -128,7 +126,13 @@ function removedPropError(component: string, member: string): never {
 function assertRemovedProps(component: string): void {
   const props = getCurrentInstance()?.vnode.props ?? {}
   for (const member of ['run', 'form']) {
-    if (hasOwn(props, member) || hasOwn(props, member.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`))) {
+    if (
+      hasOwn(props, member) ||
+      hasOwn(
+        props,
+        member.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
+      )
+    ) {
       removedPropError(component, member)
     }
   }
@@ -139,15 +143,9 @@ function isModelPropPresent(): boolean {
   return hasOwn(props, 'modelValue') || hasOwn(props, 'model-value')
 }
 
-function definitionFromProps<
-  TInput extends object,
-  TOutput extends object,
-  TResult,
-  TKeys extends string,
-  TContext extends object,
->(
-  props: FormProps<TInput, TOutput, TResult, TKeys, TContext>,
-): FormDefinition<TInput, TOutput, TResult, TKeys, TContext> {
+function definitionFromProps<TInput extends object, TOutput extends object, TResult, TKeys extends string, TContext extends object, TFields extends object>(
+  props: FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>
+): FormDefinition<TInput, TOutput, TResult, TKeys, TContext, TFields> {
   return {
     schema: props.schema,
     fields: props.fields,
@@ -157,10 +155,7 @@ function definitionFromProps<
   }
 }
 
-function formDefaults<TInput extends object, TKeys extends string>(
-  fields: readonly RuntimeFormField<TInput, TKeys>[],
-  overrides: readonly (object | undefined)[] = [],
-): Record<string, unknown> {
+function formDefaults<TInput extends object, TKeys extends string>(fields: readonly RuntimeFormField<TInput, TKeys>[], overrides: readonly (object | undefined)[] = []): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   for (const field of fields) {
     if (hasOwn(field, 'initialValue') && !overrides.some((value) => value !== undefined && fieldKeys(field.key, field).some((key) => hasOwn(value, key)))) {
@@ -198,15 +193,9 @@ function normalizedValidatorIssues(value: unknown, fieldKey: string): SchemaIssu
   return issues
 }
 
-export function useFormSession<
-  TInput extends object,
-  TOutput extends object,
-  TResult,
-  TKeys extends string,
-  TContext extends object,
->(
-  props: FormProps<TInput, TOutput, TResult, TKeys, TContext>,
-  events: FormSessionEvents<TInput, TResult>,
+export function useFormSession<TInput extends object, TOutput extends object, TResult, TKeys extends string, TContext extends object, TFields extends object>(
+  props: FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>,
+  events: FormSessionEvents<TInput, TResult>
 ): FormSession<TInput, TOutput, TResult, TKeys> {
   type RuntimeField = RuntimeFormField<TInput, TKeys>
 
@@ -217,13 +206,18 @@ export function useFormSession<
     throw new Error('[loom][FORM_BINDING_REQUIRED] Form requires a function-valued submit prop or a present modelValue prop.')
   }
 
+  const publications = createFormOutputs()
+  const outputGeneration = ref(0)
+  const acceptedValues = shallowRef<Readonly<TOutput>>()
+  const completed = ref(false)
+  const submittedValues = computed(() => acceptedValues.value)
   const adapters = useFrameworkAdapters()
   const renderers = useRendererRegistry('form')
-  const definition = computed(() => definitionFromProps<TInput, TOutput, TResult, TKeys, TContext>(props))
+  const definition = computed(() => definitionFromProps<TInput, TOutput, TResult, TKeys, TContext, TFields>(props))
   const schemaRuntime = computed(() => {
     const currentDefinition = definition.value
     const runtime = createSchemaRuntime(currentDefinition.schema)
-    assertFormDefinition(currentDefinition, runtime)
+    assertFormDefinition<TInput, TOutput, TResult, TKeys, TContext, TFields>(currentDefinition, runtime)
     return runtime
   })
   type ResolverLoaderState = { signature: string | undefined; current: Function; forwarder: (...args: unknown[]) => unknown }
@@ -261,27 +255,35 @@ export function useFormSession<
     const currentDefinition = definition.value
     const runtime = schemaRuntime.value
     const draftSnapshot = snapshotDraft<TInput>(sourceDraft)
-    const fieldEntries = Object.fromEntries(Object.keys(currentDefinition.fields).map((key) => {
-      const fieldKey = key as Extract<TKeys, string>
-      const entry = Reflect.get(currentDefinition.fields, fieldKey)
-      const resolvedInput = typeof entry === 'function'
-        ? (entry as (context: FormFieldContext<TInput, TContext>) => unknown)({ draft: draftSnapshot, context: (props.context ?? {}) as TContext })
-        : entry
-      const input = typeof entry === 'function' ? resolveFieldLoaders(fieldKey, resolvedInput) : resolvedInput
-      return [key, input]
-    }))
+    const generation = outputGeneration.value
+    const publish: FormPublisher = (output, value) => {
+      if (generation === outputGeneration.value) publications.publish(output, value)
+    }
+    const fieldEntries = Object.fromEntries(
+      Object.keys(currentDefinition.fields).map((key) => {
+        const fieldKey = key as Extract<TKeys, string>
+        const entry = Reflect.get(currentDefinition.fields, fieldKey)
+        const resolvedInput =
+          typeof entry === 'function'
+            ? (entry as (context: FormFieldContext<TInput, TContext>) => unknown)({ draft: draftSnapshot, outputs: publications.outputs, publish, context: (props.context ?? {}) as TContext })
+            : entry
+        const input = typeof entry === 'function' ? resolveFieldLoaders(fieldKey, resolvedInput) : resolvedInput
+        return [key, input]
+      })
+    )
     assertFormFields(fieldEntries, runtime.inputKeys)
     return Object.keys(fieldEntries).map((key) => {
       const fieldKey = key as Extract<TKeys, string>
       const input = Reflect.get(fieldEntries, fieldKey) as FormInput<TInput>
-      if (!renderers.has(input.renderer)) {
+      if (typeof input.renderer === 'string' && !renderers.has(input.renderer)) {
         throw new Error(`[loom][RENDERER_NOT_REGISTERED] Form field "${fieldKey}" uses unregistered form renderer "${input.renderer}".`)
       }
       return {
         ...input,
+        renderer: typeof input.renderer === 'string' ? input.renderer : markRaw(toRaw(input.renderer)),
         key: fieldKey,
         label: resolveLabel(fieldKey, input.label, props.labels),
-        props: input.props ?? {},
+        props: { ...input.props },
         visible: input.visible !== false,
         required: fieldKeys(key, input).some((name) => runtime.requiredKeys.has(name)),
       }
@@ -300,16 +302,12 @@ export function useFormSession<
   const loader = useLoader<RecordLoadContext, FormDraft<TInput> | undefined>({
     key: computed(() => recordCacheKey(owner.value, props.id, 'form', props.namespace, props.searchParameters ?? {})),
     context: computed(() => ({ id: props.id, searchParameters: props.searchParameters ?? {} })),
-    load: computed(() => modelValuePresent ? undefined : props.load),
+    load: computed(() => (modelValuePresent ? undefined : props.load)),
     enabled: computed(() => !modelValuePresent && props.load !== undefined),
   })
   const initialModel = modelValuePresent ? props.modelValue : undefined
   const defaults = shallowRef(formDefaults(initialFields, [props.initialData, initialModel]))
-  const initialValues = mergeInputValues(schemaRuntime.value.inputKeys, [
-    defaults.value,
-    props.initialData,
-    initialModel,
-  ])
+  const initialValues = mergeInputValues(schemaRuntime.value.inputKeys, [defaults.value, props.initialData, initialModel])
   const baseline = ref(cloneRecord(initialValues))
   const draft = shallowReactive<FormDraft<TInput>>({})
   Object.assign(draft, cloneRecord(initialValues))
@@ -317,6 +315,7 @@ export function useFormSession<
   const touched = reactive<Record<string, boolean>>({})
   const controlIssues = reactive<Record<string, string>>({})
   const issues = ref<SchemaIssue[]>([])
+  const serverIssues = ref<SchemaIssue[]>([])
   const loadedValues = shallowRef<Record<string, unknown>>({})
   const submitting = ref(false)
   const submitPending = ref(false)
@@ -391,18 +390,22 @@ export function useFormSession<
     if (!hasOwn(controlIssues, key)) return false
     const message = controlIssues[key]
     delete controlIssues[key]
-    issues.value = issues.value.filter((issue) => issue.path[0] !== key || issue.path.length !== 1 || issue.message !== message)
+    issues.value = issues.value.filter((issue) => issue.path.join('.') !== key || issue.message !== message)
     return true
   }
 
   let previousVisibleKeys = new Set(visibleKeys.value)
-  watch(visibleKeys, (keys) => {
-    const nextVisibleKeys = new Set(keys)
-    for (const key of previousVisibleKeys) {
-      if (!nextVisibleKeys.has(key)) clearControlError(key)
-    }
-    previousVisibleKeys = nextVisibleKeys
-  }, { flush: 'post' })
+  watch(
+    visibleKeys,
+    (keys) => {
+      const nextVisibleKeys = new Set(keys)
+      for (const key of previousVisibleKeys) {
+        if (!nextVisibleKeys.has(key)) clearControlError(key)
+      }
+      previousVisibleKeys = nextVisibleKeys
+    },
+    { flush: 'post' }
+  )
 
   function setValue(key: string, value: unknown, userEdit = true): boolean {
     const field = fieldFor(key)
@@ -414,7 +417,10 @@ export function useFormSession<
     if (userEdit) for (const name of Object.keys(patch)) edited.add(name)
     const hadControlIssue = clearControlError(key)
     const changed = Object.entries(patch).some(([name, next]) => !equalValue(Reflect.get(draft, name), next))
-    if (changed) Object.assign(draft, patch)
+    if (changed) {
+      Object.assign(draft, patch)
+      serverIssues.value = serverIssues.value.filter((issue) => !Object.keys(patch).includes(String(issue.path[0])))
+    }
     if (!userEdit && !changed && !hadControlIssue) return false
     draftRevision += 1
     cancelValidation()
@@ -436,9 +442,10 @@ export function useFormSession<
   })
 
   function setControlError(key: string, message: string | undefined): void {
-    if (!fieldFor(key)) {
+    if (!fieldFor(key.split('.')[0] ?? key)) {
       throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" is not selected.`)
     }
+    if (message === undefined ? !hasOwn(controlIssues, key) : controlIssues[key] === message) return
     clearControlError(key)
     if (message !== undefined) controlIssues[key] = message
     cancelValidation()
@@ -468,7 +475,11 @@ export function useFormSession<
   }
 
   function candidateFor(snapshot: Readonly<Record<string, unknown>>): Record<string, unknown> {
-    const visible = new Set(visibleFields.value.flatMap((field) => [...fieldKeys(field.key, field)]))
+    const visible = new Set<string>(
+      resolveConfiguredFields(snapshot)
+        .filter((field) => field.visible)
+        .flatMap((field) => [...fieldKeys(field.key, field)])
+    )
     const selected = new Set(fields.value.flatMap((field) => [...fieldKeys(field.key, field)]))
     const candidate: Record<string, unknown> = {}
     for (const key of schemaRuntime.value.inputKeys) {
@@ -478,14 +489,15 @@ export function useFormSession<
     return candidate
   }
 
-  function controlIssuesFor(): SchemaIssue[] {
-    const nextIssues: SchemaIssue[] = []
-    for (const field of visibleFields.value) {
-      const controlIssue = controlIssues[field.key]
-      if (hasOwn(controlIssues, field.key)) {
-        nextIssues.push(schemaIssue([field.key], controlIssue ?? 'Invalid control value.'))
-      }
-    }
+  function controlIssuesFor(snapshot: Readonly<Record<string, unknown>>): SchemaIssue[] {
+    const visible = new Set<string>(
+      resolveConfiguredFields(snapshot)
+        .filter((field) => field.visible)
+        .map((field) => field.key)
+    )
+    const nextIssues = Object.entries(controlIssues)
+      .filter(([key]) => visible.has(key.split('.')[0] ?? key))
+      .map(([key, message]) => schemaIssue(key.split('.'), message))
     return nextIssues
   }
 
@@ -493,22 +505,22 @@ export function useFormSession<
     return mounted && run === validationRun && !controller.signal.aborted && generation === sessionGeneration.value && revision === draftRevision
   }
 
-  async function performValidation(trigger: 'blur' | 'submit', field?: string): Promise<SchemaParseResult<TOutput>> {
+  async function performValidation(trigger: 'blur' | 'submit', field?: string, values?: object): Promise<SchemaParseResult<TOutput>> {
     validationController?.abort()
     const controller = new AbortController()
     validationController = controller
     const run = ++validationRun
     const generation = sessionGeneration.value
     const revision = draftRevision
-    const snapshot = cloneRecord(draft)
+    const snapshot = { ...cloneRecord(draft), ...cloneRecord(values ?? {}) }
     const activeRuntime = schemaRuntime.value
     validating.value = true
     const validatorPaths = (props.validators ?? [])
       .filter((validator) => (validator.triggers ?? ['submit']).includes(trigger))
-      .flatMap((validator) => validator.path?.[0] === undefined ? [] : [String(validator.path[0])])
+      .flatMap((validator) => (validator.path?.[0] === undefined ? [] : [String(validator.path[0])]))
     validatingPaths.value = new Set(field === undefined ? validatorPaths : [...validatorPaths, field])
     try {
-      const inputIssues = controlIssuesFor()
+      const inputIssues = controlIssuesFor(snapshot)
       if (inputIssues.length > 0) {
         const result: SchemaParseResult<TOutput> = { success: false, issues: inputIssues }
         if (isCurrentValidation(run, controller, generation, revision)) issues.value = inputIssues
@@ -523,27 +535,27 @@ export function useFormSession<
       }
 
       const validators = (props.validators ?? []).filter((validator) => (validator.triggers ?? ['submit']).includes(trigger))
-      const validatorResults = await Promise.all(validators.map(async (validator) => {
-        try {
-          const result = await validator.validate({
-            data: parsed.data,
-            draft: snapshotDraft<TInput>(snapshot),
-            initial: snapshotDraft<TInput>(baseline.value),
-            context: (props.context ?? {}) as TContext,
-            ...(field !== undefined ? { field } : {}),
-            signal: controller.signal,
-          })
-          return normalizedValidatorIssues(result, validator.path?.[0] === undefined ? 'form' : String(validator.path[0]))
-        } catch (error) {
-          if (controller.signal.aborted) return []
-          return [schemaIssue(validator.path ?? [], issueMessage(error), 'operational')]
-        }
-      }))
+      const validatorResults = await Promise.all(
+        validators.map(async (validator) => {
+          try {
+            const result = await validator.validate({
+              data: parsed.data,
+              draft: snapshotDraft<TInput>(snapshot),
+              initial: snapshotDraft<TInput>(baseline.value),
+              context: (props.context ?? {}) as TContext,
+              ...(field !== undefined ? { field } : {}),
+              signal: controller.signal,
+            })
+            return normalizedValidatorIssues(result, validator.path?.[0] === undefined ? 'form' : String(validator.path[0]))
+          } catch (error) {
+            if (controller.signal.aborted) return []
+            return [schemaIssue(validator.path ?? [], issueMessage(error), 'operational')]
+          }
+        })
+      )
       if (!isCurrentValidation(run, controller, generation, revision)) return { success: false, issues: [] }
       const validatorIssues = validatorResults.flat()
-      const result: SchemaParseResult<TOutput> = validatorIssues.length > 0
-        ? { success: false, issues: validatorIssues }
-        : parsed
+      const result: SchemaParseResult<TOutput> = validatorIssues.length > 0 ? { success: false, issues: validatorIssues } : parsed
       issues.value = result.success ? [] : result.issues
       return result
     } catch (error) {
@@ -564,40 +576,34 @@ export function useFormSession<
     return performValidation('submit')
   }
 
-  async function runSubmit(
-    generation: number,
-    revision: number,
-    submitTarget: FormProps<TInput, TOutput, TResult>['submit'],
-  ): Promise<void> {
-    if (
-      postWriteErrorState.value
-      || !mounted
-      || generation !== sessionGeneration.value
-      || revision !== draftRevision
-      || props.submit !== submitTarget
-    ) return
-    const result = await performValidation('submit')
+  async function runSubmit(generation: number, revision: number, submitTarget: FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>['submit'], values?: object): Promise<void> {
+    if (postWriteErrorState.value || !mounted || generation !== sessionGeneration.value || revision !== draftRevision || props.submit !== submitTarget) return
+    serverIssues.value = []
+    const result = await performValidation('submit', undefined, values)
     if (!result.success) {
       if (mounted && generation === sessionGeneration.value) await focusFirstInvalid()
       return
     }
     if (
-      !mounted
-      || generation !== sessionGeneration.value
-      || revision !== draftRevision
-      || props.submit !== submitTarget
-      || postWriteErrorState.value
-      || props.disabled
-      || loading.value
-      || inputPending.value
-    ) return
+      !mounted ||
+      generation !== sessionGeneration.value ||
+      revision !== draftRevision ||
+      props.submit !== submitTarget ||
+      postWriteErrorState.value ||
+      props.disabled ||
+      loading.value ||
+      inputPending.value
+    )
+      return
     if (typeof submitTarget !== 'function') return
     const mutationOwner = ++mutationSequence
     activeMutationOwner = mutationOwner
     submitting.value = true
     try {
-      const submitted = await submitTarget(result.data)
+      acceptedValues.value = snapshotEditable(result.data) as Readonly<TOutput>
+      const submitted = await submitTarget(result.data, { outputs: publications.outputs, context: (props.context ?? {}) as TContext })
       if (mounted && generation === sessionGeneration.value && activeMutationOwner === mutationOwner) {
+        if (props.completeOnSubmit) completed.value = true
         events.submitted(submitted)
       }
     } catch (error) {
@@ -606,11 +612,12 @@ export function useFormSession<
       if (isConfirmedWriteRefreshError<TResult>(normalized)) {
         postWriteErrorState.value = normalized
         toast.warning('Changes saved. Could not refresh the data.')
+        if (props.completeOnSubmit) completed.value = true
         events.submitted(normalized.result, normalized)
         return
       }
       if (normalized.postWrite === true) postWriteErrorState.value = normalized
-      if (normalized.issues) issues.value = normalized.issues
+      if (normalized.issues) serverIssues.value = normalized.issues
       toast.error(normalized.message)
       events.error(normalized)
     } finally {
@@ -621,8 +628,8 @@ export function useFormSession<
     }
   }
 
-  function submit(): Promise<void> {
-    if (postWriteErrorState.value) return Promise.resolve()
+  function submit(options?: FormSubmitOptions<TInput>): Promise<void> {
+    if (completed.value || postWriteErrorState.value) return Promise.resolve()
     if (activeSubmit) return activeSubmit
     if (props.disabled || submitting.value || loading.value || inputPending.value) return Promise.resolve()
     derivedRuntime.settle()
@@ -631,11 +638,13 @@ export function useFormSession<
     const submitTarget = props.submit
     submitAttempted.value = true
     submitPending.value = true
-    const attempt = Promise.resolve().then(() => runSubmit(generation, revision, submitTarget))
-    const ownedAttempt = attempt.finally(() => {
+    const values = options?.values === undefined ? undefined : cloneRecord(options.values)
+    const attempt = Promise.resolve().then(() => runSubmit(generation, revision, submitTarget, values))
+    const ownedAttempt = attempt.finally(async () => {
       if (activeSubmit !== ownedAttempt) return
       activeSubmit = undefined
       submitPending.value = false
+      if (displayedIssues.value.length > 0) await focusFirstInvalid()
     })
     activeSubmit = ownedAttempt
     return ownedAttempt
@@ -651,21 +660,24 @@ export function useFormSession<
     return fields.value.find((field) => fieldKeys(field.key, field).includes(key))?.key ?? key
   }
 
-  const visibleIssues = computed(() => issues.value.filter((issue) => {
-    const key = issue.path[0]
-    return issue.path.length === 0 || submitAttempted.value || (typeof key === 'string' && touched[issueField(key)])
-  }))
+  const visibleIssues = computed(() =>
+    [...issues.value, ...serverIssues.value].filter((issue) => {
+      const key = issue.path[0]
+      return issue.path.length === 0 || submitAttempted.value || (typeof key === 'string' && (touched[issueField(key)] || touched[issue.path.join('.')]))
+    })
+  )
   const displayedIssues = computed(() => {
-    const visible = visibleIssues.value.map((issue) => typeof issue.path[0] === 'string'
-      ? { ...issue, path: [issueField(issue.path[0]), ...issue.path.slice(1)] }
-      : issue)
+    const visible = visibleIssues.value.map((issue) => (typeof issue.path[0] === 'string' ? { ...issue, path: [issueField(issue.path[0]), ...issue.path.slice(1)] } : issue))
     return [
       ...visible,
       ...Object.entries(controlIssues)
-        .filter(([key, message]) => visibleKeys.value.includes(key)
-          && (submitAttempted.value || touched[issueField(key)])
-          && !visible.some((issue) => issue.path[0] === key && issue.message === message))
-        .map(([key, message]) => schemaIssue([key], message)),
+        .filter(
+          ([key, message]) =>
+            visibleKeys.value.includes(key.split('.')[0] ?? key) &&
+            (submitAttempted.value || touched[key] || touched[issueField(key.split('.')[0] ?? key)]) &&
+            !visible.some((issue) => issue.path.join('.') === key && issue.message === message)
+        )
+        .map(([key, message]) => schemaIssue(key.split('.'), message)),
     ]
   })
 
@@ -682,32 +694,78 @@ export function useFormSession<
     return touched[key] === true
   }
 
+  const arrayFields: FormArrayContext = {
+    disabled: computed(() => props.disabled === true || submitting.value || submitPending.value),
+    id: (path) => `${formId}-field-${path.join('.')}`,
+    issue: (path) => displayedIssues.value.find((issue) => issue.path.join('.') === path.join('.'))?.message,
+    touch: (path) => {
+      touched[path.join('.')] = true
+      derivedRuntime.settle()
+      if (!submitPending.value) void performValidation('blur', String(path[0]))
+    },
+    setError: (path, message) => setControlError(path.join('.'), message),
+    update: (field, rows, previousIndices, changed) => {
+      const oldServerIssues = serverIssues.value
+      const previousRows = controlValue(field)
+      const oldRow = changed && Array.isArray(previousRows) ? previousRows[changed[0]] : undefined
+      const newRow = changed ? rows[changed[0]] : undefined
+      const changedPath = (path: readonly (string | number)[]) =>
+        changed &&
+        path[0] === field &&
+        Number(path[1]) === changed[0] &&
+        path.length > 2 &&
+        isPlainRecord(oldRow) &&
+        newRow !== undefined &&
+        !equalValue(Reflect.get(oldRow, String(path[2])), Reflect.get(newRow, String(path[2])))
+      setValue(field, rows)
+      const remap = (entries: readonly SchemaIssue[]) =>
+        entries.flatMap((issue) => {
+          const path = remapArrayPath(issue.path, field, previousIndices)
+          if (!path || changedPath(path)) return []
+          return [{ ...issue, path }]
+        })
+      serverIssues.value = remap(oldServerIssues)
+      issues.value = remap(issues.value)
+      for (const state of [touched, controlIssues]) {
+        const entries = Object.entries(state)
+        for (const key of Object.keys(state)) delete state[key]
+        for (const [key, value] of entries) {
+          const path = remapArrayPath(key.split('.'), field, previousIndices)
+          if (path && !(state === controlIssues && changedPath(path))) Reflect.set(state, path.join('.'), value)
+        }
+      }
+    },
+  }
+
   async function focusFirstInvalid(): Promise<void> {
     await nextTick()
-    const key = displayedIssues.value.map((issue) => issue.path[0]).find((part): part is string => typeof part === 'string' && visibleKeys.value.includes(part))
-    if (!key) return
-    const element = document.getElementById(`${formId}-field-${key}`)
+    const issue = displayedIssues.value.find((entry) => typeof entry.path[0] === 'string' && visibleKeys.value.includes(entry.path[0]))
+    if (!issue) return
+    const path = issue.path.join('.')
+    const element = document.getElementById(`${formId}-field-${path}`) ?? document.getElementById(`${formId}-field-${issue.path[0]}`)
+    const control = element?.matches('input,textarea,select,button,[role="combobox"]') ? element : element?.querySelector<HTMLElement>('input,textarea,select,button,[role="combobox"]')
     element?.scrollIntoView?.({ block: 'nearest' })
-    element?.focus?.()
+    ;(control ?? element)?.focus?.()
   }
 
   function reset(): void {
+    outputGeneration.value += 1
+    publications.clear()
+    acceptedValues.value = undefined
     const next = cloneRecord(baseline.value)
     replaceDraft(next)
     edited.clear()
     for (const key of Object.keys(touched)) delete touched[key]
     for (const key of Object.keys(controlIssues)) delete controlIssues[key]
     issues.value = []
+    serverIssues.value = []
     submitAttempted.value = false
     if (modelValuePresent) emitModel()
     events.reset()
   }
 
   function recoveryIsCurrent(error: SubmitError, generation: number, target: string): boolean {
-    return mounted
-      && generation === sessionGeneration.value
-      && target === writeTargetSignature.value
-      && postWriteErrorState.value === error
+    return mounted && generation === sessionGeneration.value && target === writeTargetSignature.value && postWriteErrorState.value === error
   }
 
   function refresh(): Promise<void> {
@@ -716,13 +774,18 @@ export function useFormSession<
       if (activeRecovery?.error === confirmedError && activeRecovery.target === writeTargetSignature.value) return activeRecovery.promise
       const generation = sessionGeneration.value
       const target = writeTargetSignature.value
-      const recovery = Promise.resolve().then(confirmedError.refresh).then(() => {
-        if (recoveryIsCurrent(confirmedError, generation, target)) postWriteErrorState.value = undefined
-      }, (error: unknown) => {
-        if (recoveryIsCurrent(confirmedError, generation, target) && !isCancelledError(error)) {
-          toast.warning('Changes saved. Could not refresh the data.')
-        }
-      })
+      const recovery = Promise.resolve()
+        .then(confirmedError.refresh)
+        .then(
+          () => {
+            if (recoveryIsCurrent(confirmedError, generation, target)) postWriteErrorState.value = undefined
+          },
+          (error: unknown) => {
+            if (recoveryIsCurrent(confirmedError, generation, target) && !isCancelledError(error)) {
+              toast.warning('Changes saved. Could not refresh the data.')
+            }
+          }
+        )
       const ownedRecovery = recovery.finally(() => {
         if (activeRecovery?.promise === ownedRecovery) activeRecovery = undefined
       })
@@ -737,11 +800,7 @@ export function useFormSession<
     if (modelValuePresent || value === undefined || !mounted) return
     const mapped = copyInputValues(value, schemaRuntime.value.inputKeys)
     loadedValues.value = mapped
-    const nextBaseline = mergeInputValues(schemaRuntime.value.inputKeys, [
-      defaults.value,
-      props.initialData,
-      loadedValues.value,
-    ])
+    const nextBaseline = mergeInputValues(schemaRuntime.value.inputKeys, [defaults.value, props.initialData, loadedValues.value])
     applyUneditedBaseline(nextBaseline)
     baseline.value = nextBaseline
     draftRevision += 1
@@ -749,32 +808,33 @@ export function useFormSession<
   }
 
   watch(loaded, (value) => applyLoaded(value), { immediate: true })
-  watch(() => props.initialData, (value) => {
-    if (modelValuePresent) return
-    const nextBaseline = mergeInputValues(schemaRuntime.value.inputKeys, [
-      defaults.value,
-      value,
-      loadedValues.value,
-    ])
-    applyUneditedBaseline(nextBaseline)
-    baseline.value = nextBaseline
-    draftRevision += 1
-    cancelValidation()
-  }, { deep: true })
-  watch(() => props.modelValue, (value) => {
-    if (!modelValuePresent) return
-    const next = mergeInputValues(schemaRuntime.value.inputKeys, [
-      defaults.value,
-      props.initialData,
-      value,
-    ])
-    if (lastEmittedModel && equalRecord(next, cloneRecord(lastEmittedModel)) && equalRecord(next, cloneRecord(draft))) return
-    replaceDraft(next)
-    baseline.value = cloneRecord(next)
-    edited.clear()
-    for (const key of Object.keys(touched)) delete touched[key]
-    issues.value = []
-  }, { deep: true })
+  watch(
+    () => props.initialData,
+    (value) => {
+      if (modelValuePresent) return
+      const nextBaseline = mergeInputValues(schemaRuntime.value.inputKeys, [defaults.value, value, loadedValues.value])
+      applyUneditedBaseline(nextBaseline)
+      baseline.value = nextBaseline
+      draftRevision += 1
+      cancelValidation()
+    },
+    { deep: true }
+  )
+  watch(
+    () => props.modelValue,
+    (value) => {
+      if (!modelValuePresent) return
+      const next = mergeInputValues(schemaRuntime.value.inputKeys, [defaults.value, props.initialData, value])
+      if (lastEmittedModel && equalRecord(next, cloneRecord(lastEmittedModel)) && equalRecord(next, cloneRecord(draft))) return
+      replaceDraft(next)
+      baseline.value = cloneRecord(next)
+      edited.clear()
+      for (const key of Object.keys(touched)) delete touched[key]
+      issues.value = []
+      serverIssues.value = []
+    },
+    { deep: true }
+  )
 
   const keySignature = computed(() => JSON.stringify(fields.value.map((field) => [field.key, fieldKeys(field.key, field)])))
   const writeTargetSignature = computed(() => JSON.stringify(stableValue([props.resource, props.id])))
@@ -787,28 +847,30 @@ export function useFormSession<
     const [previousSchema, previousKeys, previousIdentity] = previous
     if (schema === previousSchema && keys === previousKeys && identity === previousIdentity) return
     sessionGeneration.value += 1
+    completed.value = false
+    acceptedValues.value = undefined
+    outputGeneration.value += 1
+    publications.clear()
     abandonSessionWork()
     cancelValidation()
     loadedValues.value = {}
     const nextFields = fields.value
     defaults.value = formDefaults(nextFields, [props.initialData, modelValuePresent ? props.modelValue : undefined])
-    const next = mergeInputValues(schemaRuntime.value.inputKeys, [
-      defaults.value,
-      props.initialData,
-      modelValuePresent ? props.modelValue : undefined,
-    ])
+    const next = mergeInputValues(schemaRuntime.value.inputKeys, [defaults.value, props.initialData, modelValuePresent ? props.modelValue : undefined])
     baseline.value = cloneRecord(next)
     replaceDraft(next)
     edited.clear()
     for (const key of Object.keys(touched)) delete touched[key]
     for (const key of Object.keys(controlIssues)) delete controlIssues[key]
     issues.value = []
+    serverIssues.value = []
     submitAttempted.value = false
     if (identity === previousIdentity) applyLoaded(loaded.value)
     if (modelValuePresent && !equalRecord(next, mergeInputValues(schemaRuntime.value.inputKeys, [props.modelValue]))) nextTick(emitModel)
   })
 
   onUnmounted(() => {
+    outputGeneration.value += 1
     mounted = false
     sessionGeneration.value += 1
     abandonSessionWork()
@@ -823,6 +885,8 @@ export function useFormSession<
   }
 
   return {
+    submittedValues,
+    arrayFields,
     draft: readonlyDraft,
     dirty,
     submitting: computed(() => submitting.value),

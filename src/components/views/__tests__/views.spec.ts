@@ -894,7 +894,7 @@ describe('FormView', () => {
 
     expect(view.find('#direct-form form button[type="submit"]')).toBeNull()
     expect(view.find('#form-view form button[type="submit"]')).toBeNull()
-    expect(view.find('#form-view button[type="button"]')?.textContent).toContain('Cancel')
+    expect(view.find('#form-view .is-form-view-controls button[type="button"]')?.textContent).toContain('Cancel')
     view.unmount()
   })
 
@@ -948,7 +948,7 @@ describe('FormView', () => {
     expect(exposed.value?.submitPending).toBe(true)
     pending.resolve({ id: 1 })
     await submitting
-    expect(submit).toHaveBeenCalledWith({ name: 'Updated role' })
+    expect(submit.mock.calls[0]?.[0]).toEqual({ name: 'Updated role' })
     expect(exposed.value?.submitting).toBe(false)
 
     reset!()
@@ -976,8 +976,8 @@ describe('FormView', () => {
     update.find('form')!.dispatchEvent(new Event('submit'))
     await flush()
 
-    expect(createSubmit).toHaveBeenCalledWith({ name: 'Admin' })
-    expect(updateSubmit).toHaveBeenCalledWith({ name: 'Editor' })
+    expect(createSubmit.mock.calls[0]?.[0]).toEqual({ name: 'Admin' })
+    expect(updateSubmit.mock.calls[0]?.[0]).toEqual({ name: 'Editor' })
     expect(create.find('h1')?.textContent).toBe('Create Role')
     expect(update.find('h1')?.textContent).toBe('Edit Role')
     create.unmount()

@@ -4,14 +4,14 @@ import { DialogClose, DialogContent, type DialogContentEmits, type DialogContent
 import { twMerge } from 'tailwind-merge'
 import Icon from '../Icon.vue'
 
-const props = defineProps<DialogContentProps & { class?: HTMLAttributes['class'] }>()
+const props = withDefaults(defineProps<DialogContentProps & { class?: HTMLAttributes['class']; closeOnOutsideClick?: boolean; closeOnEscape?: boolean }>(), { closeOnOutsideClick: true, closeOnEscape: true })
 const emits = defineEmits<DialogContentEmits>()
 const attrs = useAttrs()
 
 defineOptions({ inheritAttrs: false })
 
 const delegatedProps = computed(() => {
-  const { class: _, ...delegated } = props
+  const { class: _, closeOnOutsideClick: _outside, closeOnEscape: _escape, ...delegated } = props
 
   return { ...delegated, ...attrs }
 })
@@ -32,7 +32,10 @@ const forwarded = useForwardPropsEmits(delegatedProps, emits) as any
           )
         "
         v-bind="forwarded"
+        @escapeKeyDown="(event) => { if (!props.closeOnEscape) event.preventDefault() }"
+        @interactOutside="(event) => { if (!props.closeOnOutsideClick) event.preventDefault() }"
         @pointer-down-outside="(event) => {
+          if (!props.closeOnOutsideClick) { event.preventDefault(); return }
           const originalEvent = event.detail.originalEvent;
           const target = originalEvent.target as HTMLElement;
           if (originalEvent.offsetX > target.clientWidth || originalEvent.offsetY > target.clientHeight) {

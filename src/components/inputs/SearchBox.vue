@@ -35,6 +35,7 @@ function debouncedSetValue() {
 }
 
 watch(value, () => {
+  if (value.value === modelValue.value) return
   if (!props.debounced) modelValue.value = value.value
   else debouncedSetValue()
 })

@@ -1,11 +1,23 @@
-<script setup lang="ts" generic="TInput extends object, TOutput extends object, TResult, TKeys extends string = Extract<keyof TInput, string>, TContext extends object = Readonly<Record<string, unknown>>">
-import { computed, getCurrentInstance, onBeforeUpdate, reactive, ref, useAttrs, type WritableComputedRef } from 'vue'
+<script
+  setup
+  lang="ts"
+  generic="
+    TInput extends object,
+    TOutput extends object,
+    TResult,
+    TKeys extends string = Extract<keyof TInput, string>,
+    TContext extends object = Readonly<Record<string, unknown>>,
+    TFields extends object = {}
+  "
+>
+import { computed, getCurrentInstance, onBeforeUpdate, reactive, ref, provide, useAttrs, type WritableComputedRef } from 'vue'
 import type { FormDraftSnapshot, FormInputSlotProps, FormSlots } from '../../contracts/forms'
 import type { SubmitError } from '../../contracts/results'
 import type { FormProps } from '../../forms/props'
 import { isConfirmedWriteRefreshError } from '../../resources/postWriteOutcome'
 import { formNativeAttributeNames } from '../../forms/props'
 import type { RuntimeFormField } from '../../forms/definitionTypes'
+import { formArrayContextKey } from '../../forms/arrayField'
 import { useFormSession } from '../../forms/useFormSession'
 import { useRendererRegistry } from '../../renderers/registry'
 import Button from '../base/Button.vue'
@@ -15,7 +27,7 @@ import { useFrameworkUiDefaults } from '../views/uiDefaults'
 
 defineOptions({ inheritAttrs: false })
 
-const props = defineProps<FormProps<TInput, TOutput, TResult, TKeys, TContext>>()
+const props = defineProps<FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>>()
 defineSlots<FormSlots<TInput, TKeys>>()
 const attrs = useAttrs()
 const componentProps = getCurrentInstance()?.type.props
@@ -32,7 +44,7 @@ const emit = defineEmits<{
 
 const controlGenerations = reactive(new Map<string, number>())
 const fieldModels = new Map<string, WritableComputedRef<unknown>>()
-const session = useFormSession(props, {
+const session = useFormSession<TInput, TOutput, TResult, TKeys, TContext, TFields>(props, {
   updateModel: (value) => emit('update:modelValue', value),
   submitted: (result, refreshError) => {
     if (refreshError === undefined) emit('submitted', result)
@@ -41,6 +53,7 @@ const session = useFormSession(props, {
   error: (error) => emit('error', error),
   reset: () => emit('reset'),
 })
+provide(formArrayContextKey, session.arrayFields)
 const inputPending = session.inputPending
 const renderers = useRendererRegistry('form')
 const { submitLabel: defaultSubmitLabel } = useFrameworkUiDefaults()
@@ -76,7 +89,7 @@ onBeforeUpdate(() => {
 })
 
 function fieldComponentKey(field: RuntimeFormField<TInput, TKeys>): string {
-  return `${field.renderer}:${controlGenerations.get(field.key) ?? 0}`
+  return `${typeof field.renderer === 'string' ? field.renderer : field.key}:${controlGenerations.get(field.key) ?? 0}`
 }
 
 function fieldSpan(field: RuntimeFormField<TInput, TKeys>): number {
@@ -108,11 +121,12 @@ function fieldId(field: RuntimeFormField<TInput, TKeys>): string {
 }
 
 function fieldDisabled(field: RuntimeFormField<TInput, TKeys>): boolean {
-  return props.disabled === true || typeof field.behavior?.derived === 'function' || field.props.disabled === true
+  return props.disabled === true || submitting.value || submitPending.value || typeof field.behavior?.derived === 'function' || field.props.disabled === true
 }
 
 function rendererProps(field: RuntimeFormField<TInput, TKeys>): Readonly<Record<string, unknown>> {
-  if (field.renderer !== 'table' && field.renderer !== 'lookup') return field.props
+  if (field.renderer === 'table') return { ...field.props, field: field.key, label: field.label, context: field.props.context ?? props.context }
+  if (field.renderer !== 'lookup') return field.props
   if (Object.hasOwn(field.props, 'context') || props.context === undefined) return field.props
   return { ...field.props, context: props.context }
 }
@@ -142,6 +156,7 @@ function inputSlotProps<TKey extends TKeys>(field: RuntimeFormField<TInput, TKey
       span: field.span,
     },
     setValue: (value) => session.setControlValue(field.key, value),
+    setError: (message) => session.setControlError(field.key, message),
     error: issueFor(field.key),
     controlBindings,
     touched: session.touchedField(field.key),
@@ -158,22 +173,20 @@ const formIssues = computed(() =>
   })
 )
 
-function setControlValue(key: string, value: unknown): void {
-  session.setControlValue(key, value)
-}
-
-async function submit(): Promise<void> {
-  await session.submit()
+async function submit(options?: Parameters<typeof session.submit>[0]): Promise<void> {
+  await session.submit(options)
 }
 
 function reset(): void {
   for (const key of session.controlErrorKeys()) {
-    controlGenerations.set(key, (controlGenerations.get(key) ?? 0) + 1)
+    const field = key.split('.')[0] ?? key
+    controlGenerations.set(field, (controlGenerations.get(field) ?? 0) + 1)
   }
   session.reset()
 }
 
 defineExpose({
+  submittedValues: session.submittedValues,
   draft,
   dirty,
   submitting,
@@ -189,7 +202,7 @@ defineExpose({
 </script>
 
 <template>
-  <form v-bind="nativeFormBindings" :id="session.formId" :novalidate="props.novalidate === '' ? true : (props.novalidate ?? true)" class="flex flex-col gap-5" @submit.prevent="submit">
+  <form v-bind="nativeFormBindings" :id="session.formId" :novalidate="props.novalidate === '' ? true : (props.novalidate ?? true)" class="flex flex-col gap-5" @submit.prevent="submit()">
     <div v-if="postWriteError" role="alert" class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-error-container px-4 py-3 text-sm leading-5 text-on-error-container">
       <p v-if="isConfirmedWriteRefreshError<TResult>(postWriteError)">Changes saved. The data could not be refreshed.</p>
       <p v-else>The save may have completed. Check the record before starting another save.</p>
@@ -212,11 +225,7 @@ defineExpose({
     </template>
 
     <template v-else>
-      <BaseInput
-        v-if="formIssues.length > 0"
-        class="rounded-lg bg-error-container px-4 py-3"
-        :error="formIssues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')"
-      />
+      <BaseInput v-if="formIssues.length > 0" class="rounded-lg bg-error-container px-4 py-3" :error="formIssues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')" />
 
       <div class="grid grid-cols-12 gap-x-4 gap-y-5">
         <div v-for="field in visibleFields" :key="field.key" class="is-form-field flex min-w-0 flex-col gap-2" :style="{ gridColumn: `span ${fieldSpan(field)} / span ${fieldSpan(field)}` }">
@@ -227,6 +236,7 @@ defineExpose({
 
           <BaseInput
             v-if="$slots[`input:${field.key}`]"
+            :key="fieldComponentKey(field)"
             :id="fieldId(field)"
             :helper-message="helperMessageFor(field)"
             :error="issueFor(field.key)"
@@ -243,7 +253,7 @@ defineExpose({
 
           <component
             v-else
-            :is="renderers.require(field.renderer)"
+            :is="typeof field.renderer === 'string' ? renderers.require(field.renderer) : field.renderer"
             :key="fieldComponentKey(field)"
             v-bind="rendererProps(field)"
             v-model="fieldModel(field.key).value"
@@ -257,7 +267,18 @@ defineExpose({
         </div>
       </div>
 
-      <slot name="actions" :submit="submit" :reset="reset" :refresh="session.refresh" :submitting="submitting" :submit-pending="submitPending" :post-write-error="postWriteError" :validating="validating" :dirty="dirty" :input-pending="inputPending">
+      <slot
+        name="actions"
+        :submit="submit"
+        :reset="reset"
+        :refresh="session.refresh"
+        :submitting="submitting"
+        :submit-pending="submitPending"
+        :post-write-error="postWriteError"
+        :validating="validating"
+        :dirty="dirty"
+        :input-pending="inputPending"
+      >
         <Button v-if="hasSubmit" type="submit" :disabled="props.disabled === true || loading || submitPending || submitting || inputPending || postWriteError !== undefined">
           {{ submitting ? (props.submittingLabel ?? submitLabel) : submitLabel }}
         </Button>

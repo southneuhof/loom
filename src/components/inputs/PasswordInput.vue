@@ -37,7 +37,7 @@ const showPassword = ref<boolean>(false)
     @click="emit('click', $event)"
   >
     <template #action>
-      <Button kind="icon" variant="standard" @click="showPassword = !showPassword">
+      <Button type="button" kind="icon" variant="standard" :ariaLabel="showPassword ? 'Hide password' : 'Show password'" @click="showPassword = !showPassword">
         <template #icon>
           <Icon :name="showPassword ? 'eye-off' : 'eye'" />
         </template>

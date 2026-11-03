@@ -1,13 +1,23 @@
+import type { FormRenderer } from '../../../renderers/formContracts'
 import type { FormDefinition, FormDraft } from '../../../contracts/forms'
 import type { TableColumnEntry, TableDefinition, TableProps } from '../../../contracts'
 
-export type TableInputTable<TRow extends object, TContext extends object = Readonly<Record<string, unknown>>> = Omit<TableDefinition<TRow, Readonly<Record<string, TableColumnEntry<NoInfer<TRow>, TContext>>>, TContext>, 'columns'> & {
+export type TableInputTable<TRow extends object, TContext extends object = Readonly<Record<string, unknown>>> = Omit<
+  TableDefinition<TRow, Readonly<Record<string, TableColumnEntry<NoInfer<TRow>, TContext>>>, TContext>,
+  'columns'
+> & {
   columns: Readonly<Record<string, TableColumnEntry<NoInfer<TRow>, TContext>>>
   data?: never
   load?: never
 }
 
-export type TableInputForm<TInput extends object, TRow extends object, TContext extends object = Readonly<Record<string, unknown>>> = FormDefinition<TInput, NoInfer<TRow>, unknown, Extract<keyof TInput, string>, TContext> & {
+export type TableInputForm<TInput extends object, TRow extends object, TContext extends object = Readonly<Record<string, unknown>>> = FormDefinition<
+  TInput,
+  NoInfer<TRow>,
+  unknown,
+  Extract<keyof TInput, string>,
+  TContext
+> & {
   context?: TContext
   submit?: never
   load?: never
@@ -15,6 +25,10 @@ export type TableInputForm<TInput extends object, TRow extends object, TContext 
 }
 
 type TableInputBase<TInput extends object, TRow extends object, TContext extends object> = {
+  mode?: 'dialog'
+  fields?: never
+  createRow?: never
+  addLabel?: never
   table: TableInputTable<TRow, TContext>
   disabled?: boolean
   field?: string
@@ -47,8 +61,32 @@ type TableInputReordering<TRow extends object> =
       rowKey?: TableProps<TRow>['rowKey']
     }
 
-export type TableInputCoreProps<TInput extends object, TRow extends object, TContext extends object = Readonly<Record<string, unknown>>> = TableInputBase<TInput, TRow, TContext>
-  & (TableInputReadOnly | TableInputEditor<TInput, TRow, TContext>)
+export interface InlineArrayField {
+  renderer: FormRenderer
+  label: string
+  props?: Readonly<Record<string, unknown>>
+  required?: boolean
+  visible?: boolean
+  span?: number
+}
+
+export type InlineArrayFields<TRow extends object> = Partial<Record<Extract<keyof TRow, string>, InlineArrayField>>
+
+type TableInputInline<TRow extends object, TContext extends object> = Omit<TableInputBase<TRow, TRow, TContext>, 'mode' | 'fields' | 'createRow' | 'table' | 'addLabel'> & {
+  reorderable?: boolean
+  rowKey?: TableProps<TRow>['rowKey']
+  mode: 'inline'
+  fields: InlineArrayFields<TRow> | ((row: TRow, index: number) => InlineArrayFields<TRow>)
+  createRow: () => TRow
+  addLabel?: string
+  table?: never
+  form?: never
+  toDraft?: never
+}
+
+export type TableInputCoreProps<TInput extends object, TRow extends object, TContext extends object = Readonly<Record<string, unknown>>> =
+  | (TableInputBase<TInput, TRow, TContext> & (TableInputReadOnly | TableInputEditor<TInput, TRow, TContext>))
+  | TableInputInline<TRow, TContext>
 
 export type TableInputProps<TInput extends object, TRow extends object, TContext extends object = Readonly<Record<string, unknown>>> = TableInputCoreProps<TInput, TRow, TContext> & {
   modelValue: TRow[]

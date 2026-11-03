@@ -323,6 +323,6 @@ describe('FileInput browser behavior', () => {
     form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
     await settle()
     expect(submit).toHaveBeenCalledTimes(1)
-    expect(submit).toHaveBeenCalledWith({ file: asset('first.pdf') })
+    expect(submit.mock.calls[0]?.[0]).toEqual({ file: asset('first.pdf') })
   })
 })

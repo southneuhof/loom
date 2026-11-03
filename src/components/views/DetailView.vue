@@ -1,14 +1,22 @@
-<script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>">
+<script setup lang="ts" generic="TSchema extends RawSchema<object, object>, TContext extends object = Readonly<Record<string, unknown>>">
 import { computed, useSlots } from 'vue'
-import type { DetailViewProps, DetailViewReadyProps, RouteTarget } from '../../contracts'
+import type { DetailViewControls, DetailViewProps, DetailViewReadyProps, RouteTarget, RawSchema, RawSchemaOutput } from '../../contracts'
 import { useRecord } from '../core/useRecord'
 import Detail from '../core/Detail.vue'
 import Card from '../base/Card.vue'
 import NavigationHeader from './NavigationHeader.vue'
 
-const props = defineProps<DetailViewProps<TRecord, TContext>>()
+type TRecord = RawSchemaOutput<TSchema>
+
+const props = defineProps<DetailViewProps<TRecord, TContext> & { detail: { schema: TSchema } }>()
 const detail = computed(() => props.detail)
-const reader = useRecord(() => detail.value)
+const reader = useRecord<TRecord, TContext>(() => detail.value)
+const controls = computed<DetailViewControls<TRecord>>(() => ({
+  record: reader.record.value,
+  loading: reader.loading.value,
+  error: reader.error.value,
+  refresh: reader.refresh,
+}))
 const readyProps = computed<DetailViewReadyProps<TRecord, TContext> | undefined>(() => {
   const record = reader.record.value
   if (!record) return undefined
@@ -16,7 +24,7 @@ const readyProps = computed<DetailViewReadyProps<TRecord, TContext> | undefined>
   return { record, detail: { ...configuration, data: record } }
 })
 const defaultBackTo: RouteTarget = { name: 'dashboard' }
-const backTo = computed(() => props.backTo === false ? undefined : props.backTo ?? defaultBackTo)
+const backTo = computed(() => (props.backTo === false ? undefined : (props.backTo ?? defaultBackTo)))
 const slots = useSlots()
 const detailSlotNames = () => Object.keys(slots).filter((name) => name.startsWith('value:'))
 </script>
@@ -25,13 +33,7 @@ const detailSlotNames = () => Object.keys(slots).filter((name) => name.startsWit
   <section class="is-detail-view flex flex-col gap-2">
     <NavigationHeader :title="title ?? ''" :back-to="backTo">
       <template v-if="$slots.controls" #controls>
-        <slot
-          name="controls"
-          :record="reader.record.value"
-          :loading="reader.loading.value"
-          :error="reader.error.value"
-          :refresh="reader.refresh"
-        />
+        <slot name="controls" v-bind="controls" />
       </template>
     </NavigationHeader>
 

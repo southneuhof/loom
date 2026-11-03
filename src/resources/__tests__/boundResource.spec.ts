@@ -83,7 +83,7 @@ describe('bound resource operations', () => {
           submit: async (input: Draft) => ({ id, ...input, status: 'updated' }),
         }),
       },
-      delete: { permission: 'records.delete', run: async (id) => id },
+      delete: { permission: 'records.delete', run: async (record) => record.id },
       actions: {
         audit: {
           permission: auditPermissions,
@@ -119,7 +119,7 @@ describe('bound resource operations', () => {
     expect(detail.backTo).toEqual({ name: 'records-list' })
     expect(loadRecord).toHaveBeenCalledOnce()
     await expect(records.create().form.submit({ name: 'Two' })).resolves.toEqual({ id: '2', name: 'Two', status: 'new' })
-    expect(records.create().defaultTo?.({ id: '2', name: 'Two', status: 'new' })).toEqual({ name: 'records-detail', params: { id: '2' } })
+    expect(records.create().completion?.destinations({ id: '2', name: 'Two', status: 'new' }, {})[0]).toEqual({ name: 'records-detail', params: { id: '2' } })
     const update = records.update({ id: '1', record: row })
     await expect(update.form.load({ id: '1' })).resolves.toEqual({ name: 'Row 1' })
     await expect(update.form.submit({ name: 'Changed' })).resolves.toEqual({ id: '1', name: 'Changed', status: 'updated' })
@@ -279,7 +279,7 @@ describe('bound resource operations', () => {
     } })
     const load = vi.fn(async () => ({ data: [{ id: '1', name: 'One', status: 'new' }] }))
     let createVisible = false
-    const remove = vi.fn(async (id: string) => id)
+    const remove = vi.fn(async (record: Row) => record.id)
     const records = defineResource({
       key: 'open-records',
       identity: (record: Row) => record.id,
@@ -424,7 +424,7 @@ describe('bound resource operations', () => {
       return request.permission === null && (!record?.allowedOperations || record.allowedOperations.includes(request.operation))
     } })
     const invalidate = vi.spyOn(queryClient, 'invalidateQueries')
-    const remove = vi.fn(async (id: string) => id)
+    const remove = vi.fn(async (record: Row) => record.id)
     const records = defineResource({
       key: 'captured-scalar',
       identity: (record: Row) => record.id,
@@ -439,7 +439,7 @@ describe('bound resource operations', () => {
 
     expect(deletion.can()).toBe(true)
     await expect(deletion.run()).resolves.toBe('first')
-    expect(remove).toHaveBeenCalledWith('first')
+    expect(remove).toHaveBeenCalledWith({ id: 'first', name: 'First', status: 'ready', allowedOperations: ['delete'] })
     const policyRecord = accessRequests[0].record as Row
     expect(policyRecord).toEqual({ id: 'first', name: 'First', status: 'ready', allowedOperations: ['delete'] })
     expect(policyRecord).not.toBe(sourceRecord)
@@ -659,7 +659,7 @@ describe('bound resource operations', () => {
       delete: { permission: null, run },
     })
 
-    const error = await resource.delete({ id: 'record-1' }).run().then(
+    const error = await resource.delete({ id: 'record-1', record: { id: 'record-1' } }).run().then(
       () => undefined,
       (caught: unknown) => caught,
     )
