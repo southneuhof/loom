@@ -1,3 +1,4 @@
+import { normalizeQueryFilters } from '../query/filters'
 import type { RecordIdentity } from '../contracts/load'
 
 export interface ResourceLoaderIdentity {
@@ -28,7 +29,7 @@ export function resourceLoaderOwner(source: unknown, explicit: string | undefine
 
 export function resourceLoaderParameters(source: unknown, explicit: Readonly<Record<string, unknown>> | undefined): Readonly<Record<string, unknown>> {
   const identity = resourceLoaderIdentity(source)
-  return { ...(identity?.searchParameters ?? {}), ...(explicit ?? {}) }
+  return normalizeQueryFilters({ ...(identity?.searchParameters ?? {}), ...(explicit ?? {}) })
 }
 
 export function bindResourceRead<TLoad extends (...args: never[]) => unknown>(resource: string, operation: string, load: TLoad): TLoad {

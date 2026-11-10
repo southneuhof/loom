@@ -9,6 +9,9 @@ export { defineDetail } from './details'
 export { Table, TreeTable, TreeTableContent, Detail, Form, useCollection, useRecord } from './components/core'
 export type { CollectionReader, UseCollectionOptions, RecordReader } from './components/core'
 export { DialogForm } from './components/composites'
+export { default as Tabs } from './components/composites/Tabs.vue'
+export type { TabsItem, RoutedTabItem, TabsProps } from './components/composites/tabs'
+export { ContextMenu } from './components/base'
 export * from './components/views'
 export * from './resources'
 export {
@@ -44,3 +47,4 @@ export {
   downloadBlob,
 } from './services'
 export { parseURL as parseServiceURL } from './services'
+export * from './exports'

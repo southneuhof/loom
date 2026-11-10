@@ -2,6 +2,7 @@
 import { computed, getCurrentInstance, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import type { CollectionLoadContext, CollectionResult, QueryValues } from '../../../contracts'
 import { resourceOptionsKey, stableValue } from '../../../query/keys'
+import { normalizeQueryFilters } from '../../../query/filters'
 import { useLoader } from '../../../query/loader'
 import { resourceLoaderIdentity, resourceLoaderParameters } from '../../../resources/loaderIdentity'
 import type { LookupInputProps, LookupModelValue } from './lookupInput.types'
@@ -87,7 +88,7 @@ function readContext(): SelectionContext {
     mode,
     load: props.load,
     namespace: props.namespace,
-    searchParameters: stableValue(props.searchParameters),
+    searchParameters: stableValue(normalizeQueryFilters(props.searchParameters)),
     loadDetail: props.loadDetail,
     pick: props.pick,
     multi: props.multi,
@@ -175,7 +176,7 @@ const source = useLoader<CollectionLoadContext, CollectionResult<TRecord>>({
           query: query.value,
           searchParameters: parameters,
         })
-      : ['lookup-options', owner, props.namespace ?? null, sourceRevision.value, stableValue({ ...parameters, ...query.value })]
+      : ['lookup-options', owner, props.namespace ?? null, sourceRevision.value, stableValue(normalizeQueryFilters({ ...parameters, ...query.value }))]
   }),
   context: computed(() => ({
     query: { ...query.value },
@@ -211,7 +212,7 @@ const loadContext = computed(() => ({
 watch(loadContext, (next, previous) => {
   if (next.load !== previous.load || next.mode !== previous.mode) sourceRevision.value += 1
   if (next.mode !== 'load') return
-  const searchChanged = JSON.stringify(stableValue(previous.searchParameters)) !== JSON.stringify(stableValue(next.searchParameters))
+  const searchChanged = JSON.stringify(stableValue(normalizeQueryFilters(previous.searchParameters))) !== JSON.stringify(stableValue(normalizeQueryFilters(next.searchParameters)))
   if (searchChanged && query.value.page !== 1) query.value = { ...query.value, page: 1 }
 }, { deep: true })
 

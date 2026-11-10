@@ -28,10 +28,27 @@ export function useRecord<TRecord extends object, TContext extends object = Read
   const loaded = useLoader<RecordLoadContext, RecordResult<TRecord>>({
     key: computed(() => recordCacheKey(owner.value, source.value.id, 'display', source.value.namespace, searchParameters.value, source.value.load)),
     context: computed(() => ({ id: source.value.id, searchParameters: searchParameters.value })),
-    load: computed(() => source.value.load),
+    load: computed(() => {
+      const current = source.value
+      const load = current.load
+      if (!load) return undefined
+      return async (context: RecordLoadContext) => {
+        current.sourceGuard?.beforeLoad(context)
+        const record = await load(context)
+        if (record) current.sourceGuard?.record(record)
+        return record
+      }
+    }),
     data: computed(() => source.value.data),
   })
-  const record = computed(() => loaded.data.value)
+  const record = computed(() => {
+    const record = loaded.data.value
+    if (record && source.value.data !== undefined) {
+      source.value.sourceGuard?.beforeLoad({ id: source.value.id, searchParameters: searchParameters.value })
+      source.value.sourceGuard?.record(record)
+    }
+    return record
+  })
   const refresh = async (): Promise<void> => {
     if (source.value.data !== undefined) return
     await loaded.refresh()

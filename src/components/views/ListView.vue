@@ -34,7 +34,16 @@ import Icon from "../base/Icon.vue";
 import Popover from "../base/Popover.vue";
 import SearchBox from "../inputs/SearchBox.vue";
 import Switch from "../inputs/Switch.vue";
-import { exportTableRows } from "../../services";
+import Menu from "../base/Menu.vue";
+import { defaultExportStyles } from '../../exports/defaultStyles';
+import { useExport } from '../../exports/useExport';
+import { composeSourceGuards } from '../../resources/sourceGuard';
+import { collectExportRows } from '../../exports/collectRows';
+import { resolveExportFields } from '../../exports/resolveExportFields'
+import { inheritExportConfiguration } from '../../exports/inheritConfiguration'
+import { createExportSnapshot } from '../../exports/document';
+import type { ExportControls } from '../../exports/contracts';
+import ExportPreview from '../../exports/ExportPreview.vue';
 import { useTablePreferences } from "../core/useTablePreferences";
 import { isConfirmedWriteRefreshError, normalizeWriteError } from "../../resources/postWriteOutcome";
 import { withCurrentQuery } from "./routeQuery";
@@ -50,7 +59,7 @@ const emit = defineEmits<{
 const slots = useSlots();
 defineSlots<{
   [name: `cell:${string}`]: (props: { value: unknown; record: TRecord; field: unknown; index: number }) => unknown;
-  collection?: (props: CollectionSlotProps<TRecord, TQuery> & { actions?: ListViewSlotActions<TRecord> }) => unknown;
+  collection?: (props: CollectionSlotProps<TRecord, TQuery> & { actions?: ListViewSlotActions<TRecord>; exportControls: ExportControls }) => unknown;
   /**
    * Per-standard-action overrides. The framework owns visibility: each region
    * renders only when its action is declared and permitted, so custom content
@@ -60,14 +69,15 @@ defineSlots<{
   "row-actions-edit"?: (props: { record: TRecord; can?: ListViewActions<TRecord>["can"]; target: RouteTarget }) => unknown;
   "row-actions-delete"?: (props: { record: TRecord; can?: ListViewActions<TRecord>["can"]; deleteRecord?: ListViewSlotActions<TRecord>["deleteRecord"]; deleteState: ListViewDeleteState }) => unknown;
   "create-action"?: (props: { can?: ListViewActions<TRecord>["can"]; target: RouteTarget }) => unknown;
-  "resource-action"?: () => unknown;
-  header?: () => unknown;
+  "resource-action"?: (props: { exportControls: ExportControls }) => unknown;
+  "export-action"?: (props: { exportControls: ExportControls }) => unknown;
+  header?: (props: { exportControls: ExportControls }) => unknown;
   empty?: () => unknown;
   filters?: () => unknown;
   context?: (props: ListViewContextSlotProps) => unknown;
-  toolbar?: () => unknown;
-  body?: (props: { table: TableProps<TRecord, TQuery, TContext> }) => unknown;
-  footer?: () => unknown;
+  toolbar?: (props: { exportControls: ExportControls }) => unknown;
+  body?: (props: { table: TableProps<TRecord, TQuery, TContext>; exportControls: ExportControls }) => unknown;
+  footer?: (props: { exportControls: ExportControls }) => unknown;
   "row-actions"?: (props: { record: TRecord }) => unknown;
 }>();
 
@@ -245,6 +255,7 @@ const passthroughSlots = computed(() =>
         "collection",
         "create-action",
         "resource-action",
+        "export-action",
         "row-actions-view",
         "row-actions-edit",
         "row-actions-delete",
@@ -257,7 +268,7 @@ const passthroughSlots = computed(() =>
 );
 
 const deleteOutcomes = reactive(new Map<DeleteOwner, Map<string, DeleteOutcome>>());
-const exporting = ref(false);
+
 let mounted = true;
 const columnFields = computed(() =>
   resolveDisplayFields({ entries: surface.value.table.columns, labels: surface.value.table.labels, context: surface.value.table.context, surface: "table" }),
@@ -468,38 +479,49 @@ onBeforeUnmount(() => {
   mounted = false;
 });
 
-async function exportRows() {
-  if (props.export === false || exporting.value) return;
-  exporting.value = true;
-  try {
-    const { page: _page, limit: _limit, ...activeQuery } = currentQuery.value;
-    const columns = columnFields.value.filter((field) =>
-      columnPreferences.visibleKeys.value.includes(field.key),
-    );
-    await exportTableRows({
-      activeQuery: activeQuery as TQuery,
-      searchParameters: surface.value.table.searchParameters ?? {},
-      data: surface.value.table.data,
-      load: surface.value.table.load,
-      columns,
-      context: surface.value.table.context ?? ({} as TContext),
-      options: props.export ?? {},
-      fallbackNamespace: surface.value.table.namespace,
-    });
-    toast.success("Export created.");
-  } catch (error) {
-    toast.error("Could not create export.");
-    emit("export-error", error);
-  } finally {
-    exporting.value = false;
-  }
-}
-
-const canExport = computed(
-  () =>
-    props.export !== false &&
-    Boolean(surface.value.table.data || surface.value.table.load),
-);
+const exportConfiguration = computed(() => {
+  const configuration = typeof props.export === 'object' ? props.export : {};
+  const { page: _page, limit: _limit, ...query } = currentQuery.value;
+  const filename = typeof configuration.filename === 'function' ? configuration.filename({ query: query as TQuery }) : configuration.filename;
+  return { ...configuration, filename: filename ?? `${surface.value.table.namespace ?? 'export'}-${Date.now()}`.replace(/[^a-zA-Z0-9._-]/g, '-'), orientation: configuration.orientation ?? 'landscape' as const, styles: configuration.styles ?? (configuration.component ? undefined : defaultExportStyles) };
+});
+const exportState = useExport({
+  available: () => props.export !== false && (props.exportAccess?.() ?? true) && Boolean(surface.value.table.data || surface.value.table.load),
+  source: () => [surface.value.table, currentQuery.value, props.export, columnPreferences.visibleKeys.value],
+  configuration: exportConfiguration,
+  async prepare(signal) {
+    const source = surface.value.table;
+    const patch = exportConfiguration.value.table;
+    const configuration = inheritExportConfiguration(source, patch);
+    if (patch?.load && patch.load !== source.load && !source.sourceGuard) throw new Error('[loom] Export loader must be installed on the effective view source so its access and scope guards are preserved.');
+    const changesQuery = patch?.query && Object.entries(patch.query).some(([key, value]) => JSON.stringify(stableValue(value)) !== JSON.stringify(stableValue(Reflect.get(currentQuery.value, key))));
+    const changesData = patch?.data !== undefined && patch.data !== source.data;
+    if ((changesQuery || changesData) && !source.sourceGuard) throw new Error('[loom] Export source overrides require the effective sourceGuard.');
+    const sourceGuard = source.sourceGuard && patch?.sourceGuard ? composeSourceGuards(source.sourceGuard, patch.sourceGuard) : source.sourceGuard ?? patch?.sourceGuard;
+    const query = { ...currentQuery.value, ...patch?.query } as TQuery;
+    let exportData: readonly TRecord[] | undefined;
+    if (exportConfiguration.value.load) {
+      if (!source.sourceGuard) throw new Error('[loom] An alternate export loader requires the effective sourceGuard.');
+      const activeQuery = Object.fromEntries(Object.entries(query).filter(([key]) => key !== 'page' && key !== 'limit'));
+      const loadContext = { query: activeQuery as TQuery, searchParameters: { ...patch?.searchParameters, ...source.searchParameters }, signal };
+      sourceGuard?.beforeLoad(loadContext);
+      const loaded = await exportConfiguration.value.load(loadContext);
+      signal.throwIfAborted();
+      exportData = Array.isArray(loaded) ? loaded : loaded.data;
+    }
+    const rows = await collectExportRows({ data: exportData ?? (patch?.load ? undefined : patch?.data ?? source.data), load: patch?.load ?? source.load, sourceGuard, pageSize: exportConfiguration.value.pageSize ?? configuration.defaultPageSize ?? (typeof currentQuery.value.limit === 'number' ? currentQuery.value.limit : undefined), querySchema: configuration.querySchema, query, searchParameters: { ...patch?.searchParameters, ...source.searchParameters }, signal });
+    const context = configuration.context ?? ({} as TContext);
+    const fields = resolveExportFields<TRecord, TContext>({ entries: configuration.columns, labels: configuration.labels, context, surface: 'table' }).filter(field => patch?.columns !== undefined || columnPreferences.visibleKeys.value.includes(field.key));
+    if (!fields.length) throw new Error('[loom] Export requires one visible column.');
+    return createExportSnapshot({ sheetName: (exportConfiguration.value.sheetName ?? 'Data').slice(0, 31), mapValue: exportConfiguration.value.mapValue, kind: 'table', title: exportConfiguration.value.title ?? props.title, rows, context, config: configuration, fields: () => fields });
+  },
+});
+const exportControls = exportState.controls;
+watch(() => exportControls.value.error, error => { if (error) emit("export-error", error); });
+const exportMenuItems = computed(() => [
+  ...(exportControls.value.formats.includes('pdf') ? [{ name: 'Ekspor sebagai PDF', action: exportControls.value.printPdf }] : []),
+  ...(exportControls.value.formats.includes('xlsx') ? [{ name: 'Ekspor sebagai XLSX', action: exportControls.value.openPreview }] : []),
+]);
 
 const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
   createRoute: surface.value.createRoute,
@@ -517,7 +539,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
       <header class="flex flex-col gap-4 px-5 py-4 sm:px-6 sm:py-5">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <slot name="header">
+            <slot name="header" :export-controls="exportControls">
               <div class="min-w-0">
                 <h1 v-if="title" class="text-lg font-semibold tracking-tight text-on-surface">
                   {{ title }}
@@ -604,17 +626,17 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
                   </slot>
                 </template>
               </Dialog>
-              <Button
-                v-if="canExport"
-                kind="icon"
-                variant="standard"
-                ariaLabel="Export Excel"
-                :disabled="exporting"
-                @click="exportRows"
-              >
-                <template #icon><Icon name="file-excel" /></template>
-              </Button>
-              <slot name="toolbar" />
+              <slot v-if="exportControls.available" name="export-action" :export-controls="exportControls">
+                <Menu :items="exportMenuItems" :disabled="exportControls.disabled">
+                  <template #trigger>
+                    <Button type="button" kind="icon" variant="standard" ariaLabel="Ekspor" :disabled="exportControls.disabled">
+                      <template #icon><Icon name="download" size="base" /></template>
+                    </Button>
+                  </template>
+                </Menu>
+              </slot>
+              <slot name="toolbar" :export-controls="exportControls" />
+              <p v-if="exportControls.error" role="alert">{{ exportControls.error.message }}</p>
             </div>
           </div>
           <div v-if="surface.createRoute || $slots['resource-action']" class="flex flex-row justify-end gap-2">
@@ -627,7 +649,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
                 </RouterLink>
               </slot>
             </template>
-            <slot v-if="$slots['resource-action']" name="resource-action" />
+            <slot v-if="$slots['resource-action']" name="resource-action" :export-controls="exportControls" />
           </div>
         </div>
       </header>
@@ -643,7 +665,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
     <slot name="context" v-bind="contextSlotProps" />
 
     <Card variant="outlined" color="surfaceContainer" class="gap-0 p-0">
-      <slot name="body" v-bind="{ table: surface.table }">
+      <slot name="body" v-bind="{ table: surface.table, exportControls }">
         <div class="p-3 sm:p-4">
           <Table
             ref="tableRef"
@@ -657,7 +679,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
             @row-reorder="rowReorder"
           >
             <template v-if="$slots.collection" #collection="collection">
-              <slot name="collection" v-bind="{ ...collection, actions: customActions }" />
+              <slot name="collection" v-bind="{ ...collection, actions: customActions, exportControls }" />
             </template>
             <template
               v-if="
@@ -779,8 +801,9 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
         v-if="$slots.footer"
         class="border-t border-outline-variant px-5 py-3"
       >
-        <slot name="footer" />
+        <slot name="footer" :export-controls="exportControls" />
       </footer>
     </Card>
   </section>
+  <ExportPreview v-model="exportState.open.value" v-model:target="exportState.target.value" :snapshot="exportState.snapshot.value" :document-target="exportState.documentTarget.value" :configuration="exportState.configuration.value" :controls="exportControls" :output-formats="['xlsx']" @error="exportState.reportError" />
 </template>

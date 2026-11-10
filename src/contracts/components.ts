@@ -20,6 +20,7 @@ import type { QueryNamespace, QueryValues } from './query'
 import type { DetailDefinition, DetailFieldEntry } from './details'
 import type { TableColumnEntry, TableDefinition } from './tables'
 import type { SubmitError } from './results'
+import type { SourceGuard } from '../resources/sourceGuard'
 
 interface CollectionOptions<TQuery extends object> {
   meta?: CollectionMeta
@@ -38,7 +39,7 @@ type CollectionSource<TRecord extends object = Record<string, unknown>, TQuery e
   | { data: TRecord[]; load?: never }
   | { load: Load<CollectionLoadContext<TQuery>, CollectionResult<TRecord>>; data?: never }
 
-export type CollectionProps<TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>> = CollectionOptions<TQuery> & CollectionSource<TRecord, TQuery>
+export type CollectionProps<TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>> = CollectionOptions<TQuery> & CollectionSource<TRecord, TQuery> & { sourceGuard?: SourceGuard<TRecord, CollectionLoadContext<TQuery>> }
 
 export interface CollectionSlotProps<TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>> {
   records: TRecord[]
@@ -58,6 +59,7 @@ interface TableOptions<
   TQuery extends object = Record<string, unknown>,
   TContext extends object = Readonly<Record<string, unknown>>,
 > extends CollectionOptions<TQuery>, TableDefinition<TRecord, Readonly<Record<string, TableColumnEntry<TRecord, TContext>>>, TContext> {
+  sourceGuard?: SourceGuard<TRecord, CollectionLoadContext<TQuery>>
   /** Minimum resizable width in pixels. */
   minColumnWidth?: number
   /**
@@ -133,6 +135,8 @@ export interface RowReorderPayload<TRecord extends object = Record<string, unkno
 }
 
 interface DetailOptions<TRecord extends object, TContext extends object> extends DetailDefinition<TRecord, Readonly<Record<string, DetailFieldEntry<TRecord, TContext>>>, TContext> {
+  sourceGuard?: SourceGuard<TRecord, RecordLoadContext>
+  recordIdentity?: (record: TRecord) => RecordIdentity
   id?: RecordIdentity
   searchParameters?: Record<string, unknown>
   resource?: string

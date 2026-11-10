@@ -318,7 +318,7 @@ application source.
 | Form validation, summaries, and resolver updates | [form.spec.ts](src/components/core/__tests__/form.spec.ts), [Form.browser.spec.ts](src/components/core/__tests__/Form.browser.spec.ts) |
 | DateInput rejects invalid pasted text in Form | [Form.browser.spec.ts](src/components/core/__tests__/Form.browser.spec.ts) |
 | Local File draft reset and text submit without an asset adapter | [FileInput.browser.spec.ts](src/components/inputs/__tests__/FileInput.browser.spec.ts), [file input mode types](src/components/inputs/__type-tests__/input-model-modes.type-test.vue) |
-| Shared relation accessor and format in exports | [export.spec.ts](src/services/__tests__/export.spec.ts) |
+| Resource export configuration | [Export guide](src/exports/README.md) |
 | Editable row mapping and submit-free row form | [TableInput.browser.spec.ts](src/components/composites/__tests__/TableInput.browser.spec.ts) |
 | Application resource bags and extracted page props | [users.resource.ts](../../apps/web/src/routes/%28authenticated%29/settings/users/users.resource.ts), [index.route.vue](../../apps/web/src/routes/%28authenticated%29/settings/users/index.route.vue), [detail.route.vue](../../apps/web/src/routes/%28authenticated%29/settings/users/%5BuserId%5D/detail.route.vue), [edit.route.vue](../../apps/web/src/routes/%28authenticated%29/settings/users/%5BuserId%5D/edit.route.vue) |
 
@@ -386,3 +386,7 @@ or closeOnEscape false only for an explicit application requirement. Editor popu
 interactions remain inside their owning dialog. Headerless dialogs retain a close
 control. There is one CollectionResult contract with optional metadata. Pagination
 is request behavior rather than a separate result category.
+
+## PDF and XLSX reports
+
+ListView and DetailView use the separate public `@southneuhof/spool` package. List exports retain visible column preferences and existing export settings. Resource `exports` configures PDF, XLSX, and custom Vue report components. See the [export guide](src/exports/README.md) for configuration, controls, and access guards.

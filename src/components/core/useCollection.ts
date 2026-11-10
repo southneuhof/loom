@@ -81,7 +81,13 @@ export function useCollection<TRecord extends object, TQuery extends object>(
   const load = computed(() => {
     const currentSource = source.value
     if (!currentSource.load) return undefined
-    const sourceLoad = currentSource.load
+    const originalLoad = currentSource.load
+    const sourceLoad = async (context: CollectionLoadContext<TQuery>) => {
+      currentSource.sourceGuard?.beforeLoad(context)
+      const result = await originalLoad(context)
+      for (const record of result.data) currentSource.sourceGuard?.record(record)
+      return result
+    }
     if (!currentSource.querySchema) return sourceLoad
     const runtime = createSchemaRuntime(currentSource.querySchema)
     const validated = async (context: CollectionLoadContext<TQuery>): Promise<CollectionResult<TRecord>> => {
@@ -112,7 +118,14 @@ export function useCollection<TRecord extends object, TQuery extends object>(
       ? { data: source.value.data, meta: source.value.meta }
       : undefined),
   })
-  const records = computed(() => loaded.data.value?.data ?? [])
+  const records = computed(() => {
+    const records = loaded.data.value?.data ?? []
+    if (source.value.data !== undefined) {
+      source.value.sourceGuard?.beforeLoad({ query: effectiveQuery.value as TQuery, searchParameters: searchParameters.value })
+      for (const record of records) source.value.sourceGuard?.record(record)
+    }
+    return records
+  })
   const meta = computed(() => loaded.data.value?.meta)
   const context = computed(() => loaded.data.value?.context)
   const empty = computed(() => !loaded.loading.value && !loaded.error.value && records.value.length === 0)

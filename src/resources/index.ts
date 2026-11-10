@@ -25,3 +25,5 @@ export type { RegisteredResourceRouteRequirement } from './routeAccess'
 
 export { registerResourceRuntime, resetResourceRuntimeForTests, useResourceRuntime } from './runtime'
 export type { ResourceRuntime } from './runtime'
+export { composeSourceGuards } from './sourceGuard'
+export type { SourceGuard } from './sourceGuard'

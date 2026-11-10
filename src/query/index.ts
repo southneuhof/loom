@@ -1,3 +1,5 @@
+export { normalizeQueryFilters } from './filters'
+
 export {
   resourceKeyPrefix,
   stableValue,

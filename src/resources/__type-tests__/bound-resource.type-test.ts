@@ -3,7 +3,7 @@ import { defineForm } from '../../forms/defineForm'
 import { defineTable } from '../../tables/defineTable'
 import type { CollectionLoadContext, CollectionResult, DetailFieldContext, FormDraft, FormDraftSnapshot, FormFieldContext, QueryValues, RawSchema, RecordIdentity, RecordLoadContext, TableColumnContext } from '../../contracts'
 import type { ListFilters, ListViewProps } from '../../contracts/views'
-import type { ListExportOptions } from '../../services/excel'
+import type { ListExportConfiguration } from '../../exports/contracts'
 import type { ResourceCreateDeclaration, ResourceListDeclaration, ResourceReadAction } from '../operations'
 import type { FormRendererProps } from '../../renderers/formContracts'
 
@@ -400,7 +400,7 @@ const completeFilters = {
   queryKeys: ['status'],
   toDraft: (query) => typeof query.status === 'string' ? { status: query.status } : {},
 } satisfies ListFilters<CompleteFilterInput>
-const completeExport: ListExportOptions<Row> = {
+const completeExport: ListExportConfiguration<Row> = {
   filename: 'rows',
   sheetName: 'Rows',
   pageSize: 50,

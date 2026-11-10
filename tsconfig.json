@@ -4,7 +4,7 @@
     "composite": false,
     "strict": true,
     "module": "esnext",
-    "resolvePackageJsonExports": false,
+    "resolvePackageJsonExports": true,
     "resolvePackageJsonImports": false,
     "paths": {
       "@southneuhof/loom": [

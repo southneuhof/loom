@@ -1,6 +1,7 @@
 export { default as Accordion } from './Accordion.vue'
 export { default as Alert } from './Alert.vue'
 export { default as Button } from './Button.vue'
+export { default as ContextMenu } from './ContextMenu.vue'
 export { default as Card } from './Card.vue'
 export { default as Chip } from './Chip.vue'
 export { default as Dialog } from './Dialog.vue'

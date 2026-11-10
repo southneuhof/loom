@@ -50,6 +50,7 @@ onBeforeUpdate(() => {
 const collectionProps = computed<CollectionProps<TRecord, TQuery>>(() => {
   const options = {
     resource: props.resource,
+    sourceGuard: props.sourceGuard,
     searchParameters: props.searchParameters,
     namespace: props.namespace,
     querySchema: props.querySchema,

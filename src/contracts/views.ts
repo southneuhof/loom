@@ -1,7 +1,7 @@
 import type { QueryNamespace } from './query'
 import type { RouteLocationAsPathGeneric, RouteLocationAsRelativeGeneric } from 'vue-router'
 import type { FormProps } from '../forms/props'
-import type { ListExportOptions } from '../services/excel'
+import type { ListExportConfiguration, DetailExportConfiguration, ExportControls } from '../exports/contracts'
 import type { DetailProps, TableProps } from './components'
 import type { FormDefinition, FormDraft, FormDraftSnapshot, FormSlots } from './forms'
 import type { QueryValues } from './query'
@@ -109,7 +109,8 @@ export type ListViewProps<
   description?: string
   actionLabels?: Partial<Record<'create' | 'view' | 'edit' | 'delete', string>>
   filters?: ListFilters<TQuery, TFilterInput, TContext>
-  export?: ListExportOptions<TRecord, TQuery, TContext> | false
+  exportAccess?: (record?: TRecord) => boolean
+  export?: ListExportConfiguration<TRecord, TQuery, TContext> | boolean
   table: TableProps<TRecord, TQuery, TContext>
 } & ListViewActions<TRecord> &
   (
@@ -125,6 +126,7 @@ export type ListViewProps<
 
 export type DetailViewReadyProps<TRecord extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>> = {
   record: TRecord
+  exportControls?: ExportControls
   detail: Omit<DetailProps<TRecord, TContext>, 'load' | 'data'> & { data: TRecord }
 }
 
@@ -133,10 +135,13 @@ export type DetailViewControls<TRecord extends object = Record<string, unknown>>
   loading: boolean
   error?: SubmitError
   refresh: () => Promise<void>
+  exportControls?: ExportControls
 }
 
 export type DetailViewProps<TRecord extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>> = {
   detail: DetailProps<TRecord, TContext>
+  exportAccess?: (record?: TRecord) => boolean
+  export?: DetailExportConfiguration<TRecord, TContext> | boolean
   title?: string
   backTo?: RouteTarget | false
 }

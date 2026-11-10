@@ -1,3 +1,4 @@
+import { composeSourceGuards, type SourceGuard } from './sourceGuard'
 import type { FormOutputs } from '../forms/outputs'
 import type { AccessAdapter, CollectionLoadContext, QueryNamespace, RecordIdentity, RecordLoadContext, ResourceOperation } from '../contracts'
 import { type ResourceInvalidation, invalidateResourceData } from '../query/client'
@@ -41,9 +42,17 @@ function assertDeclaration(resourceKey: string, value: unknown): asserts value i
   if (!isRecord(value)) throw new Error('[loom][RESOURCE_IDENTITY_INVALID] Resource declaration must be an object.')
   if (typeof value.key !== 'string' || value.key.length === 0) throw new Error('[loom][RESOURCE_IDENTITY_INVALID] Resource key must be a nonempty string.')
   if (typeof value.identity !== 'function') throw new Error(`[loom][RESOURCE_IDENTITY_INVALID] Resource "${resourceKey}" needs an identity function.`)
-  const supported = new Set(['key', 'identity', 'list', 'create', 'detail', 'update', 'delete', 'actions'])
+  const supported = new Set(['key', 'identity', 'list', 'create', 'detail', 'update', 'delete', 'actions', 'exports'])
   for (const member of Object.keys(value)) {
     if (!supported.has(member)) throw new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" member "${member}" is not supported.`)
+  }
+  if (value.exports !== undefined) {
+    if (!isRecord(value.exports)) throw new Error('[loom] Resource exports must be an object.')
+    for (const [operation, configuration] of Object.entries(value.exports)) {
+      if (operation !== 'list' && operation !== 'detail') throw new Error(`[loom] Unknown export surface "${operation}".`)
+      if (typeof configuration !== 'boolean' && !isRecord(configuration)) throw new Error(`[loom] Export "${operation}" must be a boolean or configuration object.`)
+      if (isRecord(configuration) && configuration.formats !== undefined && (!Array.isArray(configuration.formats) || configuration.formats.some(format => format !== 'xlsx' && format !== 'pdf'))) throw new Error('[loom] Export formats must contain only xlsx or pdf.')
+    }
   }
   if (value.actions !== undefined && !isRecord(value.actions)) throw new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" actions must be an object.`)
 }
@@ -587,6 +596,10 @@ export function bindResource<
     page.list = (options: { context?: object; query?: object; searchParameters?: Record<string, unknown> } = {}) => {
       const table = declaration.table
       const searchParameters = { ...(table.searchParameters ?? {}), ...(options.searchParameters ?? {}) }
+      const accessGuard: SourceGuard<IdentityRecord<TIdentityFunction>, CollectionLoadContext<object>> = {
+        beforeLoad() { assertAllowed(resourceKey, useResourceRuntime().adapters.access, 'list', declaration.permission, declaration.visible) },
+        record() {},
+      }
       const tableBag = {
         ...table,
         ...(options.context !== undefined ? { context: options.context } : {}),
@@ -594,10 +607,13 @@ export function bindResource<
         searchParameters,
         resource: resourceKey,
         namespace: table.namespace ?? resourceKey,
+        sourceGuard: table.sourceGuard ? composeSourceGuards(accessGuard, table.sourceGuard) : undefined,
         load: wrapCollectionLoad(resourceKey, declaration.permission, declaration.visible, table.load, searchParameters),
       }
       const list = withoutMembers(declaration, ['permission', 'route', 'visible', 'table', 'can', 'deleteRecord', 'recordIdentity'])
       list.table = tableBag
+      list.export = definition.exports?.list ?? declaration.export ?? true
+      list.exportAccess = () => standardAllowed(useResourceRuntime().adapters.access, 'list', declaration.permission, declaration.visible)
       if (declaration.createRoute === undefined && definition.create?.route) list.createRoute = staticRouteTarget(definition.create.route)
       const detailDeclaration = definition.detail
       if (declaration.detailRoute === undefined && detailDeclaration?.route) {
@@ -724,14 +740,32 @@ export function bindResource<
       const listRoute = definition.list?.route
       const backTo = declaration.backTo === undefined ? staticRouteTarget(listRoute) : declaration.backTo
       const searchParameters = { ...(primitive.searchParameters ?? {}), ...(binding.searchParameters ?? {}) }
+      const accessGuard: SourceGuard<IdentityRecord<TIdentityFunction>, RecordLoadContext> = {
+        beforeLoad(context) {
+          bindRecordContext(resourceKey, 'detail', bound.id, context)
+          assertAllowed(resourceKey, useResourceRuntime().adapters.access, 'detail', declaration.permission, declaration.visible, bound.record)
+        },
+        record(record) {
+          if (!sameIdentity(resolveIdentity(resourceKey, identity, record, 'detail'), bound.id)) throw new Error('[loom] Export loader returned a different record identity.')
+          assertAllowed(resourceKey, useResourceRuntime().adapters.access, 'detail', declaration.permission, declaration.visible, record)
+        },
+      }
       return {
         ...withoutMembers(declaration, ['permission', 'route', 'visible', 'detail']),
+        exportAccess: (record?: IdentityRecord<TIdentityFunction>) => standardAllowed(useResourceRuntime().adapters.access, 'detail', declaration.permission, declaration.visible, record ?? bound.record),
+        export: (() => {
+          const configuration = definition.exports?.detail
+          if (!configuration || configuration === true) return configuration ?? false
+          return { ...configuration, detail: configuration.detail?.(bound) }
+        })(),
         ...(backTo !== undefined ? { backTo } : {}),
         detail: {
           ...primitive,
           ...(binding.context !== undefined ? { context: binding.context } : {}),
           searchParameters,
           id: bound.id,
+          recordIdentity: identity,
+          sourceGuard: primitive.sourceGuard ? composeSourceGuards(accessGuard, primitive.sourceGuard) : undefined,
           resource: resourceKey,
           namespace: primitive.namespace ?? `${resourceKey}.detail.${identityToken(bound.id)}`,
           load: wrapRecordLoad(resourceKey, 'detail', declaration.permission, declaration.visible, bound.id, bound.record, primitive.load, searchParameters),

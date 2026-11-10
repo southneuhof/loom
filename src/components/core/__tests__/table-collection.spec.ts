@@ -3,9 +3,8 @@ import { h } from 'vue'
 import { z } from 'zod'
 import Table from '../Table.vue'
 import { deferred, flush, mountCore } from './harness'
-import { exportTableRows } from '../../../services/export'
+import { collectExportRows } from '../../../exports/collectRows'
 import type { CollectionResult, CollectionSlotProps } from '../../../contracts'
-import { resolveDisplayFields } from '../../../display/resolveDisplay'
 
 const schema = z.object({ id: z.number(), name: z.string() })
 const columns = { name: { label: 'Name' } }
@@ -128,7 +127,7 @@ describe('Table collection slot', () => {
   })
 })
 
-describe('exportTableRows paging', () => {
+describe('export collection paging', () => {
   it('pages until meta.totalPage is exhausted and stops', async () => {
     let calls = 0
     const load = async ({ query }: { query: Record<string, unknown> }): Promise<CollectionResult<{ id: number }>> => {
@@ -139,11 +138,10 @@ describe('exportTableRows paging', () => {
         meta: { page, pageSize: 2, total: 6, totalPage: 3 },
       }
     }
-    await exportTableRows({
-      activeQuery: {},
+    await collectExportRows({
+      query: {},
       searchParameters: {},
       load,
-      columns: resolveDisplayFields({ surface: 'table', entries: { id: { label: 'ID' } } }),
     })
     expect(calls).toBe(3)
   })
@@ -151,11 +149,10 @@ describe('exportTableRows paging', () => {
   it('throws when every page repeats the same signature', async () => {
     const load = async (): Promise<CollectionResult<{ id: number }>> => ({ data: [{ id: 1 }], meta: { totalPage: 99 } })
     await expect(
-      exportTableRows({
-        activeQuery: {},
+      collectExportRows({
+        query: {},
         searchParameters: {},
         load,
-        columns: resolveDisplayFields({ surface: 'table', entries: { id: {} } }),
       }),
     ).rejects.toThrowError(/repeated a page/)
   })

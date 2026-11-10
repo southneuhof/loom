@@ -1,5 +1,6 @@
 import { computed, getCurrentInstance, toRef, toValue, watch, type MaybeRefOrGetter } from 'vue'
 import type { CollectionResult, OptionLoad, OptionLoadContext, QueryNamespace } from '../../contracts'
+import { normalizeQueryFilters } from '../../query/filters'
 import { useLoader } from '../../query/loader'
 import { resourceOptionsKey, stableValue } from '../../query/keys'
 import { resourceLoaderIdentity, resourceLoaderOwner, resourceLoaderParameters } from '../../resources/loaderIdentity'
@@ -54,7 +55,7 @@ export function useOptionSource<TOption extends object>(
       load: props.load,
       namespace: props.namespace,
       resource: props.resource,
-      searchParameters: stableValue(toValue(searchParameters)),
+      searchParameters: stableValue(normalizeQueryFilters(toValue(searchParameters))),
     })),
     options: computed<readonly TOption[]>(() => {
       const value = source.data.value

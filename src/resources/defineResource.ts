@@ -15,6 +15,9 @@ import type {
   ResourceBoundOperations,
   ResourceDefinitionGuard,
   ResourceDefinitionInput,
+  ResourceExportSource,
+  ResourceExportTableShape,
+  ResourceExportDetailFactory,
   ResourceIdentityFunction,
   ResourceIdentityValue,
   ResourcePermissions,
@@ -38,18 +41,20 @@ export function defineResource<const TKey extends string, const TActions extends
 
 export function defineResource<
   const TIdentityFunction extends ResourceIdentityFunction,
+  const TTable extends ResourceExportTableShape,
+  const TDetailFactory extends ResourceExportDetailFactory<TIdentityFunction>,
   const TLoad extends ResourceRecordLoad,
   const TForm extends Omit<FormBagShape, 'load'> & { load?: never },
-  const TDefinition extends Omit<ResourceDefinitionInput<TIdentityFunction>, 'update'>,
+  const TDefinition extends Omit<ResourceDefinitionInput<TIdentityFunction>, 'update' | 'exports'>,
   TContext extends object = {},
->(definition: TDefinition & { identity: TIdentityFunction; update: ResourceLoadedUpdateDeclaration<TLoad, ResourceIdentityValue<TIdentityFunction>, TForm, TContext> } & ResourceDefinitionGuard<NoInfer<TDefinition>, TIdentityFunction>):
+>(definition: TDefinition & { identity: TIdentityFunction; update: ResourceLoadedUpdateDeclaration<TLoad, ResourceIdentityValue<TIdentityFunction>, TForm, TContext> } & ResourceDefinitionGuard<NoInfer<TDefinition>, TIdentityFunction> & ResourceExportSource<TTable, TIdentityFunction, TDetailFactory>):
   Omit<BoundResource<ResourceIdentityValue<TIdentityFunction>, TDefinition['key'], ResourcePermissions<TDefinition>, TDefinition extends { actions: infer TActions } ? BoundCustomActions<TActions, ResourceIdentityValue<TIdentityFunction>, IdentityRecord<TIdentityFunction>> : Record<never, never>, ResourceBoundOperations<TDefinition, TIdentityFunction>>, 'update'> & {
     update: (binding: { id: ResourceIdentityValue<TIdentityFunction>; searchParameters?: Record<string, unknown> } & (keyof TContext extends never ? { context?: TContext } : { context: TContext })) => LoadedResourceUpdatePage<TForm, ResourceIdentityValue<TIdentityFunction>>
   }
 
 
-export function defineResource<const TIdentityFunction extends ResourceIdentityFunction, const TDefinition extends ResourceDefinitionInput<TIdentityFunction>>(
-  definition: TDefinition & { identity: TIdentityFunction } & ResourceDefinitionGuard<NoInfer<TDefinition>, TIdentityFunction>
+export function defineResource<const TIdentityFunction extends ResourceIdentityFunction, const TTable extends ResourceExportTableShape, const TDetailFactory extends ResourceExportDetailFactory<TIdentityFunction>, const TDefinition extends Omit<ResourceDefinitionInput<TIdentityFunction>, 'exports'>>(
+  definition: TDefinition & { identity: TIdentityFunction } & ResourceDefinitionGuard<NoInfer<TDefinition>, TIdentityFunction> & ResourceExportSource<TTable, TIdentityFunction, TDetailFactory>
 ): BoundResource<
   ResourceIdentityValue<TIdentityFunction>,
   TDefinition['key'],

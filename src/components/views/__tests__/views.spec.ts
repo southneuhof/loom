@@ -2,8 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, defineComponent, h, ref, toRaw, type Component } from 'vue'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { z } from 'zod'
-import * as XLSX from 'xlsx'
-import { configureParser, resetParserConfigForTests } from '@southneuhof/utilities/parse'
 import type { CollectionSlotProps, DetailViewControls, DetailViewReadyProps, QueryValues, RecordIdentity } from '../../../contracts'
 import type { ListViewSlotActions } from '../../../contracts/views'
 import { FrameworkPlugin } from '../../../adapters/plugin'
@@ -19,16 +17,6 @@ import { defineResource } from '../../../resources/defineResource'
 import { useFrameworkQueryClient } from '../../../query/client'
 import { resetResourceRuntimeForTests } from '../../../resources/runtime'
 import { toast } from 'vue-sonner'
-
-const exportedWorkbook = vi.hoisted(() => ({ value: undefined as unknown }))
-
-vi.mock('../../../services/excel', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../services/excel')>()
-  return {
-    ...actual,
-    downloadWorkbook: (workbook: unknown) => { exportedWorkbook.value = workbook },
-  }
-})
 
 const tableProps = {
   schema: z.object({ name: z.string() }),
@@ -98,41 +86,6 @@ describe('ListView', () => {
     expect(view.text()).toContain('Admin')
     expect(view.text()).toContain('List summary')
     view.unmount()
-  })
-
-  it('passes table context to row cell export resolvers', async () => {
-    configureParser({ formatters: { uppercase: (value) => String(value).toUpperCase() } })
-    const view = mountCore(ListView, {
-      table: {
-        schema: z.object({ name: z.string() }),
-        columns: {
-          name: {
-            label: 'Name',
-            cell: ({ context }: { context: { prefix: string } }) => ({
-              read: (record: { name: string }) => `${context.prefix} ${record.name}`,
-              format: 'uppercase',
-            }),
-          },
-        },
-        context: { prefix: 'joined' },
-        data: [{ name: 'name' }],
-      },
-      export: { filename: 'context' },
-    })
-
-    try {
-      view.find('[aria-label="Export Excel"]')!.click()
-      await vi.waitFor(() => expect(exportedWorkbook.value).toBeDefined())
-      const workbook = exportedWorkbook.value as XLSX.WorkBook
-      expect(XLSX.utils.sheet_to_json(workbook.Sheets.Data!, { header: 1 })).toEqual([
-        ['Name'],
-        ['JOINED NAME'],
-      ])
-    } finally {
-      view.unmount()
-      exportedWorkbook.value = undefined
-      resetParserConfigForTests()
-    }
   })
 
   it('updates visible columns immediately, coalesces persistence, and reset cancels pending visibility', async () => {

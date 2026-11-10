@@ -8,6 +8,8 @@
  */
 import type { QueryKey, QueryNamespace, QueryValues, RecordIdentity } from '../contracts'
 
+import { normalizeQueryFilters } from './filters'
+
 export const resourceKeyPrefix = 'resource'
 
 /** Stable serialization: property order and absent values never change identity. */
@@ -60,7 +62,7 @@ export function resourceOptionsKeyPrefix(resource: string): QueryKey {
 }
 
 export function resourceOptionsKey({ resource, operation, namespace, query, searchParameters }: ResourceOptionsKeyInput): QueryKey {
-  return [...resourceOptionsKeyPrefix(resource), operation ?? null, namespace, stableValue({ ...searchParameters, ...query })]
+  return [...resourceOptionsKeyPrefix(resource), operation ?? null, namespace, stableValue(normalizeQueryFilters({ ...searchParameters, ...query }))]
 }
 
 export function collectionKey({ resource, query, searchParameters, namespace }: CollectionKeyInput): QueryKey {
@@ -69,12 +71,12 @@ export function collectionKey({ resource, query, searchParameters, namespace }: 
     resource,
     'list',
     namespace ?? null,
-    stableValue({ ...searchParameters, ...query }),
+    stableValue(normalizeQueryFilters({ ...searchParameters, ...query })),
   ]
 }
 
 export function recordKey({ resource, id, variant, namespace, searchParameters }: RecordKeyInput): QueryKey {
-  return [resourceKeyPrefix, resource, 'detail', stableValue(id), variant, namespace ?? null, stableValue(searchParameters ?? {})]
+  return [resourceKeyPrefix, resource, 'detail', stableValue(id), variant, namespace ?? null, stableValue(normalizeQueryFilters(searchParameters ?? {}))]
 }
 
 export function isSameKey(left: QueryKey, right: QueryKey): boolean {

@@ -1,3 +1,5 @@
+import type { SourceGuard } from './sourceGuard'
+import type { ListExportConfiguration, DetailExportConfiguration } from '../exports/contracts'
 import type {
   AccessAdapter,
   CollectionLoadContext,
@@ -17,6 +19,7 @@ import type { RawSchema, RawSchemaOutput } from '../contracts/schema'
 import type { RouteLocationRaw, RouteMap } from 'vue-router'
 import type { CompactFormDefinition, FormDefinitionError } from '../forms/definitionTypes'
 import type { FormFieldsContext } from '../forms/definitionTypes'
+import type { DisplayFieldGuard } from '../display/compatibility'
 import type { TableColumnsContext } from '../contracts/tables'
 import type { DetailFieldsContext } from '../contracts/details'
 import type { ContextRequirements, ContextWithDefault } from '../contracts/contextRequirements'
@@ -128,6 +131,7 @@ export type ResourceCustomHandle<
 type TableRecord<TTable> = TTable extends { schema: RawSchema<unknown, infer TRecord> } ? (TRecord extends object ? TRecord : never) : never
 
 type ListTableShape = {
+  sourceGuard?: SourceGuard<object, CollectionLoadContext<object>>
   schema: RawSchema
   columns: Readonly<Record<string, unknown>>
   load: (...args: never[]) => unknown
@@ -158,6 +162,7 @@ type UpdateFormBagShape = FormBagShape & {
 }
 
 type DetailBagShape = {
+  sourceGuard?: SourceGuard<object, RecordLoadContext>
   schema: RawSchema
   fields: object
   load: (context: RecordLoadContext) => unknown
@@ -237,7 +242,7 @@ type ResourceFormViewProps<TResult> = Omit<FormViewProps<object, object, TResult
 
 export type ResourceListDeclaration<TTable extends ListTableShape = ListTableShape, TRecord extends object = Record<string, unknown>, TFilterInput extends object = Partial<TableQuery<TTable>>> = Omit<
   ListViewProps<TRecord, TableQuery<TTable>, TFilterInput>,
-  'table' | 'can' | 'deleteRecord' | 'recordIdentity' | 'createRoute' | 'detailRoute' | 'updateRoute'
+  'table' | 'can' | 'deleteRecord' | 'recordIdentity' | 'createRoute' | 'detailRoute' | 'updateRoute' | 'exportAccess'
 > & {
   permission: string | null
   route?: ResourceStaticRoute
@@ -259,7 +264,7 @@ export type ResourceDetailDeclaration<
   TIdentity extends RecordIdentity,
   TIdentityRecord extends object,
   TFactory extends (binding: ResourceBinding<TIdentity, TIdentityRecord>) => DetailBagShape = (binding: ResourceBinding<TIdentity, TIdentityRecord>) => DetailBagShape,
-> = Omit<DetailViewProps<TIdentityRecord>, 'detail' | 'backTo'> &
+> = Omit<DetailViewProps<TIdentityRecord>, 'detail' | 'backTo' | 'export' | 'exportAccess'> &
   ResourceVisibility<TIdentityRecord> & {
     permission: string | null
     route?: ResourceRoute<TIdentity>
@@ -309,8 +314,41 @@ export type ResourceDefinitionInput<TIdentityFunction extends ResourceIdentityFu
   detail?: ResourceDetailDeclaration<ResourceIdentityValue<TIdentityFunction>, TIdentityRecord>
   update?: ResourceUpdateDeclaration<ResourceIdentityValue<TIdentityFunction>, TIdentityRecord>
   delete?: ResourceDeleteDeclaration<ResourceIdentityValue<TIdentityFunction>, TIdentityRecord>
+  exports?: {
+    list?: boolean | ListExportConfiguration<TIdentityRecord, object, object>
+    detail?: boolean | (Omit<DetailExportConfiguration<TIdentityRecord, object>, 'detail'> & { detail?: (binding: ResourceBinding<ResourceIdentityValue<TIdentityFunction>, TIdentityRecord>) => Partial<DetailProps<TIdentityRecord, object>> })
+  }
   actions?: Record<string, ResourceReadAction | ResourceCustomCommand<(...args: never[]) => unknown, ResourceIdentityValue<TIdentityFunction>, TIdentityRecord>>
 }
+
+type ExportDetailRecord<TFactory extends (...args: never[]) => DetailBagShape, TIdentityFunction extends ResourceIdentityFunction> = [DetailSchemaRecord<ReturnType<TFactory>>] extends [never]
+  ? IdentityRecord<TIdentityFunction>
+  : DetailSchemaRecord<ReturnType<TFactory>>
+
+type ExportTableContext<TTable> = TTable extends { context: infer TContext extends object }
+  ? TContext & ContextWithDefault<TableContext<TTable>>
+  : ContextWithDefault<TableContext<TTable>>
+type ExportDetailContext<TFactory extends (...args: never[]) => DetailBagShape> = ReturnType<TFactory> extends { context: infer TContext extends object }
+  ? TContext & ContextWithDefault<DetailContext<ReturnType<TFactory>>>
+  : ContextWithDefault<DetailContext<ReturnType<TFactory>>>
+
+type ResourceDetailExportConfiguration<TIdentityFunction extends ResourceIdentityFunction, TFactory extends ResourceExportDetailFactory<TIdentityFunction>> = Omit<
+  DetailExportConfiguration<ExportDetailRecord<TFactory, TIdentityFunction>, ExportDetailContext<TFactory>>,
+  'detail'
+> & {
+  detail?: (binding: ResourceBinding<ResourceIdentityValue<TIdentityFunction>, IdentityRecord<TIdentityFunction>>) => DetailExportConfiguration<ExportDetailRecord<TFactory, TIdentityFunction>, ExportDetailContext<TFactory>>['detail']
+}
+
+export type ResourceExportSource<TTable extends ListTableShape, TIdentityFunction extends ResourceIdentityFunction, TDetailFactory extends ResourceExportDetailFactory<TIdentityFunction>> = {
+  list?: { table: TTable }
+  detail?: { detail: TDetailFactory }
+  exports?: {
+    list?: boolean | ListExportConfiguration<TableRecord<NoInfer<TTable>>, TableQuery<NoInfer<TTable>>, ExportTableContext<NoInfer<TTable>>>
+    detail?: boolean | ResourceDetailExportConfiguration<TIdentityFunction, NoInfer<TDetailFactory>>
+  }
+}
+export type ResourceExportTableShape = ListTableShape
+export type ResourceExportDetailFactory<TIdentityFunction extends ResourceIdentityFunction> = (binding: ResourceBinding<ResourceIdentityValue<TIdentityFunction>, IdentityRecord<TIdentityFunction>>) => DetailBagShape
 
 export type IdentityRecord<TIdentityFunction> = TIdentityFunction extends (record: infer TRecord) => RecordIdentity
   ? [TRecord] extends [never]
@@ -736,11 +774,27 @@ type ResourceShapeGuard<TDefinition, TIdentityRecord extends object> =
     ? IdentityRecordGuard<DetailRecord<TDetail>, TIdentityRecord> & IdentityRecordGuard<DetailRecord<TDetail>, DetailSchemaRecord<TDetail>>
     : unknown)
 
+type ExportFieldConfiguration<TEntry> = TEntry extends (...args: never[]) => infer TResult ? TResult : TEntry
+type ExportCellConfiguration<TEntry> = ExportFieldConfiguration<TEntry> extends { cell: infer TCell } ? ExportFieldConfiguration<TCell> : ExportFieldConfiguration<TEntry>
+type ExportFieldDiagnostics<TRecord extends object, TFields> = {
+  [TKey in keyof TFields as TKey extends string
+    ? [DisplayFieldGuard<TRecord, TKey, ExportCellConfiguration<TFields[TKey]>>] extends [never] ? TKey : never
+    : TKey]: never
+}
+type ResourceExportDiagnostic<TDefinition> =
+  (TDefinition extends { list: { table: infer TTable }; exports: { list: { table: { columns: infer TColumns } } } }
+    ? keyof ExportFieldDiagnostics<TableRecord<TTable>, TColumns> extends never ? {} : { exports: { list: { table: { columns: ExportFieldDiagnostics<TableRecord<TTable>, TColumns> } } } }
+    : {}) &
+  (TDefinition extends { detail: { detail: (...args: never[]) => infer TDetail }; exports: { detail: { detail: (...args: never[]) => { fields: infer TFields } } } }
+    ? keyof ExportFieldDiagnostics<DetailSchemaRecord<TDetail>, TFields> extends never ? {} : { exports: { detail: { detail: (...args: never[]) => { fields: ExportFieldDiagnostics<DetailSchemaRecord<TDetail>, TFields> } } } }
+    : {})
+
 export type ResourceDefinitionGuard<TDefinition, TIdentityFunction extends ResourceIdentityFunction> = IdentityFunctionGuard<TIdentityFunction> &
   ([ReturnType<TIdentityFunction>] extends [never] ? never : [ReturnType<TIdentityFunction>] extends [RecordIdentity] ? unknown : never) &
   OperationRecordGuard<TDefinition, IdentityRecord<TIdentityFunction>> &
   ResourceShapeGuard<TDefinition, IdentityRecord<TIdentityFunction>> &
-  ResourceDefinitionDiagnostic<TDefinition, IdentityRecord<TIdentityFunction>>
+  ResourceDefinitionDiagnostic<TDefinition, IdentityRecord<TIdentityFunction>> &
+  ResourceExportDiagnostic<TDefinition>
 
 type ResourceListPagePropKeys = 'title' | 'description' | 'filters' | 'export' | 'createRoute' | 'detailRoute' | 'updateRoute'
 type ResourceListPageProps<TList> = Pick<TList, Extract<keyof TList, Exclude<ResourceListPagePropKeys, 'filters'>>>
