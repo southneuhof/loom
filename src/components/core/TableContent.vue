@@ -539,7 +539,12 @@ function hasCellSlot(key: string): boolean {
         :update-query="props.updateQuery ?? updateQuery"
       />
       <div v-else class="overflow-x-auto rounded-xl">
-        <table ref="tableElement" class="w-full border-collapse table-auto" :style="{ minWidth: `${tableMinimumWidth}px`, '--loom-table-cell-max-width': `${maximumColumnWidth}px` }">
+        <table
+          ref="tableElement"
+          :class="{ 'is-table-compact': props.density === 'compact' }"
+          class="w-full border-collapse table-auto"
+          :style="{ minWidth: `${tableMinimumWidth}px`, '--loom-table-cell-max-width': `${maximumColumnWidth}px` }"
+        >
           <colgroup>
             <col v-if="$slots['row-prefix']" style="width: 1%" />
             <col v-for="field in visibleFields" :key="field.key" :style="columnSizing[field.key] == null ? undefined : { width: `${columnSizing[field.key]}px` }" />
@@ -765,5 +770,16 @@ function hasCellSlot(key: string): boolean {
 .group:focus-within .is-table-row-action,
 .group:active .is-table-row-action {
   --is-table-row-layer: var(--md-sys-color-primary-active);
+}
+
+@media (pointer: fine) {
+  table.is-table-compact :deep(> :is(thead, tbody, tfoot) > tr > :is(th, td)) {
+    padding: 6px 12px;
+  }
+
+  table.is-table-compact > tbody > tr > .is-table-row-action::before {
+    left: -0.5rem;
+    width: calc(100% + 0.5rem);
+  }
 }
 </style>

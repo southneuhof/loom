@@ -59,6 +59,7 @@ interface TableOptions<
   TQuery extends object = Record<string, unknown>,
   TContext extends object = Readonly<Record<string, unknown>>,
 > extends CollectionOptions<TQuery>, TableDefinition<TRecord, Readonly<Record<string, TableColumnEntry<TRecord, TContext>>>, TContext> {
+  density?: 'comfortable' | 'compact'
   sourceGuard?: SourceGuard<TRecord, CollectionLoadContext<TQuery>>
   /** Minimum resizable width in pixels. */
   minColumnWidth?: number

@@ -234,6 +234,10 @@ Use `TableCell column="name"` to follow a column's position, visibility, and
 alignment. Use one `TableCell span="all"` for a row that spans the table.
 Footer rows display the values you supply and stay outside record operations.
 
+Set `density="compact"` on either table or its content component to reduce
+cell padding for a mouse or trackpad. The default is `comfortable`. Touch
+devices use comfortable spacing.
+
 ## Forms and assets
 
 Forms keep the editable draft in input shape. The raw form schema parses it to
