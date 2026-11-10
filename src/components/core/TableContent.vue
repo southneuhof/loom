@@ -2,7 +2,7 @@
 /**
  * Loaded-row table presentation. Collection owns data loading and query state.
  */
-import { computed, nextTick, onBeforeUnmount, ref, shallowRef, toRef, useSlots, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, toRef, useSlots, watch } from 'vue'
 import { getCoreRowModel, getExpandedRowModel, useVueTable, type ColumnDef, type ColumnSizingState, type ExpandedState, type Row } from '@tanstack/vue-table'
 import type { QueryValues, RowReorderPayload, TableContentProps, TreeRowContext } from '../../contracts'
 import { createSchemaRuntime, schemaOutputKeys, schemaSortByValues } from '../../schemas/schemaRuntime'
@@ -15,6 +15,8 @@ import Icon from '../base/Icon.vue'
 import SelectInput from '../inputs/SelectInput.vue'
 import { useTablePreferences } from './useTablePreferences'
 import Draggable from 'vuedraggable'
+import TreeSubtreeFooter from './TreeSubtreeFooter.vue'
+import { tableCompositionKey, tableFooterOwnerKey } from './tableComposition'
 
 interface TableTreeHierarchy<TRecord extends object> {
   children: (record: TRecord) => readonly TRecord[]
@@ -45,6 +47,11 @@ const emit = defineEmits<{
   (event: 'update:columnSizing', sizes: ColumnSizingState): void
   (event: 'row-click', record: TRecord, index: number): void
   (event: 'row-reorder', payload: RowReorderPayload<TRecord>): void
+}>()
+
+defineSlots<{
+  footer?: () => unknown
+  [name: string]: unknown
 }>()
 
 const renderers = useRendererRegistry('display')
@@ -90,6 +97,21 @@ const visibleFields = computed(() => {
   if (props.hierarchy) visible.add(props.hierarchy.treeColumn)
   return fields.value.filter((field) => visible.has(field.key))
 })
+provide(tableFooterOwnerKey, undefined)
+provide(
+  tableCompositionKey,
+  computed(() => ({
+    columns: fields.value,
+    visibleColumns: visibleFields.value,
+    get prefix() {
+      return Boolean(slots['row-prefix'])
+    },
+    get actions() {
+      return Boolean(slots['row-actions'])
+    },
+  }))
+)
+
 const columnSizing = ref<ColumnSizingState>({ ...(props.columnSizing ?? preferences.sizes.value) })
 const headerElements = new Map<string, HTMLElement>()
 const resizingColumn = ref<string>()
@@ -269,8 +291,36 @@ const table = useVueTable<TRecord>({
   },
 })
 
+type VisibleTreeEntry =
+  | { kind: 'record'; row: Row<TRecord>; index: number }
+  | { kind: 'footer'; row: Row<TRecord>; index: number }
+
+function visibleTreeEntries(): VisibleTreeEntry[] {
+  const rows = table.getRowModel().rows
+  if (!props.hierarchy || !slots['subtree-footer']) {
+    return rows.map((row, index) => ({ kind: 'record', row, index }))
+  }
+
+  const entries: VisibleTreeEntry[] = []
+  const owners: { row: Row<TRecord>; index: number }[] = []
+  for (const [index, row] of rows.entries()) {
+    let owner = owners.at(-1)
+    while (owner && owner.row.depth >= row.depth) {
+      entries.push({ kind: 'footer', ...owner })
+      owners.pop()
+      owner = owners.at(-1)
+    }
+    entries.push({ kind: 'record', row, index })
+    owners.push({ row, index })
+  }
+  for (const owner of owners.reverse()) {
+    entries.push({ kind: 'footer', ...owner })
+  }
+  return entries
+}
+
 const disclosureElements = new Map<string, HTMLButtonElement>()
-const rootElement = ref<HTMLElement>()
+const tableElement = ref<HTMLTableElement>()
 
 function treeContext(row: Row<TRecord>): TreeRowContext | undefined {
   const hierarchy = props.hierarchy
@@ -312,14 +362,15 @@ watch(
     if (!hierarchy || !nextKeys || !previousKeys || typeof document === 'undefined') return
     const active = document.activeElement
     if (!(active instanceof HTMLElement)) return
-    const focusedRow = active.closest<HTMLTableRowElement>('tr[data-tree-key]')
-    if (!focusedRow || !rootElement.value?.contains(focusedRow)) return
-    const focusedKey = focusedRow?.dataset.treeKey
+    const focusedRow = active.closest<HTMLTableRowElement>('tr[data-tree-key], tr[data-tree-footer-key]')
+    if (!focusedRow || focusedRow.closest('table') !== tableElement.value) return
+    const footerOwner = focusedRow.dataset.treeFooterKey
+    const focusedKey = footerOwner ?? focusedRow.dataset.treeKey
     if (!focusedKey) return
 
     const next = new Set(nextKeys)
     const previous = new Set(previousKeys)
-    let candidate = hierarchy.parentKeys.get(focusedKey) ?? null
+    let candidate = footerOwner ?? hierarchy.parentKeys.get(focusedKey) ?? null
     let target: string | undefined
     while (candidate !== null) {
       if (previous.has(candidate) && !next.has(candidate)) {
@@ -339,7 +390,12 @@ watch(
       }
       candidate = hierarchy.parentKeys.get(candidate) ?? null
     }
-    if (target) void nextTick(() => disclosureElements.get(target!)?.focus())
+    if (target) {
+      const targetKey = target
+      void nextTick(() => {
+        if (footerOwner === undefined || !active.isConnected) disclosureElements.get(targetKey)?.focus()
+      })
+    }
   },
   { flush: 'pre' }
 )
@@ -444,7 +500,7 @@ function hasCellSlot(key: string): boolean {
 </script>
 
 <template>
-  <div ref="rootElement" class="is-table flex flex-col gap-3 text-sm text-on-surface" :class="{ 'is-tree-table': Boolean(props.hierarchy) }">
+  <div class="is-table flex flex-col gap-3 text-sm text-on-surface" :class="{ 'is-tree-table': Boolean(props.hierarchy) }">
     <div v-if="props.loading" class="flex min-h-40 items-center justify-center rounded-xl bg-surface-container px-6 py-10 text-on-surface-variant">
       <slot name="loading">
         <p role="status" aria-live="polite">Memuat…</p>
@@ -483,7 +539,7 @@ function hasCellSlot(key: string): boolean {
         :update-query="props.updateQuery ?? updateQuery"
       />
       <div v-else class="overflow-x-auto rounded-xl">
-        <table class="w-full border-collapse table-auto" :style="{ minWidth: `${tableMinimumWidth}px`, '--loom-table-cell-max-width': `${maximumColumnWidth}px` }">
+        <table ref="tableElement" class="w-full border-collapse table-auto" :style="{ minWidth: `${tableMinimumWidth}px`, '--loom-table-cell-max-width': `${maximumColumnWidth}px` }">
           <colgroup>
             <col v-if="$slots['row-prefix']" style="width: 1%" />
             <col v-for="field in visibleFields" :key="field.key" :style="columnSizing[field.key] == null ? undefined : { width: `${columnSizing[field.key]}px` }" />
@@ -550,73 +606,80 @@ function hasCellSlot(key: string): boolean {
             </template>
           </Draggable>
           <tbody v-else class="divide-y divide-outline/[12%]">
-            <tr
-              v-for="(row, index) in table.getRowModel().rows"
-              :key="row.id"
-              v-bind="props.hierarchy ? { 'data-tree-key': row.id } : {}"
-              class="group transition-none hover:bg-primary-hover focus-within:bg-primary-active active:bg-primary-active"
-              @click="emit('row-click', row.original, index)"
-            >
-              <td v-if="$slots['row-prefix']" class="w-px whitespace-nowrap pr-0 pl-3 py-2" style="width: 1%" @click.stop>
-                <slot name="row-prefix" v-bind="rowScope(row, index)" />
-              </td>
-              <td
-                v-for="field in visibleFields"
-                :key="field.key"
-                :style="{ textAlign: field.align }"
-                class="px-4 py-3.5 text-on-surface"
-                :class="[props.hierarchy && field.key === props.hierarchy.treeColumn ? 'whitespace-normal' : 'whitespace-nowrap', field.class]"
+            <template v-for="{ kind, row, index } in visibleTreeEntries()" :key="`${kind}:${row.id}`">
+              <tr
+                v-if="kind === 'record'"
+                v-bind="props.hierarchy ? { 'data-tree-key': row.id } : {}"
+                class="group transition-none hover:bg-primary-hover focus-within:bg-primary-active active:bg-primary-active"
+                @click="emit('row-click', row.original, index)"
               >
-                <template v-if="props.hierarchy && field.key === props.hierarchy.treeColumn">
-                  <div class="is-tree-table-cell flex min-w-0 items-start gap-2" :style="{ '--loom-tree-depth': row.depth }">
-                    <Button
-                      v-if="row.getCanExpand()"
-                      :ref="(element) => setDisclosureElement(row.id, element)"
-                      kind="icon"
-                      variant="standard"
-                      type="button"
-                      class="is-tree-table-disclosure h-8 w-8 min-w-8 shrink-0 aspect-square p-1"
-                      :ariaLabel="`${row.getIsExpanded() ? 'Ciutkan' : 'Luaskan'} ${treeLabel(row.original, field) ?? 'baris'}`"
-                      v-bind="{ 'aria-expanded': String(row.getIsExpanded()) }"
-                      @click.stop="row.toggleExpanded()"
-                    >
-                      <template #icon><Icon :name="row.getIsExpanded() ? 'arrow-down-s' : 'arrow-right-s'" size="base" /></template>
-                    </Button>
-                    <span v-else aria-hidden="true" class="is-tree-table-disclosure-spacer inline-block h-8 w-8 shrink-0" />
-                    <span class="is-tree-table-label min-w-0 flex-1 whitespace-normal">
-                      <div
-                        class="is-table-cell-value"
-                        :class="{ 'is-table-cell-value--rich': displayFieldFor(row.original, field).renderer }"
-                        :style="cellContentStyle(field)"
-                        :title="cellTitle(row.original, field)"
+                <td v-if="$slots['row-prefix']" class="w-px whitespace-nowrap pr-0 pl-3 py-2" style="width: 1%" @click.stop>
+                  <slot name="row-prefix" v-bind="rowScope(row, index)" />
+                </td>
+                <td
+                  v-for="field in visibleFields"
+                  :key="field.key"
+                  :style="{ textAlign: field.align }"
+                  class="px-4 py-3.5 text-on-surface"
+                  :class="[props.hierarchy && field.key === props.hierarchy.treeColumn ? 'whitespace-normal' : 'whitespace-nowrap', field.class]"
+                >
+                  <template v-if="props.hierarchy && field.key === props.hierarchy.treeColumn">
+                    <div class="is-tree-table-cell flex min-w-0 items-start gap-2" :style="{ '--loom-tree-depth': row.depth }">
+                      <Button
+                        v-if="row.getCanExpand()"
+                        :ref="(element) => setDisclosureElement(row.id, element)"
+                        kind="icon"
+                        variant="standard"
+                        type="button"
+                        class="is-tree-table-disclosure h-8 w-8 min-w-8 shrink-0 aspect-square p-1"
+                        :ariaLabel="`${row.getIsExpanded() ? 'Ciutkan' : 'Luaskan'} ${treeLabel(row.original, field) ?? 'baris'}`"
+                        v-bind="{ 'aria-expanded': String(row.getIsExpanded()) }"
+                        @click.stop="row.toggleExpanded()"
                       >
-                        <slot v-if="hasCellSlot(field.key)" :name="`cell:${field.key}`" v-bind="cellScope(row, field, index)" />
-                        <DisplayValue v-else :value="valueFor(row.original, field)" :record="row.original" :field="displayFieldFor(row.original, field)" :index="index" />
-                      </div>
-                    </span>
-                  </div>
-                </template>
-                <template v-else>
-                  <div
-                    class="is-table-cell-value"
-                    :class="{ 'is-table-cell-value--rich': displayFieldFor(row.original, field).renderer }"
-                    :style="cellContentStyle(field)"
-                    :title="cellTitle(row.original, field)"
-                  >
-                    <slot v-if="hasCellSlot(field.key)" :name="`cell:${field.key}`" v-bind="cellScope(row, field, index)" />
-                    <DisplayValue v-else :value="valueFor(row.original, field)" :record="row.original" :field="displayFieldFor(row.original, field)" :index="index" />
-                  </div>
-                </template>
-              </td>
-              <td
-                v-if="$slots['row-actions']"
-                class="is-table-row-action sticky right-0 z-10 w-px whitespace-nowrap px-3 py-2 text-right transition-none before:pointer-events-none before:absolute before:inset-y-0 before:content-['']"
-                @click.stop
-              >
-                <slot name="row-actions" v-bind="rowScope(row, index)" />
-              </td>
-            </tr>
+                        <template #icon><Icon :name="row.getIsExpanded() ? 'arrow-down-s' : 'arrow-right-s'" size="base" /></template>
+                      </Button>
+                      <span v-else aria-hidden="true" class="is-tree-table-disclosure-spacer inline-block h-8 w-8 shrink-0" />
+                      <span class="is-tree-table-label min-w-0 flex-1 whitespace-normal">
+                        <div
+                          class="is-table-cell-value"
+                          :class="{ 'is-table-cell-value--rich': displayFieldFor(row.original, field).renderer }"
+                          :style="cellContentStyle(field)"
+                          :title="cellTitle(row.original, field)"
+                        >
+                          <slot v-if="hasCellSlot(field.key)" :name="`cell:${field.key}`" v-bind="cellScope(row, field, index)" />
+                          <DisplayValue v-else :value="valueFor(row.original, field)" :record="row.original" :field="displayFieldFor(row.original, field)" :index="index" />
+                        </div>
+                      </span>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <div
+                      class="is-table-cell-value"
+                      :class="{ 'is-table-cell-value--rich': displayFieldFor(row.original, field).renderer }"
+                      :style="cellContentStyle(field)"
+                      :title="cellTitle(row.original, field)"
+                    >
+                      <slot v-if="hasCellSlot(field.key)" :name="`cell:${field.key}`" v-bind="cellScope(row, field, index)" />
+                      <DisplayValue v-else :value="valueFor(row.original, field)" :record="row.original" :field="displayFieldFor(row.original, field)" :index="index" />
+                    </div>
+                  </template>
+                </td>
+                <td
+                  v-if="$slots['row-actions']"
+                  class="is-table-row-action sticky right-0 z-10 w-px whitespace-nowrap px-3 py-2 text-right transition-none before:pointer-events-none before:absolute before:inset-y-0 before:content-['']"
+                  @click.stop
+                >
+                  <slot name="row-actions" v-bind="rowScope(row, index)" />
+                </td>
+              </tr>
+              <TreeSubtreeFooter v-else :owner-key="row.id">
+                <slot name="subtree-footer" v-bind="rowScope(row, index)" />
+              </TreeSubtreeFooter>
+            </template>
           </tbody>
+          <tfoot v-if="$slots.footer">
+            <slot name="footer" />
+          </tfoot>
         </table>
       </div>
 

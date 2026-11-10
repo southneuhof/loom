@@ -28,6 +28,7 @@ const emit = defineEmits<{
 
 defineSlots<{
   collection?: (props: import('../../contracts').CollectionSlotProps<TRecord, TQuery>) => unknown
+  footer?: () => unknown
   [name: string]: unknown
 }>()
 const slots = useSlots()

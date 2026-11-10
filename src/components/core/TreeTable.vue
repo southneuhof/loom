@@ -39,6 +39,8 @@ defineSlots<{
   empty?: () => unknown
   'row-prefix'?: (scope: TreeRowScope) => unknown
   'row-actions'?: (scope: TreeRowScope) => unknown
+  footer?: () => unknown
+  'subtree-footer'?: (scope: TreeRowScope) => unknown
   'pagination-summary'?: (scope: { start: number; end: number; total?: number; query: QueryValues }) => unknown
   'page-size-control'?: (scope: { options: number[]; limit: number; setPageSize: (value: unknown) => void }) => unknown
   [name: `cell:${string}`]: (scope: TreeCellScope) => unknown

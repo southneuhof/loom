@@ -216,6 +216,24 @@ Use `default-expanded-keys` for initial uncontrolled state. Its exposed
 `expandAll`, `collapseAll`, and `reveal(keys)` methods support page controls.
 `reveal` opens the parent rows needed to show the requested row keys.
 
+Use `#footer` for rows at the end of a `Table`, `TreeTable`, or their content
+components. Use `#subtree-footer` in a tree table for rows after a record's last
+visible descendant. The slot receives `record`, `index`, and `tree`. When a
+group is collapsed, its footer follows the group row.
+
+```vue
+<template #subtree-footer="{ record, tree }">
+  <TableRow v-if="tree.depth === 0" emphasis>
+    <TableCell column="name">Subtotal</TableCell>
+    <TableCell column="amount">{{ record.subtotal }}</TableCell>
+  </TableRow>
+</template>
+```
+
+Use `TableCell column="name"` to follow a column's position, visibility, and
+alignment. Use one `TableCell span="all"` for a row that spans the table.
+Footer rows display the values you supply and stay outside record operations.
+
 ## Forms and assets
 
 Forms keep the editable draft in input shape. The raw form schema parses it to
