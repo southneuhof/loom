@@ -113,10 +113,10 @@ export type DialogFormProps<
   TFields extends object = {},
 > = FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields> & DialogFormPresentationProps
 
-export type DialogFormSlots<TInput extends object, TKeys extends string = Extract<keyof TInput, string>> = Omit<FormSlots<TInput, TKeys>, 'actions'> & {
+export type DialogFormSlots<TInput extends object, TKeys extends string = Extract<keyof TInput, string>, TOutput extends object = TInput, TResult = unknown, TContext extends object = Readonly<Record<string, unknown>>> = Omit<FormSlots<TInput, TKeys, TOutput, TResult, TContext>, 'actions'> & {
   actions?: (
-    props: Omit<FormActionSlotProps, 'submit'> & {
-      submit: (options?: FormSubmitOptions<TInput>) => Promise<void> | undefined
+    props: Omit<FormActionSlotProps<TInput, TOutput, TResult, TContext>, 'submit'> & {
+      submit: (options?: FormSubmitOptions<TInput, TOutput, TResult, TContext>) => Promise<void> | undefined
       requestClose: (reason: DialogFormCloseReason) => Promise<boolean>
     }
   ) => unknown

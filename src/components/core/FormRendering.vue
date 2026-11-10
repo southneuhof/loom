@@ -1,0 +1,264 @@
+<script
+  setup
+  lang="ts"
+  generic="
+    TInput extends object,
+    TOutput extends object,
+    TResult,
+    TKeys extends string = Extract<keyof TInput, string>,
+    TContext extends object = Readonly<Record<string, unknown>>,
+    TFields extends object = {}
+  "
+>
+import { computed, onBeforeUpdate, ref, provide, useAttrs, type WritableComputedRef } from 'vue'
+import type { FormInputSlotProps, FormSlots } from '../../contracts/forms'
+import type { FormProps } from '../../forms/props'
+import { isConfirmedWriteRefreshError } from '../../resources/postWriteOutcome'
+import { formNativeAttributeNames } from '../../forms/props'
+import type { RuntimeFormField } from '../../forms/definitionTypes'
+import { formArrayContextKey } from '../../forms/arrayField'
+import type { FormSession } from '../../forms/useFormSession'
+import { useRendererRegistry } from '../../renderers/registry'
+import Button from '../base/Button.vue'
+import Dialog from '../base/Dialog.vue'
+import BaseInput from '../inputs/BaseInput.vue'
+import type { BaseInputControlBindings } from '../../contracts/formControlBindings'
+import { useFrameworkUiDefaults } from '../views/uiDefaults'
+
+defineOptions({ inheritAttrs: false })
+
+const rendering = defineProps<{
+  configuration: FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>
+  session: FormSession<TInput, TOutput, TResult, TKeys, TContext>
+}>()
+const props = new Proxy(rendering.configuration, {
+  get: (_target, key) => Reflect.get(rendering.configuration, key),
+})
+const session = rendering.session
+defineSlots<FormSlots<TInput, TKeys, TOutput, TResult, TContext>>()
+const attrs = useAttrs()
+const attrsRevision = ref(0)
+const fieldModels = new Map<string, WritableComputedRef<unknown>>()
+const confirmation = session.confirmation
+provide(formArrayContextKey, session.arrayFields)
+const inputPending = session.inputPending
+const renderers = useRendererRegistry('form')
+const { submitLabel: defaultSubmitLabel } = useFrameworkUiDefaults()
+const visibleFields = session.visibleFields
+const draft = session.draft
+const loading = session.loading
+const loadError = session.loadError
+const dirty = session.dirty
+const submitting = session.submitting
+const submitPending = session.submitPending
+const postWriteError = session.postWriteError
+const validating = session.validating
+const issues = session.issues
+const hasSubmit = session.hasSubmit
+const submitLabel = computed(() => props.submitLabel ?? defaultSubmitLabel)
+const nativeFormBindings = computed<Record<string, unknown>>(() => {
+  attrsRevision.value
+  const declared: Record<string, unknown> = {}
+  for (const name of [...formNativeAttributeNames, ...Object.keys(rendering.configuration).filter((name) => name.startsWith('aria'))]) {
+    const prop = name.replace(/-([a-z])/g, (_match, letter: string) => letter.toUpperCase())
+    const attribute = name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
+    const value = Reflect.get(props, prop)
+    if (value !== undefined) declared[attribute] = value
+  }
+  for (const [name, value] of Object.entries(attrs)) {
+    if (name === 'class' || name === 'style' || name.startsWith('data-')) declared[name] = value
+  }
+  return declared
+})
+
+onBeforeUpdate(() => {
+  attrsRevision.value += 1
+})
+
+function fieldComponentKey(field: RuntimeFormField<TInput, TKeys>): string {
+  return `${typeof field.renderer === 'string' ? field.renderer : field.key}:${session.controlGeneration(field.key)}`
+}
+
+function fieldSpan(field: RuntimeFormField<TInput, TKeys>): number {
+  return Math.min(12, Math.max(1, field.span ?? 12))
+}
+
+function fieldValue<TKey extends TKeys>(key: TKey): FormInputSlotProps<TInput, TKey>['value'] {
+  return session.controlValue(key) as FormInputSlotProps<TInput, TKey>['value']
+}
+
+function fieldModel(key: string): WritableComputedRef<unknown> {
+  const existing = fieldModels.get(key)
+  if (existing) return existing
+  const model = computed({
+    get: () => session.controlValue(key),
+    set: (value: unknown) => session.setControlValue(key, value),
+  })
+  fieldModels.set(key, model)
+  return model
+}
+
+function issueFor(key: string): string | undefined {
+  return session.issueFor(key)
+}
+
+function fieldId(field: RuntimeFormField<TInput, TKeys>): string {
+  const configured = field.props.id
+  return typeof configured === 'string' ? configured : `${session.formId}-field-${field.key}`
+}
+
+function fieldDisabled(field: RuntimeFormField<TInput, TKeys>): boolean {
+  return props.disabled === true || submitting.value || submitPending.value || typeof field.behavior?.derived === 'function' || field.props.disabled === true
+}
+
+function rendererProps(field: RuntimeFormField<TInput, TKeys>): Readonly<Record<string, unknown>> {
+  if (field.renderer === 'table') return { ...field.props, field: field.key, label: field.label, context: field.props.context ?? props.context }
+  if (field.renderer !== 'lookup') return field.props
+  if (Object.hasOwn(field.props, 'context') || props.context === undefined) return field.props
+  return { ...field.props, context: props.context }
+}
+
+function helperMessageFor(field: RuntimeFormField<TInput, TKeys>): string | undefined {
+  const helperMessage: unknown = Reflect.get(field.props, 'helperMessage')
+  return typeof helperMessage === 'string' ? helperMessage : undefined
+}
+
+function authoredAriaAttribute(field: RuntimeFormField<TInput, TKeys>, attribute: 'aria-describedby'): string | undefined
+function authoredAriaAttribute(field: RuntimeFormField<TInput, TKeys>, attribute: 'aria-invalid'): BaseInputControlBindings['aria-invalid']
+function authoredAriaAttribute(field: RuntimeFormField<TInput, TKeys>, attribute: 'aria-required'): BaseInputControlBindings['aria-required']
+function authoredAriaAttribute(field: RuntimeFormField<TInput, TKeys>, attribute: 'aria-describedby' | 'aria-invalid' | 'aria-required'): unknown {
+  return Reflect.get(field.props, attribute)
+}
+
+function inputSlotProps<TKey extends TKeys>(field: RuntimeFormField<TInput, TKey>, controlBindings: BaseInputControlBindings): FormInputSlotProps<TInput, TKey> {
+  return {
+    value: fieldValue(field.key),
+    draft: draft.value,
+    field: {
+      key: field.key,
+      renderer: field.renderer,
+      label: field.label,
+      required: field.required,
+      props: { ...field.props },
+      span: field.span,
+    },
+    setValue: (value) => session.setControlValue(field.key, value),
+    setError: (message) => session.setControlError(field.key, message),
+    error: issueFor(field.key),
+    controlBindings,
+    touched: session.touchedField(field.key),
+    disabled: fieldDisabled(field),
+    validating: session.validatingField(field.key),
+    formValidating: validating.value,
+  }
+}
+
+const formIssues = computed(() =>
+  issues.value.filter((issue) => {
+    const key = issue.path[0]
+    return issue.path.length === 0 || typeof key !== 'string' || !session.visibleKeys.value.includes(key)
+  })
+)
+
+async function submit(options?: Parameters<typeof session.submit>[0]): Promise<void> {
+  await session.submit(options)
+}
+
+function reset(): void {
+  session.reset()
+}
+</script>
+
+<template>
+  <form v-bind="nativeFormBindings" :id="session.formId" :novalidate="props.novalidate === '' ? true : (props.novalidate ?? true)" class="flex flex-col gap-5" @submit.prevent="submit()">
+    <div v-if="postWriteError" role="alert" class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-error-container px-4 py-3 text-sm leading-5 text-on-error-container">
+      <p v-if="isConfirmedWriteRefreshError<TResult>(postWriteError)">Changes saved. The data could not be refreshed.</p>
+      <p v-else>The save may have completed. Check the record before starting another save.</p>
+      <Button v-if="isConfirmedWriteRefreshError<TResult>(postWriteError)" type="button" variant="text" class="min-w-0 px-4" @click="session.refresh">Retry refresh</Button>
+    </div>
+
+    <slot v-if="loading" name="loading">
+      <div class="rounded-lg bg-surface-container px-4 py-3 text-sm text-on-surface">
+        <p role="status" aria-live="polite">Loading…</p>
+      </div>
+    </slot>
+
+    <template v-else-if="loadError">
+      <slot name="load-error" :error="loadError" :refresh="session.refresh">
+        <div class="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-error-container px-4 py-3 text-on-error-container">
+          <p role="alert" class="text-sm leading-5">{{ loadError.message }}</p>
+          <Button type="button" variant="text" class="min-w-0 px-4" @click="session.refresh">Retry</Button>
+        </div>
+      </slot>
+    </template>
+
+    <template v-else>
+      <BaseInput v-if="formIssues.length > 0" class="rounded-lg bg-error-container px-4 py-3" :error="formIssues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')" />
+
+      <div class="grid grid-cols-12 gap-x-4 gap-y-5">
+        <div v-for="field in visibleFields" :key="field.key" class="is-form-field flex min-w-0 flex-col gap-2" :style="{ gridColumn: `span ${fieldSpan(field)} / span ${fieldSpan(field)}` }">
+          <label :for="fieldId(field)" class="text-sm font-medium leading-5 text-on-surface">
+            {{ field.label }}
+            <span v-if="field.required" class="text-error" aria-hidden="true">*</span>
+          </label>
+
+          <BaseInput
+            v-if="$slots[`input:${field.key}`]"
+            :key="fieldComponentKey(field)"
+            :id="fieldId(field)"
+            :helper-message="helperMessageFor(field)"
+            :error="issueFor(field.key)"
+            :required="field.required"
+            :disabled="fieldDisabled(field)"
+            :ariaInvalid="authoredAriaAttribute(field, 'aria-invalid')"
+            :ariaRequired="authoredAriaAttribute(field, 'aria-required')"
+            :ariaDescribedby="authoredAriaAttribute(field, 'aria-describedby')"
+            v-slot="{ controlBindings }"
+            @validation:touch="session.touch(field.key)"
+          >
+            <slot :name="`input:${field.key}`" v-bind="inputSlotProps(field, controlBindings)" />
+          </BaseInput>
+
+          <component
+            v-else
+            :is="typeof field.renderer === 'string' ? renderers.require(field.renderer) : field.renderer"
+            :key="fieldComponentKey(field)"
+            v-bind="rendererProps(field)"
+            v-model="fieldModel(field.key).value"
+            :id="fieldId(field)"
+            :error="issueFor(field.key)"
+            :required="field.required"
+            :disabled="fieldDisabled(field)"
+            @validation:touch="session.touch(field.key)"
+            @validation:error="session.setControlError(field.key, $event)"
+          />
+        </div>
+      </div>
+
+      <slot
+        name="actions"
+        :submit="submit"
+        :reset="reset"
+        :refresh="session.refresh"
+        :submitting="submitting"
+        :submit-pending="submitPending"
+        :post-write-error="postWriteError"
+        :validating="validating"
+        :dirty="dirty"
+        :input-pending="inputPending"
+      >
+        <Button v-if="hasSubmit" type="submit" :disabled="props.disabled === true || loading || submitPending || submitting || inputPending || postWriteError !== undefined">
+          {{ submitting ? (props.submittingLabel ?? submitLabel) : submitLabel }}
+        </Button>
+      </slot>
+    </template>
+  </form>
+  <Dialog :model-value="!!confirmation" @update:model-value="open => { if (!open) session.settleConfirmation(false) }">
+    <template #title>{{ confirmation?.title }}</template>
+    <template #description>{{ confirmation?.message }}</template>
+    <template #footer>
+      <Button type="button" variant="text" @click="session.settleConfirmation(false)">Cancel</Button>
+      <Button type="button" @click="session.settleConfirmation(true)">Continue</Button>
+    </template>
+  </Dialog>
+</template>

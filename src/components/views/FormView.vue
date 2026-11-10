@@ -101,7 +101,7 @@ const { submitLabel: defaultSubmitLabel } = useFrameworkUiDefaults()
 const submitLabel = computed(() => form.value?.submitLabel ?? defaultSubmitLabel)
 const submittingLabel = computed(() => form.value?.submittingLabel ?? submitLabel.value)
 const hasSubmit = computed(() => typeof form.value?.submit === 'function')
-const instance = shallowRef<FormExposed<TInput, TOutput> | null>(null)
+const instance = shallowRef<FormExposed<TInput, TOutput, TResult, TContext> | null>(null)
 const draft = computed(() => instance.value?.draft)
 const dirty = computed(() => instance.value?.dirty ?? false)
 const submitting = computed(() => instance.value?.submitting ?? false)
@@ -119,7 +119,7 @@ function validate() {
   return instance.value?.validate()
 }
 
-function submit(options?: Parameters<FormExposed<TInput, TOutput>['submit']>[0]) {
+function submit(options?: Parameters<FormExposed<TInput, TOutput, TResult, TContext>['submit']>[0]) {
   return instance.value?.submit(options)
 }
 

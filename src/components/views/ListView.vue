@@ -5,7 +5,7 @@
  * Owns Card, page title, toolbar, filters, and the selected collection
  * presentation. Collection owns the one data lifecycle for the body.
  */
-import { computed, nextTick, onBeforeUnmount, reactive, ref, toRaw, useSlots, watch } from "vue";
+import { callWithAsyncErrorHandling, ErrorCodes, getCurrentInstance, computed, nextTick, onBeforeUnmount, reactive, ref, toRaw, useSlots, watch } from "vue";
 import { isCancelledError } from "@tanstack/vue-query";
 import { toast } from "vue-sonner";
 import type {
@@ -15,6 +15,7 @@ import type {
   RecordIdentity,
   RowReorderPayload,
   SchemaParseResult,
+  SchemaIssue,
   SubmitError,
   TableProps,
 } from "../../contracts";
@@ -26,7 +27,9 @@ import { resolveDisplayFields } from "../../display/resolveDisplay";
 import { coerceQueryValues, stableValue } from "../../query";
 import { checkIdentityValue } from "../../resources/identity";
 import Table from "../core/Table.vue";
-import Form from "../core/Form.vue";
+import FormRendering from "../core/FormRendering.vue";
+import { useFormSession } from "../../forms/useFormSession";
+import type { FormProps } from "../../forms/props";
 import Button from "../base/Button.vue";
 import Card from "../base/Card.vue";
 import Dialog from "../base/Dialog.vue";
@@ -50,6 +53,7 @@ import { withCurrentQuery } from "./routeQuery";
 
 const props = defineProps<ListViewProps<TRecord, TQuery, TFilterInput, TContext>>();
 const router = useRouter();
+const instance = getCurrentInstance();
 const adapters = useFrameworkAdapters();
 const emit = defineEmits<{
   (event: "update:query", query: QueryValues): void;
@@ -73,16 +77,28 @@ defineSlots<{
   "export-action"?: (props: { exportControls: ExportControls }) => unknown;
   header?: (props: { exportControls: ExportControls }) => unknown;
   empty?: () => unknown;
-  filters?: () => unknown;
+  filters?: (props: FilterSlotProps) => unknown;
   context?: (props: ListViewContextSlotProps) => unknown;
-  toolbar?: (props: { exportControls: ExportControls }) => unknown;
+  toolbar?: (props: { exportControls: ExportControls } & FilterSlotProps) => unknown;
   body?: (props: { table: TableProps<TRecord, TQuery, TContext>; exportControls: ExportControls }) => unknown;
   footer?: (props: { exportControls: ExportControls }) => unknown;
   "row-actions"?: (props: { record: TRecord }) => unknown;
 }>();
 
 type DeleteOwner = string | NonNullable<ListViewActions<TRecord>["recordIdentity"]>;
-type ListViewContextSlotProps = Pick<CollectionSlotProps<TRecord, TQuery>, "context" | "loading" | "error"> & { query: QueryValues };
+type FilterSlotProps = {
+  draft: FormDraftSnapshot<TFilterInput>;
+  issues: readonly SchemaIssue[];
+  validating: boolean;
+  setValue: <K extends Extract<keyof TFilterInput, string>>(key: K, value: TFilterInput[K]) => void;
+  validate: () => Promise<SchemaParseResult<Partial<TQuery>> | undefined>;
+  reset: () => Promise<void>;
+  setError: (key: Extract<keyof TFilterInput, string>, message: string | undefined) => void;
+  errorFor: (key: Extract<keyof TFilterInput, string>) => string | undefined;
+  touched: (key: Extract<keyof TFilterInput, string>) => boolean;
+  touch: (key: Extract<keyof TFilterInput, string>) => void;
+};
+type ListViewContextSlotProps = FilterSlotProps & Pick<CollectionSlotProps<TRecord, TQuery>, "context" | "loading" | "error"> & { query: QueryValues };
 type DeleteBinding = {
   owner: DeleteOwner;
   key: string;
@@ -142,11 +158,33 @@ const contextSlotProps = computed<ListViewContextSlotProps>(() => ({
   loading: tableRef.value?.loading ?? Boolean(surface.value.table.load && !slots.body),
   error: tableRef.value?.error,
   query: currentQuery.value,
+  ...filterSlotProps.value,
 }));
 declaredFilterQueryKeys();
 const filterDraftState = ref<FormDraft<TFilterInput>>(filterDraftFromQuery(currentQuery.value));
-const filterDraft = computed(() => filterDraftState.value);
-const filterFormRef = ref<{ draft: FormDraftSnapshot<TFilterInput>; validate: () => Promise<SchemaParseResult<Partial<TQuery>>>; reset: () => void }>();
+const filterConfiguration = computed<FormProps<TFilterInput, Partial<TQuery>, never, Extract<keyof TFilterInput, string>, TContext>>(() => ({
+  ...props.filters!,
+  context: surface.value.table.context,
+  modelValue: filterDraftState.value,
+}));
+const filterSession = props.filters ? useFormSession(new Proxy(filterConfiguration.value, {
+  get: (_target, key) => Reflect.get(filterConfiguration.value, key),
+}), {
+  updateModel: (next) => { callWithAsyncErrorHandling(updateFilters, instance, ErrorCodes.COMPONENT_EVENT_HANDLER, [next]); },
+  submitted: () => {}, error: () => {}, reset: () => {},
+}, { modelValuePresent: true }) : undefined;
+const filterSlotProps = computed<FilterSlotProps>(() => ({
+  draft: filterSession?.draft.value ?? filterDraftState.value,
+  issues: filterSession?.issues.value ?? [],
+  validating: filterSession?.validating.value ?? false,
+  setValue: (key, value) => filterSession?.setValue(key, value),
+  validate: async () => filterSession?.validate(),
+  reset: resetFilters,
+  setError: (key, message) => filterSession?.setControlError(key, message),
+  errorFor: (key) => filterSession?.issueFor(key),
+  touched: (key) => filterSession?.touchedField(key) ?? false,
+  touch: (key) => filterSession?.touch(key),
+}));
 let filterValidation = 0;
 let pendingFilterQuery: QueryValues | undefined;
 
@@ -218,7 +256,7 @@ async function validateAndCommitFilters() {
   const validation = ++filterValidation;
   await nextTick();
   if (validation !== filterValidation) return;
-  const result = await filterFormRef.value?.validate();
+  const result = await filterSession?.validate();
   if (!result?.success || validation !== filterValidation) return;
 
   const queryKeys = declaredFilterQueryKeys();
@@ -238,10 +276,9 @@ async function validateAndCommitFilters() {
 }
 
 async function resetFilters() {
-  const form = filterFormRef.value;
-  if (!form) return;
-  form.reset();
-  filterDraftState.value = { ...form.draft };
+  if (!filterSession) return;
+  filterSession.reset();
+  filterDraftState.value = { ...filterSession.draft.value };
   await validateAndCommitFilters();
 }
 
@@ -564,15 +601,10 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
                   </Button>
                 </template>
                 <template #content>
-                  <Form
-                    ref="filterFormRef"
-                    :fields="filters.fields"
-                    :schema="filters.schema"
-                    :labels="filters.labels"
-                    :validators="filters.validators"
-                    :context="surface.table.context"
-                    :model-value="filterDraft"
-                    @update:model-value="updateFilters"
+                  <FormRendering
+                    v-if="filterSession"
+                    :configuration="filterConfiguration"
+                    :session="filterSession"
                   />
                   <Button
                     type="button"
@@ -635,7 +667,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
                   </template>
                 </Menu>
               </slot>
-              <slot name="toolbar" :export-controls="exportControls" />
+              <slot name="toolbar" :export-controls="exportControls" v-bind="filterSlotProps" />
               <p v-if="exportControls.error" role="alert">{{ exportControls.error.message }}</p>
             </div>
           </div>
@@ -658,7 +690,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
         v-if="$slots.filters"
         class="border-t border-outline-variant px-5 py-3 sm:px-6"
       >
-        <slot name="filters" />
+        <slot name="filters" v-bind="filterSlotProps" />
       </div>
     </Card>
 

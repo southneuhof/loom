@@ -57,7 +57,7 @@ export type FormViewSlots<
   TKeys extends string = Extract<keyof TInput, string>,
   TContext extends object = Readonly<Record<string, unknown>>,
   TFields extends object = {},
-> = FormSlots<TInput, TKeys> & {
+> = FormSlots<TInput, TKeys, TOutput, TResult, TContext> & {
   saved?: (props: { readonly result: TResult; readonly values: Readonly<Record<string, unknown>>; readonly retryNavigation: () => Promise<void> }) => unknown
   header?: () => unknown
   controls?: () => unknown

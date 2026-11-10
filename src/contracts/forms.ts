@@ -62,12 +62,14 @@ export interface FormSubmitContext<TContext extends object = Readonly<Record<str
   readonly context: TContext
 }
 
-export interface FormSubmitOptions<TInput extends object> {
+export interface FormSubmitOptions<TInput extends object, TOutput extends object = TInput, TResult = unknown, TContext extends object = Readonly<Record<string, unknown>>> {
   readonly values?: Partial<TInput>
+  readonly run?: (output: TOutput, scope: FormSubmitContext<TContext>) => MaybePromise<TResult>
+  readonly confirm?: { readonly title: string; readonly message: string }
 }
 
-export interface FormActionSlotProps<TInput extends object = Record<string, unknown>> {
-  readonly submit: (options?: FormSubmitOptions<TInput>) => Promise<void>
+export interface FormActionSlotProps<TInput extends object = Record<string, unknown>, TOutput extends object = TInput, TResult = unknown, TContext extends object = Readonly<Record<string, unknown>>> {
+  readonly submit: (options?: FormSubmitOptions<TInput, TOutput, TResult, TContext>) => Promise<void>
   readonly reset: () => void
   readonly refresh: () => Promise<void>
   readonly submitting: boolean
@@ -78,18 +80,18 @@ export interface FormActionSlotProps<TInput extends object = Record<string, unkn
   readonly inputPending: boolean
 }
 
-export interface FormExposed<TInput extends object, TOutput extends object> extends FormActionSlotProps<TInput> {
+export interface FormExposed<TInput extends object, TOutput extends object, TResult = unknown, TContext extends object = Readonly<Record<string, unknown>>> extends FormActionSlotProps<TInput, TOutput, TResult, TContext> {
   readonly submittedValues?: Readonly<TOutput>
   readonly draft: FormDraftSnapshot<TInput>
   readonly validate: () => Promise<SchemaParseResult<TOutput>>
 }
 
-export type FormSlots<TInput extends object, TKeys extends string = Extract<keyof TInput, string>> = {
+export type FormSlots<TInput extends object, TKeys extends string = Extract<keyof TInput, string>, TOutput extends object = TInput, TResult = unknown, TContext extends object = Readonly<Record<string, unknown>>> = {
   [TKey in TKeys as `input:${TKey}`]?: (props: FormInputSlotProps<TInput, TKey>) => unknown
 } & {
   loading?: () => unknown
   'load-error'?: (props: { readonly error: SubmitError; readonly refresh: () => Promise<void> }) => unknown
-  actions?: (props: FormActionSlotProps<TInput>) => unknown
+  actions?: (props: FormActionSlotProps<TInput, TOutput, TResult, TContext>) => unknown
 }
 
 type FormInputBase<TInput extends object, TValue, TRenderer extends FormRenderer, TContext extends object> = {

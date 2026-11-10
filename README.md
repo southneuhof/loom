@@ -352,6 +352,12 @@ Deleted-record queries become stale without an immediate refetch.
 
 ## Local controls and form state
 
+ListView keeps one filter session for its popover and custom filter slots.
+For secondary submit actions, Form supports `submit({ run, confirm })`.
+See [filters](../../docs/resource_system_overhaul/ARCHITECTURE.md#72-filters)
+and [submission](../../docs/resource_system_overhaul/ARCHITECTURE.md#52-submission)
+for the contracts.
+
 A form renderer can be a registered name or a Vue component. Authored component
 props and model values remain checked through Form, DialogForm, and FormView.
 One control can still bind several schema keys. Slots receive `setError` and the

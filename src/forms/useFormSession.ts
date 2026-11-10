@@ -1,6 +1,6 @@
 import { remapArrayPath, type FormArrayContext } from './arrayField'
 import { createFormOutputs, type FormPublisher } from './outputs'
-import { markRaw, toRaw, computed, getCurrentInstance, nextTick, onUnmounted, provide, reactive, ref, shallowReactive, shallowRef, useId, watch, type ComputedRef } from 'vue'
+import { markRaw, toRaw, computed, nextTick, onUnmounted, provide, reactive, ref, shallowReactive, shallowRef, useId, watch, type ComputedRef } from 'vue'
 import { isCancelledError } from '@tanstack/vue-query'
 import { toast } from 'vue-sonner'
 import type { FormSubmitOptions, FormDefinition, FormDraft, FormDraftSnapshot, FormFieldContext, FormInput } from '../contracts/forms'
@@ -31,7 +31,9 @@ export interface FormSessionEvents<TInput extends object, TResult> {
   reset: () => void
 }
 
-export interface FormSession<TInput extends object, TOutput extends object, TResult, TKeys extends string = Extract<keyof TInput, string>> {
+export interface FormSession<TInput extends object, TOutput extends object, TResult, TKeys extends string = Extract<keyof TInput, string>, TContext extends object = Readonly<Record<string, unknown>>> {
+  confirmation: ComputedRef<{ readonly title: string; readonly message: string } | undefined>
+  settleConfirmation: (confirmed: boolean) => void
   arrayFields: FormArrayContext
   draft: ComputedRef<FormDraftSnapshot<TInput>>
   submittedValues: ComputedRef<Readonly<TOutput> | undefined>
@@ -54,12 +56,13 @@ export interface FormSession<TInput extends object, TOutput extends object, TRes
   setControlValue: (key: string, value: unknown) => void
   setControlError: (key: string, message: string | undefined) => void
   controlErrorKeys: () => readonly string[]
+  controlGeneration: (key: string) => number
   issueFor: (key: string) => string | undefined
   validatingField: (key: string) => boolean
   touchedField: (key: string) => boolean
   touch: (key: string) => void
   validate: () => Promise<SchemaParseResult<TOutput>>
-  submit: (options?: FormSubmitOptions<TInput>) => Promise<void>
+  submit: (options?: FormSubmitOptions<TInput, TOutput, TResult, TContext>) => Promise<void>
   reset: () => void
   refresh: () => Promise<void>
   focusFirstInvalid: () => Promise<void>
@@ -119,30 +122,6 @@ function issueMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Validation failed unexpectedly.'
 }
 
-function removedPropError(component: string, member: string): never {
-  throw new Error(`[loom][SURFACE_OPTION_INVALID] ${component} member "${member}" was removed; expected a flat Form prop bag.`)
-}
-
-function assertRemovedProps(component: string): void {
-  const props = getCurrentInstance()?.vnode.props ?? {}
-  for (const member of ['run', 'form']) {
-    if (
-      hasOwn(props, member) ||
-      hasOwn(
-        props,
-        member.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)
-      )
-    ) {
-      removedPropError(component, member)
-    }
-  }
-}
-
-function isModelPropPresent(): boolean {
-  const props = getCurrentInstance()?.vnode.props ?? {}
-  return hasOwn(props, 'modelValue') || hasOwn(props, 'model-value')
-}
-
 function definitionFromProps<TInput extends object, TOutput extends object, TResult, TKeys extends string, TContext extends object, TFields extends object>(
   props: FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>
 ): FormDefinition<TInput, TOutput, TResult, TKeys, TContext, TFields> {
@@ -195,17 +174,25 @@ function normalizedValidatorIssues(value: unknown, fieldKey: string): SchemaIssu
 
 export function useFormSession<TInput extends object, TOutput extends object, TResult, TKeys extends string, TContext extends object, TFields extends object>(
   props: FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>,
-  events: FormSessionEvents<TInput, TResult>
-): FormSession<TInput, TOutput, TResult, TKeys> {
+  events: FormSessionEvents<TInput, TResult>,
+  host: { modelValuePresent: boolean }
+): FormSession<TInput, TOutput, TResult, TKeys, TContext> {
   type RuntimeField = RuntimeFormField<TInput, TKeys>
 
-  assertRemovedProps('Form')
-  const modelValuePresent = isModelPropPresent()
+  const modelValuePresent = host.modelValuePresent
   if (!props.schema) throw new Error('[loom][FORM_SCHEMA_REQUIRED] Form requires a raw schema.')
   if (typeof props.submit !== 'function' && !modelValuePresent) {
     throw new Error('[loom][FORM_BINDING_REQUIRED] Form requires a function-valued submit prop or a present modelValue prop.')
   }
 
+  const confirmation = shallowRef<{ readonly title: string; readonly message: string }>()
+  let resolveConfirmation: ((confirmed: boolean) => void) | undefined
+  function settleConfirmation(confirmed: boolean): void {
+    const resolve = resolveConfirmation
+    resolveConfirmation = undefined
+    confirmation.value = undefined
+    resolve?.(confirmed)
+  }
   const publications = createFormOutputs()
   const outputGeneration = ref(0)
   const acceptedValues = shallowRef<Readonly<TOutput>>()
@@ -293,6 +280,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
   const initialFields = resolveConfiguredFields(initialDraftSeed)
   const idPrefix = useId()
   const formId = `form-${idPrefix}`
+  const controlGenerations = reactive(new Map<string, number>())
   const inputPendingCount = ref(0)
   const inputPendingRegistry = provideFormInputPending(inputPendingCount)
   provide(formInputPendingKeyOf(), inputPendingRegistry)
@@ -371,6 +359,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
   function replaceDraft(value: Readonly<Record<string, unknown>>): void {
     for (const key of Object.keys(draft)) Reflect.deleteProperty(draft, key)
     Object.assign(draft, cloneRecord(value))
+    settleConfirmation(false)
     draftRevision += 1
     cancelValidation()
   }
@@ -422,6 +411,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
       serverIssues.value = serverIssues.value.filter((issue) => !Object.keys(patch).includes(String(issue.path[0])))
     }
     if (!userEdit && !changed && !hadControlIssue) return false
+    settleConfirmation(false)
     draftRevision += 1
     cancelValidation()
     emitModel()
@@ -576,7 +566,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     return performValidation('submit')
   }
 
-  async function runSubmit(generation: number, revision: number, submitTarget: FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>['submit'], values?: object): Promise<void> {
+  async function runSubmit(generation: number, revision: number, submitTarget: FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>['submit'], values?: object, options?: FormSubmitOptions<TInput, TOutput, TResult, TContext>): Promise<void> {
     if (postWriteErrorState.value || !mounted || generation !== sessionGeneration.value || revision !== draftRevision || props.submit !== submitTarget) return
     serverIssues.value = []
     const result = await performValidation('submit', undefined, values)
@@ -595,13 +585,22 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
       inputPending.value
     )
       return
-    if (typeof submitTarget !== 'function') return
+    const run = options?.run ?? submitTarget
+    if (typeof run !== 'function') return
+    const request = options?.confirm
+    if (request) {
+      const accepted = await new Promise<boolean>((resolve) => {
+        resolveConfirmation = resolve
+        confirmation.value = { ...request }
+      })
+      if (!accepted || !mounted || generation !== sessionGeneration.value || revision !== draftRevision || props.submit !== submitTarget || props.disabled || loading.value || postWriteErrorState.value || inputPending.value) return
+    }
     const mutationOwner = ++mutationSequence
     activeMutationOwner = mutationOwner
     submitting.value = true
     try {
       acceptedValues.value = snapshotEditable(result.data) as Readonly<TOutput>
-      const submitted = await submitTarget(result.data, { outputs: publications.outputs, context: (props.context ?? {}) as TContext })
+      const submitted = await run(result.data, { outputs: publications.outputs, context: (props.context ?? {}) as TContext })
       if (mounted && generation === sessionGeneration.value && activeMutationOwner === mutationOwner) {
         if (props.completeOnSubmit) completed.value = true
         events.submitted(submitted)
@@ -628,7 +627,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     }
   }
 
-  function submit(options?: FormSubmitOptions<TInput>): Promise<void> {
+  function submit(options?: FormSubmitOptions<TInput, TOutput, TResult, TContext>): Promise<void> {
     if (completed.value || postWriteErrorState.value) return Promise.resolve()
     if (activeSubmit) return activeSubmit
     if (props.disabled || submitting.value || loading.value || inputPending.value) return Promise.resolve()
@@ -639,7 +638,8 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     submitAttempted.value = true
     submitPending.value = true
     const values = options?.values === undefined ? undefined : cloneRecord(options.values)
-    const attempt = Promise.resolve().then(() => runSubmit(generation, revision, submitTarget, values))
+    const selected = options && { ...options, confirm: options.confirm && { ...options.confirm } }
+    const attempt = Promise.resolve().then(() => runSubmit(generation, revision, submitTarget, values, selected))
     const ownedAttempt = attempt.finally(async () => {
       if (activeSubmit !== ownedAttempt) return
       activeSubmit = undefined
@@ -749,6 +749,10 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
   }
 
   function reset(): void {
+    for (const key of Object.keys(controlIssues)) {
+      const field = key.split('.')[0] ?? key
+      controlGenerations.set(field, (controlGenerations.get(field) ?? 0) + 1)
+    }
     outputGeneration.value += 1
     publications.clear()
     acceptedValues.value = undefined
@@ -803,6 +807,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     const nextBaseline = mergeInputValues(schemaRuntime.value.inputKeys, [defaults.value, props.initialData, loadedValues.value])
     applyUneditedBaseline(nextBaseline)
     baseline.value = nextBaseline
+    settleConfirmation(false)
     draftRevision += 1
     cancelValidation()
   }
@@ -815,6 +820,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
       const nextBaseline = mergeInputValues(schemaRuntime.value.inputKeys, [defaults.value, value, loadedValues.value])
       applyUneditedBaseline(nextBaseline)
       baseline.value = nextBaseline
+      settleConfirmation(false)
       draftRevision += 1
       cancelValidation()
     },
@@ -836,6 +842,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     { deep: true }
   )
 
+  watch(() => props.submit, () => settleConfirmation(false), { flush: 'sync' })
   const keySignature = computed(() => JSON.stringify(fields.value.map((field) => [field.key, fieldKeys(field.key, field)])))
   const writeTargetSignature = computed(() => JSON.stringify(stableValue([props.resource, props.id])))
   watch(writeTargetSignature, () => {
@@ -846,6 +853,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     if (!previous) return
     const [previousSchema, previousKeys, previousIdentity] = previous
     if (schema === previousSchema && keys === previousKeys && identity === previousIdentity) return
+    settleConfirmation(false)
     sessionGeneration.value += 1
     completed.value = false
     acceptedValues.value = undefined
@@ -872,6 +880,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
   onUnmounted(() => {
     outputGeneration.value += 1
     mounted = false
+    settleConfirmation(false)
     sessionGeneration.value += 1
     abandonSessionWork()
     cancelValidation()
@@ -885,6 +894,8 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
   }
 
   return {
+    confirmation: computed(() => confirmation.value),
+    settleConfirmation,
     submittedValues,
     arrayFields,
     draft: readonlyDraft,
@@ -907,6 +918,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     setControlValue,
     setControlError,
     controlErrorKeys,
+    controlGeneration: (key) => controlGenerations.get(key) ?? 0,
     issueFor,
     validatingField,
     touchedField,

@@ -25,7 +25,7 @@ defineOptions({ inheritAttrs: false })
 const props = withDefaults(defineProps<DialogFormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>>(), {
   closeOnSubmitted: true,
 })
-defineSlots<DialogFormSlots<TInput, TKeys>>()
+defineSlots<DialogFormSlots<TInput, TKeys, TOutput, TResult, TContext>>()
 const emit = defineEmits<{
   (event: 'update:modelValue', value: FormDraftSnapshot<TInput>): void
   (event: 'submitted', result: TResult, refreshError?: SubmitError): void
@@ -39,7 +39,7 @@ const emit = defineEmits<{
 const instance = getCurrentInstance()
 const attrs = useAttrs()
 const slots = useSlots()
-const form = ref<FormExposed<TInput, TOutput> | null>(null)
+const form = ref<FormExposed<TInput, TOutput, TResult, TContext> | null>(null)
 const localOpen = ref(false)
 const checkingClose = ref(false)
 const propRevision = ref(0)
@@ -203,7 +203,7 @@ function handleSubmitted(result: TResult, refreshError: SubmitError | undefined,
   if (props.closeOnSubmitted !== false) open.value = false
 }
 
-function submit(options?: Parameters<FormExposed<TInput, TOutput>['submit']>[0]): Promise<void> | undefined {
+function submit(options?: Parameters<FormExposed<TInput, TOutput, TResult, TContext>['submit']>[0]): Promise<void> | undefined {
   submitGeneration += 1
   return form.value?.submit(options)
 }
