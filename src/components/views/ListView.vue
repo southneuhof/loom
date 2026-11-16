@@ -5,7 +5,8 @@
  * Owns Card, page title, toolbar, filters, and the selected collection
  * presentation. Collection owns the one data lifecycle for the body.
  */
-import { callWithAsyncErrorHandling, ErrorCodes, getCurrentInstance, computed, nextTick, onBeforeUnmount, reactive, ref, toRaw, useSlots, watch } from "vue";
+import { callWithAsyncErrorHandling, ErrorCodes, getCurrentInstance, computed, h, nextTick, onBeforeUnmount, reactive, ref, toRaw, useSlots, watch, type FunctionalComponent } from "vue";
+import { createReusableTemplate } from "@vueuse/core";
 import { isCancelledError } from "@tanstack/vue-query";
 import { toast } from "vue-sonner";
 import type {
@@ -61,9 +62,12 @@ const emit = defineEmits<{
   (event: "row-reorder", payload: RowReorderPayload<TRecord>): void;
 }>();
 const slots = useSlots();
+const rowActionsTemplate = createReusableTemplate<{ record: TRecord }>({ inheritAttrs: false });
+const DefineRowActions = rowActionsTemplate.define;
+const RowActions: FunctionalComponent<{ record: TRecord }> = (bindings) => h(rowActionsTemplate.reuse, bindings);
 defineSlots<{
   [name: `cell:${string}`]: (props: { value: unknown; record: TRecord; field: unknown; index: number }) => unknown;
-  collection?: (props: CollectionSlotProps<TRecord, TQuery> & { actions?: ListViewSlotActions<TRecord>; exportControls: ExportControls }) => unknown;
+  collection?: (props: CollectionSlotProps<TRecord, TQuery> & { actions?: ListViewSlotActions<TRecord>; rowActions: typeof RowActions; exportControls: ExportControls }) => unknown;
   /**
    * Per-standard-action overrides. The framework owns visibility: each region
    * renders only when its action is declared and permitted, so custom content
@@ -150,6 +154,7 @@ const surface = computed<ListViewSurface>(() => {
 });
 
 const tableRef = ref<Pick<CollectionSlotProps<TRecord, TQuery>, "context" | "loading" | "error"> & { refresh: () => Promise<void>; query: QueryValues; updateQuery: (patch: QueryValues) => void; replaceQuery: (values: QueryValues) => void; readReady: boolean }>();
+const filterQueryReady = computed(() => !props.filters || props.table.query !== undefined || Boolean(slots.body) || Boolean(tableRef.value));
 const currentQuery = computed<QueryValues>(() => (props.table.query as QueryValues | undefined)
   ?? tableRef.value?.query
   ?? { page: 1, limit: props.table.defaultPageSize ?? 10 });
@@ -572,6 +577,103 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
 
 <template>
   <section class="is-list-view flex flex-col gap-2">
+    <DefineRowActions v-slot="{ record }">
+      <div
+        class="flex items-center justify-end gap-1"
+        aria-label="Row actions"
+      >
+        <template v-if="surface.detailRoute?.(record) && (surface.can?.('detail', record) ?? true)">
+          <slot name="row-actions-view" v-bind="{ record, can: surface.can, target: surface.detailRoute(record)! }">
+            <RouterLink
+              v-slot="{ href, navigate }"
+              custom
+              :to="surface.detailRoute(record)! as RouteLocationRaw"
+            >
+              <Button
+                kind="icon"
+                variant="standard"
+                :href="href"
+                :ariaLabel="props.actionLabels?.view ?? 'View'"
+                @click.stop="navigate"
+              >
+                <template #icon><Icon name="eye" size="base" /></template>
+              </Button>
+            </RouterLink>
+          </slot>
+        </template>
+        <template v-if="surface.updateRoute?.(record) && (surface.can?.('update', record) ?? true)">
+          <slot name="row-actions-edit" v-bind="{ record, can: surface.can, target: surface.updateRoute(record)! }">
+            <RouterLink
+              v-slot="{ href, navigate }"
+              custom
+              :to="surface.updateRoute(record)! as RouteLocationRaw"
+            >
+              <Button
+                kind="icon"
+                variant="standard"
+                :href="href"
+                :ariaLabel="props.actionLabels?.edit ?? 'Edit'"
+                @click.stop="navigate"
+              >
+                <template #icon><Icon name="edit" size="base" /></template>
+              </Button>
+            </RouterLink>
+          </slot>
+        </template>
+        <template v-if="surface.can?.('delete', record)">
+          <slot
+            name="row-actions-delete"
+            v-bind="{ record, can: surface.can, deleteRecord: customActions.deleteRecord, deleteState: getDeleteState(record) }"
+          >
+            <div v-if="getDeleteState(record).error" role="alert" class="max-w-64 whitespace-normal text-xs text-error">
+              <p v-if="isConfirmedWriteRefreshError(getDeleteState(record).error)">Changes saved. The record list could not be refreshed.</p>
+              <p v-else>The delete may have completed. Check the record before trying again.</p>
+              <p>{{ getDeleteState(record).error?.message }}</p>
+              <Button
+                v-if="getDeleteState(record).refresh"
+                type="button"
+                variant="text"
+                class="min-w-0 px-2"
+                :disabled="getDeleteState(record).refreshing"
+                @click.stop="getDeleteState(record).refresh?.()"
+              >Retry refresh</Button>
+            </div>
+            <Dialog v-if="surface.deleteRecord" :key="deleteDialogKey(record)">
+              <template #trigger>
+                <Button
+                  kind="icon"
+                  variant="standard"
+                  color="error"
+                  :ariaLabel="props.actionLabels?.delete ?? 'Delete'"
+                  @click.stop
+                >
+                  <template #icon><Icon name="delete-bin" size="base" /></template>
+                </Button>
+              </template>
+              <template #title>Delete record?</template>
+              <template #description>This action cannot be undone.</template>
+              <template #footer="{ setOpen }">
+                <div class="flex w-full justify-end gap-2">
+                  <Button
+                    type="button"
+                    variant="text"
+                    :disabled="getDeleteState(record).pending"
+                    @click="setOpen(false)"
+                  >Cancel</Button>
+                  <Button
+                    type="button"
+                    color="error"
+                    :disabled="getDeleteState(record).disabled"
+                    @click="remove(record, setOpen)"
+                  >Delete</Button>
+                </div>
+              </template>
+            </Dialog>
+          </slot>
+        </template>
+        <slot name="row-actions" v-bind="{ record }" />
+      </div>
+    </DefineRowActions>
     <Card variant="outlined" color="surfaceContainer" class="gap-0 p-0">
       <header class="flex flex-col gap-4 px-5 py-4 sm:px-6 sm:py-5">
         <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -594,7 +696,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
                     applyQuery({ search: search || undefined, page: 1 })
                 "
               />
-              <Popover v-if="filters">
+              <Popover v-if="filters && filterQueryReady">
                 <template #trigger>
                   <Button kind="icon" variant="standard" ariaLabel="Filter">
                     <template #icon><Icon name="filter" /></template>
@@ -667,7 +769,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
                   </template>
                 </Menu>
               </slot>
-              <slot name="toolbar" :export-controls="exportControls" v-bind="filterSlotProps" />
+              <slot v-if="filterQueryReady" name="toolbar" :export-controls="exportControls" v-bind="filterSlotProps" />
               <p v-if="exportControls.error" role="alert">{{ exportControls.error.message }}</p>
             </div>
           </div>
@@ -687,14 +789,14 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
       </header>
 
       <div
-        v-if="$slots.filters"
+        v-if="$slots.filters && filterQueryReady"
         class="border-t border-outline-variant px-5 py-3 sm:px-6"
       >
         <slot name="filters" v-bind="filterSlotProps" />
       </div>
     </Card>
 
-    <slot name="context" v-bind="contextSlotProps" />
+    <slot v-if="filterQueryReady" name="context" v-bind="contextSlotProps" />
 
     <Card variant="outlined" color="surfaceContainer" class="gap-0 p-0">
       <slot name="body" v-bind="{ table: surface.table, exportControls }">
@@ -711,7 +813,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
             @row-reorder="rowReorder"
           >
             <template v-if="$slots.collection" #collection="collection">
-              <slot name="collection" v-bind="{ ...collection, actions: customActions, exportControls }" />
+              <slot name="collection" v-bind="{ ...collection, actions: customActions, rowActions: RowActions, exportControls }" />
             </template>
             <template
               v-if="
@@ -722,102 +824,8 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
               "
               #row-actions="{ record }"
             >
-                  <div
-                    class="flex items-center justify-end gap-1"
-                    aria-label="Row actions"
-                  >
-                    <template v-if="surface.detailRoute?.(record) && (surface.can?.('detail', record) ?? true)">
-                      <slot name="row-actions-view" v-bind="{ record, can: surface.can, target: surface.detailRoute(record)! }">
-                        <RouterLink
-                          v-slot="{ href, navigate }"
-                          custom
-                          :to="surface.detailRoute(record)! as RouteLocationRaw"
-                        >
-                          <Button
-                            kind="icon"
-                            variant="standard"
-                            :href="href"
-                            :ariaLabel="props.actionLabels?.view ?? 'View'"
-                            @click.stop="navigate"
-                          >
-                            <template #icon><Icon name="eye" size="base" /></template>
-                          </Button>
-                        </RouterLink>
-                      </slot>
-                    </template>
-                    <template v-if="surface.updateRoute?.(record) && (surface.can?.('update', record) ?? true)">
-                      <slot name="row-actions-edit" v-bind="{ record, can: surface.can, target: surface.updateRoute(record)! }">
-                        <RouterLink
-                          v-slot="{ href, navigate }"
-                          custom
-                          :to="surface.updateRoute(record)! as RouteLocationRaw"
-                        >
-                          <Button
-                            kind="icon"
-                            variant="standard"
-                            :href="href"
-                            :ariaLabel="props.actionLabels?.edit ?? 'Edit'"
-                            @click.stop="navigate"
-                          >
-                            <template #icon><Icon name="edit" size="base" /></template>
-                          </Button>
-                        </RouterLink>
-                      </slot>
-                    </template>
-                    <template v-if="surface.can?.('delete', record)">
-                      <slot
-                        name="row-actions-delete"
-                        v-bind="{ record, can: surface.can, deleteRecord: customActions.deleteRecord, deleteState: getDeleteState(record) }"
-                      >
-                        <div v-if="getDeleteState(record).error" role="alert" class="max-w-64 whitespace-normal text-xs text-error">
-                          <p v-if="isConfirmedWriteRefreshError(getDeleteState(record).error)">Changes saved. The record list could not be refreshed.</p>
-                          <p v-else>The delete may have completed. Check the record before trying again.</p>
-                          <p>{{ getDeleteState(record).error?.message }}</p>
-                          <Button
-                            v-if="getDeleteState(record).refresh"
-                            type="button"
-                            variant="text"
-                            class="min-w-0 px-2"
-                            :disabled="getDeleteState(record).refreshing"
-                            @click.stop="getDeleteState(record).refresh?.()"
-                          >Retry refresh</Button>
-                        </div>
-                        <Dialog v-if="surface.deleteRecord" :key="deleteDialogKey(record)">
-                          <template #trigger>
-                            <Button
-                              kind="icon"
-                              variant="standard"
-                              color="error"
-                              :ariaLabel="props.actionLabels?.delete ?? 'Delete'"
-                              @click.stop
-                            >
-                              <template #icon><Icon name="delete-bin" size="base" /></template>
-                            </Button>
-                          </template>
-                          <template #title>Delete record?</template>
-                          <template #description>This action cannot be undone.</template>
-                          <template #footer="{ setOpen }">
-                            <div class="flex w-full justify-end gap-2">
-                              <Button
-                                type="button"
-                                variant="text"
-                                :disabled="getDeleteState(record).pending"
-                                @click="setOpen(false)"
-                              >Cancel</Button>
-                              <Button
-                                type="button"
-                                color="error"
-                                :disabled="getDeleteState(record).disabled"
-                                @click="remove(record, setOpen)"
-                              >Delete</Button>
-                            </div>
-                          </template>
-                        </Dialog>
-                      </slot>
-                    </template>
-                    <slot name="row-actions" v-bind="{ record }" />
-                  </div>
-                </template>
+              <component :is="RowActions" :record="record" />
+            </template>
                 <template
                   v-for="([name], index) in passthroughSlots"
                   #[name]="slotProps"

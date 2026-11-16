@@ -247,7 +247,7 @@ function reset(): void {
         :dirty="dirty"
         :input-pending="inputPending"
       >
-        <Button v-if="hasSubmit" type="submit" :disabled="props.disabled === true || loading || submitPending || submitting || inputPending || postWriteError !== undefined">
+        <Button v-if="hasSubmit" type="submit" :disabled="props.disabled === true || loading || submitPending || submitting || inputPending || postWriteError !== undefined" @mousedown.left.prevent>
           {{ submitting ? (props.submittingLabel ?? submitLabel) : submitLabel }}
         </Button>
       </slot>

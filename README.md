@@ -193,6 +193,10 @@ Routes own navigation, dialogs, confirmations, notifications, and workflow
 state. Use `Table`, `Detail`, or `Form` directly when a page does not need a
 standard resource View.
 
+Custom collections can render ListView's standard row controls with
+`<component :is="collection.rowActions" :record="record" />`. Pass the original
+resource record to retain routes, permissions, deletion, and action overrides.
+
 Use `TreeTableContent` when a nonstandard page owns the collection load and
 passes loaded tree records to Loom. It keeps the table slots and query controls.
 Expansion uses local state by default. Set `expandedKeys` to control it:
@@ -375,6 +379,8 @@ Deleted-record queries become stale without an immediate refetch.
 ## Local controls and form state
 
 ListView keeps one filter session for its popover and custom filter slots.
+With the default body, filter controls wait for query initialization so cached
+option defaults can update the query. Loading and errors do not delay controls.
 For secondary submit actions, Form supports `submit({ run, confirm })`.
 See [filters](../../docs/resource_system_overhaul/ARCHITECTURE.md#72-filters)
 and [submission](../../docs/resource_system_overhaul/ARCHITECTURE.md#52-submission)

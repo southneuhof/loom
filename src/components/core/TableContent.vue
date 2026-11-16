@@ -629,7 +629,7 @@ function hasCellSlot(key: string): boolean {
                   :class="[props.hierarchy && field.key === props.hierarchy.treeColumn ? 'whitespace-normal' : 'whitespace-nowrap', field.class]"
                 >
                   <template v-if="props.hierarchy && field.key === props.hierarchy.treeColumn">
-                    <div class="is-tree-table-cell flex min-w-0 items-start gap-2" :style="{ '--loom-tree-depth': row.depth }">
+                    <div class="is-tree-table-cell flex min-w-0 gap-2" :style="{ '--loom-tree-depth': row.depth }">
                       <Button
                         v-if="row.getCanExpand()"
                         :ref="(element) => setDisclosureElement(row.id, element)"
@@ -732,6 +732,7 @@ function hasCellSlot(key: string): boolean {
 }
 
 .is-tree-table-cell {
+  align-items: center;
   min-width: 0;
   padding-inline-start: calc(var(--loom-tree-indent, 1rem) * var(--loom-tree-depth, 0));
 }
