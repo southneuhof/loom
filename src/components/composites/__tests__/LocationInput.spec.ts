@@ -78,7 +78,7 @@ async function flush() {
 }
 
 function searchInput(host: HTMLElement) {
-  return host.querySelector<HTMLInputElement>('input[placeholder="Cari lokasi..."]')!
+  return host.querySelector<HTMLInputElement>('input[role="combobox"]')!
 }
 
 function enter(inputElement: HTMLInputElement, value: string) {
@@ -125,7 +125,7 @@ describe('LocationInput model form', () => {
     await flush()
     enter(searchInput(view.host), 'missing')
     await flush()
-    expect(view.host.textContent).toContain('Mencari...')
+    expect(view.host.textContent).toContain('Searching...')
     expect(view.host.textContent).not.toContain('No results')
     pending.resolve([])
     await flush()
@@ -149,9 +149,7 @@ describe('LocationInput model form', () => {
     await flush()
     expect(view.model.value).toEqual({ lat: -6, lng: 111 })
     expect(view.host.querySelector('[role="option"]')).toBeNull()
-    searchInput(view.host).click()
-    await flush()
-    expect(view.host.querySelector('[role="option"]')?.textContent).toContain('Harbor')
+    expect(searchInput(view.host).placeholder).toBe('Harbor')
   })
 
   it('uses a unique generated input id and keeps explicit ids', async () => {
@@ -192,7 +190,7 @@ describe('LocationInput model form', () => {
 
     await flush()
 
-    expect(view.host.textContent).toContain('Map configuration failed.')
+    expect(view.host.textContent).toContain('Unable to load map.')
   })
 
   it('selects coordinates without exposing provider metadata and clears the position', async () => {
@@ -227,7 +225,7 @@ describe('LocationInput model form', () => {
     expect(view.model.value).toEqual({ lat: -6, lng: 111 })
 
     expect(view.host.querySelectorAll('input')).toHaveLength(1)
-    const clear = [...view.host.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.trim() === 'Clear location')
+    const clear = view.host.querySelector<HTMLButtonElement>('button[aria-label="Clear location"]')
     if (!clear) throw new Error('Clear location did not render.')
     clear.click()
     await flush()
@@ -302,7 +300,7 @@ describe('LocationInput model form', () => {
     const view = mountLocation(operations)
     await flush()
 
-    view.host.querySelector<HTMLButtonElement>('button[aria-label="Gunakan lokasi saat ini"]')!.click()
+    view.host.querySelector<HTMLButtonElement>('button[aria-label="Use current location"]')!.click()
     enter(searchInput(view.host), 'harbor')
     await flush()
     const suggestion = [...view.host.querySelectorAll<HTMLButtonElement>('[role="option"]')]
@@ -337,7 +335,7 @@ describe('LocationInput model form', () => {
     }
     const view = mountLocation(operations)
     await flush()
-    view.host.querySelector<HTMLButtonElement>('button[aria-label="Gunakan lokasi saat ini"]')!.click()
+    view.host.querySelector<HTMLButtonElement>('button[aria-label="Use current location"]')!.click()
     view.app.unmount()
 
     if (!completeLocation) throw new Error('Geolocation did not start.')
