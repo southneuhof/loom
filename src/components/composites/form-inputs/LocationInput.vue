@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import Popover from '../../base/Popover.vue'
+import Tooltip from '../../base/Tooltip.vue'
 import OpenStreetMap from '../../utils/OpenStreetMap.vue'
 import { GoogleMap, Marker } from 'vue3-google-map'
 import { computed, onBeforeUnmount, onMounted, ref, watch, useAttrs, useId, type InputHTMLAttributes, type PropType } from 'vue'
@@ -304,12 +305,22 @@ onBeforeUnmount(() => {
             <div ref="searchAnchor" class="map-search relative w-full rounded-full text-on-surface">
               <SearchBox v-model="query" v-bind="{ ...controlBindings, ...searchBindings() }" :debounced="false" :placeholder="searchPlaceholder" class="w-full rounded-full !outline-none" />
               <div class="absolute inset-y-0 right-1 flex items-center">
-                <button v-if="modelValue" type="button" class="map-tool" aria-label="Clear location" :disabled="props.disabled" @click="clearLocation">
-                  <Icon name="close" />
-                </button>
-                <button type="button" class="map-tool" aria-label="Use current location" :disabled="props.disabled || loading" @click="getCurrentLocation">
-                  <Icon name="crosshair" />
-                </button>
+                <Tooltip v-if="modelValue">
+                  <template #trigger>
+                    <button type="button" class="map-tool" aria-label="Clear location" :disabled="props.disabled" @click="clearLocation">
+                      <Icon name="close" />
+                    </button>
+                  </template>
+                  <template #content>Clear location</template>
+                </Tooltip>
+                <Tooltip>
+                  <template #trigger>
+                    <button type="button" class="map-tool" aria-label="Use current location" :disabled="props.disabled || loading" @click="getCurrentLocation">
+                      <Icon name="crosshair" />
+                    </button>
+                  </template>
+                  <template #content>Use current location</template>
+                </Tooltip>
               </div>
             </div>
           </template>
