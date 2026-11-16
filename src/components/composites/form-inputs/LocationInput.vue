@@ -303,7 +303,7 @@ onBeforeUnmount(() => {
         <Popover v-model="searchOpen" anchor match-width content-class="location-search-results gap-0 p-1 max-h-72 overflow-y-auto w-full">
           <template #trigger>
             <div ref="searchAnchor" class="map-search relative w-full rounded-full text-on-surface">
-              <SearchBox v-model="query" v-bind="{ ...controlBindings, ...searchBindings() }" :debounced="false" :placeholder="searchPlaceholder" class="w-full rounded-full !outline-none" />
+              <SearchBox v-model="query" v-bind="{ ...controlBindings, ...searchBindings() }" :debounced="false" :placeholder="searchPlaceholder" class="w-full rounded-full" />
               <div class="absolute inset-y-0 right-1 flex items-center">
                 <Tooltip v-if="modelValue">
                   <template #trigger>
@@ -389,9 +389,6 @@ onBeforeUnmount(() => {
 .map-search {
   background: rgb(var(--md-sys-color-on-surface) / 0%);
   transition: background-color 180ms ease-out;
-}
-.map-search :deep(.outline) {
-  outline: none !important;
 }
 .map-search:focus-within {
   background: rgb(var(--md-sys-color-on-surface) / 6%);
