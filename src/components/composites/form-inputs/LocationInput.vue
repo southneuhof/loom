@@ -278,7 +278,7 @@ onBeforeUnmount(() => {
 
 <template>
   <BaseInput v-bind="props" :id="inputId()" v-slot="{ controlBindings }">
-    <div class="location-preview relative isolate overflow-hidden rounded-2xl border border-outline-variant bg-surface-container">
+    <div class="location-preview relative isolate overflow-hidden rounded-2xl border border-outline-variant bg-surface-container outline outline-1 outline-outline/[24%] -outline-offset-1">
       <OpenStreetMap v-if="mapProvider === 'openstreetmap'" :center="center" :location="modelValue" :disabled="props.disabled" @select="updateCoordinate($event.lat, $event.lng)" />
       <GoogleMap
         v-if="apiKey && mapProvider === 'google'"
@@ -355,6 +355,9 @@ onBeforeUnmount(() => {
 </template>
 
 <style scoped>
+.location-preview {
+  clip-path: inset(0 round 1rem);
+}
 .map-top-shade {
   background: linear-gradient(to bottom, rgb(0 0 0 / 10%), transparent), linear-gradient(to bottom, rgb(var(--md-sys-color-surface) / 65%), rgb(var(--md-sys-color-surface) / 0%));
 }
