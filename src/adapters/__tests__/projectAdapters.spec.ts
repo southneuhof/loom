@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { createApp, defineComponent, h } from 'vue'
 import { FrameworkPlugin } from '../plugin'
 import { defaultDataAdapter, resolveFrameworkAdapters, useFrameworkAdapters } from '../projectAdapters'
-import { frameworkQueryClientKey } from '../../query/client'
+import { useFrameworkQueryClient } from '../../query/client'
 
-function mountWith(options: Parameters<typeof FrameworkPlugin.install>[1]) {
+function mountWith(options?: Parameters<typeof FrameworkPlugin.install>[1]) {
   let adapters: ReturnType<typeof useFrameworkAdapters> | undefined
   const app = createApp(
     defineComponent({
@@ -102,33 +102,31 @@ describe('plugin installation', () => {
   })
 
   it('creates one isolated query client per app', () => {
-    const first = mountWith({})
-    const second = mountWith({})
+    const first = mountWith()
+    const second = mountWith()
 
-    const firstClient = first.app._context.provides[frameworkQueryClientKey as symbol]
-    const secondClient = second.app._context.provides[frameworkQueryClientKey as symbol]
+    const firstClient = first.app.runWithContext(useFrameworkQueryClient)
+    const secondClient = second.app.runWithContext(useFrameworkQueryClient)
 
-    expect(firstClient).toBeDefined()
-    expect(firstClient).not.toBe(secondClient)
+    firstClient.setQueryData(['users'], [{ id: 1 }])
+    expect(secondClient.getQueryData(['users'])).toBeUndefined()
     first.app.unmount()
     second.app.unmount()
   })
 
   it('accepts an injected query client', () => {
-    const { app } = mountWith({})
-    const client = app._context.provides[frameworkQueryClientKey as symbol]
+    const { app } = mountWith()
+    const client = app.runWithContext(useFrameworkQueryClient)
     app.unmount()
 
-    const reused = mountWith({ queryClient: client as never })
-    expect(reused.app._context.provides[frameworkQueryClientKey as symbol]).toBe(client)
+    const reused = mountWith({ queryClient: client })
+    expect(reused.app.runWithContext(useFrameworkQueryClient)).toBe(client)
     reused.app.unmount()
   })
 
   it('applies adapter query defaults to the created client', () => {
     const { app } = mountWith({ adapters: { queryDefaults: { staleTime: 1234, retry: 3 } } })
-    const client = app._context.provides[frameworkQueryClientKey as symbol] as {
-      getDefaultOptions: () => { queries?: { staleTime?: number; retry?: number } }
-    }
+    const client = app.runWithContext(useFrameworkQueryClient)
 
     expect(client.getDefaultOptions().queries?.staleTime).toBe(1234)
     expect(client.getDefaultOptions().queries?.retry).toBe(3)

@@ -5,7 +5,7 @@ import 'leaflet/dist/leaflet.css'
 import markerIcon from 'leaflet/dist/images/marker-icon.png'
 import markerIconRetina from 'leaflet/dist/images/marker-icon-2x.png'
 import markerShadow from 'leaflet/dist/images/marker-shadow.png'
-import type { Coordinate } from '../../contracts'
+import type { Coordinate } from '../../contracts/location'
 
 const props = defineProps<{
   center: Coordinate

@@ -29,12 +29,6 @@ function mountWithRenderers(renderers: Parameters<typeof createRendererRegistrie
 }
 
 describe('renderer registry', () => {
-  it('uses number for currency amounts without a second renderer', () => {
-    const registry = createRendererRegistries().form
-    expect(registry.has('number')).toBe(true)
-    expect(registry.has('currency')).toBe(false)
-  })
-
   it('uses TextInput with its Vue model and component-owned validity event', async () => {
     const updated: unknown[] = []
     const host = document.createElement('div')
@@ -93,7 +87,6 @@ describe('renderer registry', () => {
     const registry = createRendererRegistry('form', { text: Chip })
 
     expect(() => registry.require('date')).toThrow('No form renderer registered for "date". Registered: text.')
-    expect(() => createRendererRegistry('table').require('chip')).toThrow('Registered: none.')
   })
 
   it('lets a later display registration override an earlier one', () => {

@@ -361,7 +361,6 @@ describe the current checks.
 | `@southneuhof/loom/components/*` | Component subpaths |
 | `@southneuhof/loom/renderers/*` | Renderer contracts |
 | `@southneuhof/loom/adapters/*` | Application adapter contracts |
-| `@southneuhof/loom/router/*` | Router utilities |
 | `@southneuhof/loom/file-manager` | Optional file-manager integration |
 
 

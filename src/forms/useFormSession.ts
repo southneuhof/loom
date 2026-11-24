@@ -9,7 +9,7 @@ import type { SchemaIssue, SchemaParseResult } from '../contracts/schema'
 import type { SubmitError } from '../contracts/results'
 import { useFrameworkAdapters } from '../adapters/projectAdapters'
 import { useRendererRegistry } from '../renderers/registry'
-import { useLoader } from '../query'
+import { useLoader } from '../query/loader'
 import { stableValue } from '../query/keys'
 import { instanceIdentity, recordCacheKey } from '../components/core/useCoreData'
 import { associateResourceLoader, resourceLoaderIdentity } from '../resources/loaderIdentity'
@@ -83,14 +83,6 @@ function equalValue(left: unknown, right: unknown): boolean {
   return keys.length === Object.keys(right).length && keys.every((key) => Object.hasOwn(right, key) && equalValue(left[key], right[key]))
 }
 
-function equalRecord(left: Readonly<Record<string, unknown>>, right: Readonly<Record<string, unknown>>): boolean {
-  return equalValue(left, right)
-}
-
-function hasOwn(value: object, key: string): boolean {
-  return Object.prototype.hasOwnProperty.call(value, key)
-}
-
 function mergeInputValues(inputKeys: readonly string[], sources: readonly (object | undefined)[]): Record<string, unknown> {
   const inputKeySet = new Set(inputKeys)
   const result: Record<string, unknown> = {}
@@ -99,17 +91,6 @@ function mergeInputValues(inputKeys: readonly string[], sources: readonly (objec
     for (const [key, value] of Object.entries(source)) {
       if (inputKeySet.has(key)) result[key] = cloneEditable(value)
     }
-  }
-  return result
-}
-
-function copyInputValues(value: object | undefined, inputKeys: readonly string[]): Record<string, unknown> {
-  if (!value) return {}
-  const inputKeySet = new Set(inputKeys)
-  const result: Record<string, unknown> = {}
-  for (const [key, rawValue] of Object.entries(value)) {
-    if (!inputKeySet.has(key)) continue
-    result[key] = cloneEditable(rawValue)
   }
   return result
 }
@@ -137,7 +118,7 @@ function definitionFromProps<TInput extends object, TOutput extends object, TRes
 function formDefaults<TInput extends object, TKeys extends string>(fields: readonly RuntimeFormField<TInput, TKeys>[], overrides: readonly (object | undefined)[] = []): Record<string, unknown> {
   const values: Record<string, unknown> = {}
   for (const field of fields) {
-    if (hasOwn(field, 'initialValue') && !overrides.some((value) => value !== undefined && fieldKeys(field.key, field).some((key) => hasOwn(value, key)))) {
+    if (Object.hasOwn(field, 'initialValue') && !overrides.some((value) => value !== undefined && fieldKeys(field.key, field).some((key) => Object.hasOwn(value, key)))) {
       Object.assign(values, fieldPatch(field.key, field, typeof field.initialValue === 'function' ? field.initialValue() : field.initialValue))
     }
   }
@@ -281,14 +262,14 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
   const idPrefix = useId()
   const formId = `form-${idPrefix}`
   const controlGenerations = reactive(new Map<string, number>())
-  const inputPendingCount = ref(0)
-  const inputPendingRegistry = provideFormInputPending(inputPendingCount)
+  const inputPendingRegistry = provideFormInputPending()
   provide(formInputPendingKeyOf(), inputPendingRegistry)
-  const inputPending = computed(() => inputPendingCount.value > 0)
+  const inputPending = inputPendingRegistry.pending
   const fallbackOwner = instanceIdentity('form')
   const owner = computed(() => props.resource ?? props.namespace ?? fallbackOwner)
+  const readKey = computed(() => recordCacheKey(owner.value, props.id, 'form', props.namespace, props.searchParameters ?? {}))
   const loader = useLoader<RecordLoadContext, FormDraft<TInput> | undefined>({
-    key: computed(() => recordCacheKey(owner.value, props.id, 'form', props.namespace, props.searchParameters ?? {})),
+    key: readKey,
     context: computed(() => ({ id: props.id, searchParameters: props.searchParameters ?? {} })),
     load: computed(() => (modelValuePresent ? undefined : props.load)),
     enabled: computed(() => !modelValuePresent && props.load !== undefined),
@@ -329,7 +310,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
   const visibleFields = computed(() => fields.value.filter((field) => field.visible))
   const visibleKeys = computed<string[]>(() => visibleFields.value.map((field) => field.key))
   const hasSubmit = computed(() => typeof props.submit === 'function')
-  const dirty = computed(() => !equalRecord(cloneRecord(draft), baseline.value))
+  const dirty = computed(() => !equalValue(cloneRecord(draft), baseline.value))
   const readonlyDraft = computed(() => snapshotDraft<TInput>(draft))
   const postWriteError = computed(() => postWriteErrorState.value)
 
@@ -376,7 +357,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
   }
 
   function clearControlError(key: string): boolean {
-    if (!hasOwn(controlIssues, key)) return false
+    if (!Object.hasOwn(controlIssues, key)) return false
     const message = controlIssues[key]
     delete controlIssues[key]
     issues.value = issues.value.filter((issue) => issue.path.join('.') !== key || issue.message !== message)
@@ -435,7 +416,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     if (!fieldFor(key.split('.')[0] ?? key)) {
       throw new Error(`[loom][FORM_FIELD_UNKNOWN] Form field "${key}" is not selected.`)
     }
-    if (message === undefined ? !hasOwn(controlIssues, key) : controlIssues[key] === message) return
+    if (message === undefined ? !Object.hasOwn(controlIssues, key) : controlIssues[key] === message) return
     clearControlError(key)
     if (message !== undefined) controlIssues[key] = message
     cancelValidation()
@@ -448,7 +429,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
   function applyUneditedBaseline(value: Readonly<Record<string, unknown>>): void {
     for (const key of schemaRuntime.value.inputKeys) {
       if (edited.has(key)) continue
-      if (hasOwn(value, key)) Reflect.set(draft, key, cloneEditable(value[key]))
+      if (Object.hasOwn(value, key)) Reflect.set(draft, key, cloneEditable(value[key]))
       else Reflect.deleteProperty(draft, key)
     }
   }
@@ -474,7 +455,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     const candidate: Record<string, unknown> = {}
     for (const key of schemaRuntime.value.inputKeys) {
       if (selected.has(key) && !visible.has(key)) continue
-      if (hasOwn(snapshot, key)) candidate[key] = cloneEditable(snapshot[key])
+      if (Object.hasOwn(snapshot, key)) candidate[key] = cloneEditable(snapshot[key])
     }
     return candidate
   }
@@ -802,7 +783,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
 
   function applyLoaded(value: FormDraft<TInput> | undefined): void {
     if (modelValuePresent || value === undefined || !mounted) return
-    const mapped = copyInputValues(value, schemaRuntime.value.inputKeys)
+    const mapped = mergeInputValues(schemaRuntime.value.inputKeys, [value])
     loadedValues.value = mapped
     const nextBaseline = mergeInputValues(schemaRuntime.value.inputKeys, [defaults.value, props.initialData, loadedValues.value])
     applyUneditedBaseline(nextBaseline)
@@ -831,7 +812,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     (value) => {
       if (!modelValuePresent) return
       const next = mergeInputValues(schemaRuntime.value.inputKeys, [defaults.value, props.initialData, value])
-      if (lastEmittedModel && equalRecord(next, cloneRecord(lastEmittedModel)) && equalRecord(next, cloneRecord(draft))) return
+      if (lastEmittedModel && equalValue(next, cloneRecord(lastEmittedModel)) && equalValue(next, cloneRecord(draft))) return
       replaceDraft(next)
       baseline.value = cloneRecord(next)
       edited.clear()
@@ -848,7 +829,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
   watch(writeTargetSignature, () => {
     postWriteErrorState.value = undefined
   })
-  const identitySignature = computed(() => JSON.stringify(recordCacheKey(owner.value, props.id, 'form', props.namespace, props.searchParameters ?? {})))
+  const identitySignature = computed(() => JSON.stringify(readKey.value))
   watch([() => props.schema, keySignature, identitySignature], ([schema, keys, identity], previous) => {
     if (!previous) return
     const [previousSchema, previousKeys, previousIdentity] = previous
@@ -874,7 +855,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     serverIssues.value = []
     submitAttempted.value = false
     if (identity === previousIdentity) applyLoaded(loaded.value)
-    if (modelValuePresent && !equalRecord(next, mergeInputValues(schemaRuntime.value.inputKeys, [props.modelValue]))) nextTick(emitModel)
+    if (modelValuePresent && !equalValue(next, mergeInputValues(schemaRuntime.value.inputKeys, [props.modelValue]))) nextTick(emitModel)
   })
 
   onUnmounted(() => {
@@ -887,7 +868,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
     derivedRuntime.stop()
   })
 
-  if (modelValuePresent && !equalRecord(initialValues, mergeInputValues(schemaRuntime.value.inputKeys, [props.modelValue]))) {
+  if (modelValuePresent && !equalValue(initialValues, mergeInputValues(schemaRuntime.value.inputKeys, [props.modelValue]))) {
     nextTick(() => {
       if (mounted) emitModel()
     })

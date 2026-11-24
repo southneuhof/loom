@@ -1,6 +1,8 @@
 <script setup lang="ts" generic="TRecord extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>">
 import { computed, getCurrentInstance, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
-import type { CollectionLoadContext, CollectionResult, QueryValues } from '../../../contracts'
+import type { CollectionLoadContext } from '../../../contracts/load'
+import type { QueryValues } from '../../../contracts/query'
+import type { CollectionResult } from '../../../contracts/results'
 import { resourceOptionsKey, stableValue } from '../../../query/keys'
 import { normalizeQueryFilters } from '../../../query/filters'
 import { useLoader } from '../../../query/loader'
@@ -45,16 +47,16 @@ for (const member of ['data', 'load']) {
 
 const modelValue = defineModel<LookupModelValue<TRecord>>()
 const emit = defineEmits<{ (event: 'validation:touch'): void }>()
+type ScalarIdentity = string | number
 const committed = shallowRef<TRecord[]>([])
 const staged = shallowRef<TRecord[]>([])
-const committedIdentity = ref<unknown>()
-const stagedIdentity = ref<unknown>()
+const committedIdentity = ref<ScalarIdentity>()
+const stagedIdentity = ref<ScalarIdentity>()
 const hydrationError = ref<string>()
 const search = ref('')
 const dialogOpen = ref(false)
 const query = ref<QueryValues>({ page: 1, limit: 5 })
 let detailController: AbortController | undefined
-let detailGeneration = 0
 let stagingGeneration = 0
 const sourceRevision = ref(0)
 
@@ -151,7 +153,7 @@ function viewValue(record: TRecord): unknown {
   return read(record, viewKey.value)
 }
 
-function forModel(selection: readonly TRecord[], identity?: unknown): LookupModelValue<TRecord> {
+function forModel(selection: readonly TRecord[], identity?: ScalarIdentity): LookupModelValue<TRecord> {
   if (props.multi) return copySelection(selection)
   const value = selection.length ? pickValue(selection[0]!) : identity
   return typeof value === 'string' || typeof value === 'number' ? value : null
@@ -245,6 +247,9 @@ function modelShape(value: unknown): 'empty' | 'scalar' | 'record' | 'array' {
 }
 
 type ModelSnapshot = { shape: ReturnType<typeof modelShape>; identities: readonly unknown[] }
+type DetailRequest =
+  | { kind: 'hydrate'; identity: ScalarIdentity }
+  | { kind: 'validate'; identity: ScalarIdentity; context: SelectionContext; model: ModelSnapshot }
 
 function snapshotModel(value: unknown, context: SelectionContext): ModelSnapshot {
   return { shape: modelShape(value), identities: modelIdentities(value, context) }
@@ -263,9 +268,9 @@ function setModelValue(value: LookupModelValue<TRecord>, context = readContext()
 }
 
 function invalidateDetailLoad(): void {
-  detailGeneration += 1
-  detailController?.abort()
+  const controller = detailController
   detailController = undefined
+  controller?.abort()
 }
 
 function clearSelection(): void {
@@ -278,7 +283,7 @@ function clearSelection(): void {
   setModelValue(props.multi ? [] : null)
 }
 
-function scalarIdentity(value: unknown): string | number | undefined {
+function scalarIdentity(value: unknown): ScalarIdentity | undefined {
   if (typeof value === 'string' || typeof value === 'number') return value === '' ? undefined : value
   if (isSelectionRecord(value)) {
     const identity = read(value, props.pick)
@@ -319,15 +324,10 @@ function reconcileStaticSelection(value: unknown): void {
   if (identity === undefined || !staticRecord(identity)) clearSelection()
 }
 
-function currentScalarModelIdentity(value: unknown): string | number | undefined {
-  return scalarIdentity(value) ?? committedIdentity.value as string | number | undefined
-}
-
 async function hydrate(value: unknown, replaceSelection = true): Promise<void> {
   invalidateDetailLoad()
-  const generation = detailGeneration
   let records: TRecord[] = []
-  let identity: unknown
+  let identity: ScalarIdentity | undefined
   if (props.multi) {
     if (Array.isArray(value)) records = value.filter(isSelectionRecord).map(copyRecord)
   } else if (typeof value === 'string' || typeof value === 'number') {
@@ -357,67 +357,54 @@ async function hydrate(value: unknown, replaceSelection = true): Promise<void> {
   if (!props.multi && identity !== undefined && current && pickValue(current) === identity && viewValue(current) != null) return
 
   const loadDetail = props.loadDetail
-  if (props.multi || !loadDetail || (typeof identity !== 'string' && typeof identity !== 'number') || identity === '') return
-
-  const controller = new AbortController()
-  detailController = controller
-  const stagingAtStart = stagingGeneration
-  const stageFollowsCommitted = sameSelection(staged.value, stagedIdentity.value, committed.value, committedIdentity.value)
-  try {
-    const detail = await loadDetail({ id: identity, searchParameters: { ...props.searchParameters }, signal: controller.signal })
-    if (generation !== detailGeneration || controller.signal.aborted || !detail) return
-    const record = copyRecord(detail)
-    if (!Object.is(pickValue(record), identity) || !Object.is(committedIdentity.value, identity)) return
-    committed.value = [record]
-    committedIdentity.value = undefined
-    if (stageFollowsCommitted && stagingGeneration === stagingAtStart) {
-      staged.value = [copyRecord(record)]
-      stagedIdentity.value = undefined
-    }
-  } catch (reason) {
-    if (!controller.signal.aborted && generation === detailGeneration) {
-      hydrationError.value = reason instanceof Error ? reason.message : String(reason)
-    }
-  }
+  if (props.multi || !loadDetail || identity === undefined || identity === '') return
+  return loadSelectionDetail({ kind: 'hydrate', identity }, loadDetail)
 }
 
-async function validateRemoteSelection(identity: string | number, context: SelectionContext): Promise<void> {
-  const loadDetail = props.loadDetail
-  if (!loadDetail) return
-  invalidateDetailLoad()
-  const generation = detailGeneration
+async function loadSelectionDetail(
+  request: DetailRequest,
+  loadDetail: NonNullable<LookupInputProps<TRecord, TContext>['loadDetail']>,
+): Promise<void> {
+  const { identity } = request
   const controller = new AbortController()
   detailController = controller
-  const modelAtStart = snapshotModel(modelValue.value, context)
   const stagingAtStart = stagingGeneration
   const stageFollowsCommitted = sameSelection(staged.value, stagedIdentity.value, committed.value, committedIdentity.value)
-  hydrationError.value = undefined
-  try {
-    const detail = await loadDetail({ id: identity, searchParameters: { ...props.searchParameters }, signal: controller.signal })
-    if (generation !== detailGeneration || controller.signal.aborted || !sameContext(context, readContext())) return
-    if (!sameModel(modelAtStart, snapshotModel(modelValue.value, context))) return
-    if (!detail || !Object.is(read(detail, context.pick), identity)) {
-      committed.value = []
-      committedIdentity.value = undefined
-      if (stagingAtStart === stagingGeneration && stageFollowsCommitted) {
-        staged.value = []
-        stagedIdentity.value = undefined
-        stagingGeneration += 1
-      }
-      setModelValue(props.multi ? [] : null, context)
-      return
-    }
-    const record = copyRecord(detail)
-    committed.value = [record]
+
+  function isCurrent() {
+    return detailController === controller && !controller.signal.aborted
+      && (request.kind === 'hydrate' || sameContext(request.context, readContext()))
+  }
+
+  function replaceDetail(record: TRecord | undefined) {
+    committed.value = record ? [record] : []
     committedIdentity.value = undefined
     if (stageFollowsCommitted && stagingGeneration === stagingAtStart) {
-      staged.value = [copyRecord(record)]
+      staged.value = record ? [copyRecord(record)] : []
       stagedIdentity.value = undefined
+      if (!record) stagingGeneration += 1
+    }
+  }
+
+  try {
+    const detail = await loadDetail({ id: identity, searchParameters: { ...props.searchParameters }, signal: controller.signal })
+    if (!isCurrent()) return
+    if (request.kind === 'hydrate') {
+      if (!detail) return
+      const record = copyRecord(detail)
+      if (Object.is(pickValue(record), identity) && Object.is(committedIdentity.value, identity)) replaceDetail(record)
+      return
+    }
+    const { context, model } = request
+    if (!sameModel(model, snapshotModel(modelValue.value, context))) return
+    if (!detail || !Object.is(read(detail, context.pick), identity)) {
+      replaceDetail(undefined)
+      setModelValue(props.multi ? [] : null, context)
+    } else {
+      replaceDetail(copyRecord(detail))
     }
   } catch (reason) {
-    if (!controller.signal.aborted && generation === detailGeneration && sameContext(context, readContext())) {
-      hydrationError.value = reason instanceof Error ? reason.message : String(reason)
-    }
+    if (isCurrent()) hydrationError.value = reason instanceof Error ? reason.message : String(reason)
   }
 }
 
@@ -438,9 +425,10 @@ function applyContextChange(context: SelectionContext, modelChanged: boolean): v
     clearSelection()
     return
   }
-  const identity = currentScalarModelIdentity(modelValue.value)
+  const identity = scalarIdentity(modelValue.value) ?? committedIdentity.value
   if (identity !== undefined && props.loadDetail) {
-    void validateRemoteSelection(identity, context)
+    const model = snapshotModel(modelValue.value, context)
+    void loadSelectionDetail({ kind: 'validate', identity, context, model }, props.loadDetail)
   } else {
     clearSelection()
   }
@@ -459,7 +447,6 @@ watch(() => ({ context: readContext(), model: modelValue.value }), ({ context, m
   } else if (contextChanged) {
     applyContextChange(context, modelChanged)
   } else if (modelChanged) {
-    invalidateDetailLoad()
     void hydrate(model)
   }
 }, { immediate: true, deep: true, flush: 'pre' })

@@ -1,6 +1,6 @@
 import { computed, watch, type WatchStopHandle } from 'vue'
 import type { FormBehaviorContext, FormDraftSnapshot } from '../contracts/forms'
-import { formFieldValue } from './fieldBinding'
+import { fieldKeys, formFieldValue } from './fieldBinding'
 import { snapshotEditable } from './draftValues'
 import type { RuntimeFormField } from './definitionTypes'
 
@@ -94,15 +94,22 @@ export function createDerivedRuntime<TInput extends object, TKeys extends string
   options: DerivedRuntimeOptions<TInput, TKeys>,
 ): DerivedRuntime {
   const results = computed<ReadonlyMap<string, unknown>>(() => {
-    const fields = options.fields()
-    const effectKeys = new Set<string>(fields.filter((field) => typeof field.behavior?.derived === 'function').map((field) => field.key))
+    const fields = options.fields().filter((field) => typeof field.behavior?.derived === 'function')
+    const writers = new Map<string, string>()
+    for (const field of fields) {
+      for (const key of fieldKeys(field.key, field)) writers.set(key, field.key)
+    }
     const dependenciesByKey = new Map<string, readonly string[]>()
     const derived = new Map<string, unknown>()
     for (const field of fields) {
-      if (typeof field.behavior?.derived !== 'function') continue
       const dependencies = new Set<string>()
       const value = callbackResult(field, options.draft, options.context(), dependencies)
-      dependenciesByKey.set(field.key, [...dependencies].filter((dependency) => effectKeys.has(dependency)))
+      const fieldDependencies = new Set<string>()
+      for (const dependency of dependencies) {
+        const writer = writers.get(dependency)
+        if (writer !== undefined) fieldDependencies.add(writer)
+      }
+      dependenciesByKey.set(field.key, [...fieldDependencies])
       derived.set(field.key, value)
     }
     const cycle = cycleIn(dependenciesByKey)

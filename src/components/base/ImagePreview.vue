@@ -69,19 +69,8 @@ const imageCandidates = computed(() => {
 
 const imageAlt = computed(() => resolvedAsset.value?.name ?? '')
 
-const thumbnailSrc = computed(() => {
-  if (thumbnailError.value) {
-    return imageCandidates.value[1] ?? null
-  }
-  return imageCandidates.value[0] ?? null
-})
-
-const detailSrc = computed(() => {
-  if (detailError.value) {
-    return imageCandidates.value[1] ?? null
-  }
-  return imageCandidates.value[0] ?? null
-})
+const thumbnailSrc = computed(() => imageCandidates.value[thumbnailError.value ? 1 : 0] ?? null)
+const detailSrc = computed(() => imageCandidates.value[detailError.value ? 1 : 0] ?? null)
 
 watch(
   () => [props.thumbnailURL, props.imageURL, props.asset],
@@ -92,18 +81,10 @@ watch(
 )
 
 function onThumbnailError() {
-  if (!thumbnailError.value && imageCandidates.value.length > 1) {
-    thumbnailError.value = true
-    return
-  }
   thumbnailError.value = true
 }
 
 function onDetailError() {
-  if (!detailError.value && imageCandidates.value.length > 1) {
-    detailError.value = true
-    return
-  }
   detailError.value = true
 }
 

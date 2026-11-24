@@ -1,13 +1,7 @@
-/**
- * Shared plumbing for the three cores: the `data` XOR `load` rule and the
- * cache identity a core uses when no resource supplied a namespace.
- *
- * Cores stay resource-agnostic: no router, no permission store, no CRUD
- * operation names.
- */
 import { getCurrentInstance } from 'vue'
-import type { QueryKey, QueryNamespace, QueryValues, RecordIdentity } from '../../contracts'
-import { recordKey, stableValue } from '../../query'
+import type { RecordIdentity } from '../../contracts/load'
+import type { QueryKey, QueryNamespace, QueryValues } from '../../contracts/query'
+import { recordKey, stableValue } from '../../query/keys'
 import { resourceLoaderParameters, resourceLoaderIdentity } from '../../resources/loaderIdentity'
 
 export function assertSingleDataSource(component: string, data: unknown, load: unknown, dataShape: 'collection' | 'record' = 'collection', supplied?: object): void {
@@ -27,7 +21,6 @@ export function assertSingleDataSource(component: string, data: unknown, load: u
   }
 }
 
-/** Stable per-instance identity, used only when no namespace is supplied. */
 export function instanceIdentity(fallback: string): string {
   const instance = getCurrentInstance()
   return instance ? `${fallback}-${instance.uid}` : fallback

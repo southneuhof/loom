@@ -11,10 +11,9 @@
  * through the project query adapter.
  */
 import { onScopeDispose, ref, toValue, watch, type MaybeRefOrGetter, type Ref } from 'vue'
-import type { QueryNamespace, QueryValues } from '../contracts'
+import type { QueryNamespace, QueryValues } from '../contracts/query'
 import { useFrameworkAdapters } from '../adapters/projectAdapters'
 
-/** `incident-actions` -> `incident-actions.page` */
 export function namespaceFromResourceKey(key: string): QueryNamespace {
   return key
 }

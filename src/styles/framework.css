@@ -32,7 +32,6 @@ span a,
 }
 
 .dp--menu-wrapper {
-  /* position: absolute; */
   z-index: 999999;
   pointer-events: auto;
 }
@@ -156,7 +155,6 @@ body:has(.tox-dialog-wrap) [data-reka-dialog-overlay] {
   outline: 2px solid green !important;
 }
 
-/* #tinymce */
 @layer base {
   @font-face {
     font-family: "Geist Sans";
@@ -238,15 +236,6 @@ body:has(.tox-dialog-wrap) [data-reka-dialog-overlay] {
   font-feature-settings: 'liga';
   -moz-osx-font-smoothing: grayscale;
 }
-
-/* * {
-  box-sizing: border-box;
-  outline: 1px solid green !important;
-}
-
-html {
-  font-size: 16px;
-} */
 
 .fade-enter-active,
 .fade-leave-active {

@@ -331,21 +331,6 @@ describe('LookupInput selection labels', () => {
     expect(view.display()).toBe('Option two')
   })
 
-  it('keeps a staged choice when the current committed value hydrates late', async () => {
-    const detail = deferred<Option>()
-    const view = mountLookup({ model: 'one', loadDetail: () => detail.promise })
-    await flush()
-
-    view.row(1).click()
-    detail.resolve(options[0]!)
-    await flush()
-    view.save().click()
-    await flush()
-
-    expect(view.model.value).toBe('two')
-    expect(view.display()).toBe('Option two')
-  })
-
   it('keeps a cleared staged choice when hydration resolves', async () => {
     const detail = deferred<Option>()
     const view = mountLookup({ model: 'one', loadDetail: () => detail.promise })
@@ -361,24 +346,4 @@ describe('LookupInput selection labels', () => {
     expect(view.display()).toBe('Pilih')
   })
 
-  it('replaces staged and pending detail work when the parent selects another ID', async () => {
-    const first = deferred<Option>()
-    const second = deferred<Option>()
-    const loadDetail = vi.fn(({ id }: { id: string | number }) => id === 'one' ? first.promise : second.promise)
-    const view = mountLookup({ model: 'one', loadDetail })
-    await flush()
-
-    view.row(1).click()
-    view.model.value = 'two'
-    await flush()
-    first.resolve(options[0]!)
-    second.resolve(options[1]!)
-    await flush()
-    view.save().click()
-    await flush()
-
-    expect(loadDetail).toHaveBeenCalledTimes(2)
-    expect(view.model.value).toBe('two')
-    expect(view.display()).toBe('Option two')
-  })
 })

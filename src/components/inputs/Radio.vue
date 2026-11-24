@@ -41,14 +41,3 @@ function wrapperAttrs(): Record<string, unknown> {
     <slot v-else name="label"></slot>
   </div>
 </template>
-
-<style scoped>
-/* .native-radio {
-  accent-color: rgb(var(--md-sys-color-primary));
-}
-
-.dark .native-radio {
-  accent-color: rgb(var(--md-sys-color-primary));
-  mix-blend-mode: unset;
-} */
-</style>

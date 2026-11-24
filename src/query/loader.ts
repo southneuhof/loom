@@ -9,7 +9,9 @@
  */
 import { computed, toValue, unref, type MaybeRef, type MaybeRefOrGetter, type Ref } from 'vue'
 import { CancelledError, useQuery } from '@tanstack/vue-query'
-import type { Load, LoadSignalContext, QueryKey, SubmitError } from '../contracts'
+import type { Load, LoadSignalContext } from '../contracts/load'
+import type { QueryKey } from '../contracts/query'
+import type { SubmitError } from '../contracts/results'
 import { useFrameworkAdapters } from '../adapters/projectAdapters'
 import { useFrameworkQueryClient } from './client'
 import { readFailureFeedbackMetaKey } from './feedback'
@@ -34,7 +36,6 @@ export interface LoaderState<TResult> {
   refresh: () => Promise<void>
 }
 
-/** Sentinel standing in for a loader that legitimately resolved nothing. */
 const missingResult = Symbol('loom-missing-result')
 
 export function useLoader<TContext extends LoadSignalContext, TResult>(

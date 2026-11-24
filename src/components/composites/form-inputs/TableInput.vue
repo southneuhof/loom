@@ -1,6 +1,7 @@
 <script setup lang="ts" generic="TRow extends object = Record<string, unknown>, TInput extends object = TRow, TContext extends object = Readonly<Record<string, unknown>>">
 import { computed, inject, nextTick, onBeforeUpdate, useAttrs, useId, ref, watch } from 'vue'
-import type { FormDraft, RowReorderPayload } from '../../../contracts'
+import type { RowReorderPayload } from '../../../contracts/components'
+import type { FormDraft } from '../../../contracts/forms'
 import BaseInput from '../../inputs/BaseInput.vue'
 import Table from '../../core/Table.vue'
 import Button from '../../base/Button.vue'
@@ -95,7 +96,6 @@ function deleteRow(index: number) {
 }
 
 function reorderRows(payload: RowReorderPayload<TRow>) {
-  if (props.disabled) return
   updateRows([...payload.rows])
 }
 
@@ -140,21 +140,17 @@ function replaceInline(rows: TRow[], indices: readonly (number | null)[], change
   modelValue.value = rows
 }
 
-function changeInlineRow(index: number, key: string, value: TRow): void {
+function changeInlineRow(index: number, key: string, update: (row: TRow) => TRow): void {
+  const rows = modelValue.value
   replaceInline(
-    modelValue.value.map((row, position) => (position === index ? value : row)),
-    modelValue.value.map((_row, position) => position),
+    rows.map((row, position) => (position === index ? update(row) : row)),
+    rows.map((_row, position) => position),
     [index, key]
   )
 }
 
 function changeCell(index: number, key: string, value: unknown): void {
-  const next = modelValue.value.map((row, position) => (position === index ? { ...row, [key]: value } : row))
-  replaceInline(
-    next,
-    next.map((_row, position) => position),
-    [index, key]
-  )
+  changeInlineRow(index, key, (row) => ({ ...row, [key]: value }))
 }
 
 const addId = computed(() => `${arrayForm?.id([props.field ?? '']) ?? standaloneId}-add`)
@@ -213,7 +209,7 @@ function moveInline(index: number, direction: -1 | 1): void {
             :value="read(row, key)"
             :touch="() => arrayForm?.touch(cellPath(index, key))"
             :set-error="(message: string | undefined) => arrayForm?.setError(cellPath(index, key), message)"
-            :set-row="(value: TRow) => changeInlineRow(index, key, value)"
+            :set-row="(value: TRow) => changeInlineRow(index, key, () => value)"
             :set-value="(value: unknown) => changeCell(index, key, value)"
             :error="cellError(index, key)"
             :disabled="locked"

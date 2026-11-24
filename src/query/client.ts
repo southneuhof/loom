@@ -8,9 +8,9 @@
 import { inject, type InjectionKey } from 'vue'
 import { CancelledError, isCancelledError, QueryClient, useQueryClient } from '@tanstack/vue-query'
 import { defaultQueryRuntimeDefaults, type QueryRuntimeDefaults } from '../adapters/projectAdapters'
-import { selectResourceQueries } from './feedback'
-import { recordKey, isSameKey, resourceOptionsKeyPrefix } from './keys'
-import type { QueryKey, RecordIdentity } from '../contracts'
+import { collectionKeyPrefix, isSameKey, recordKeyPrefix, resourceKey, resourceOptionsKeyPrefix } from './keys'
+import type { RecordIdentity } from '../contracts/load'
+import type { QueryKey } from '../contracts/query'
 
 export const frameworkQueryClientKey: InjectionKey<QueryClient> = Symbol.for('loom-query-client')
 
@@ -39,15 +39,24 @@ export interface ResourceInvalidation {
   outcome?: 'refresh' | 'removed'
 }
 
+export function selectResourceQueries(client: QueryClient, resource: string, id?: RecordIdentity) {
+  const prefixes = id === undefined
+    ? [resourceKey(resource)]
+    : [collectionKeyPrefix(resource), resourceOptionsKeyPrefix(resource), recordKeyPrefix(resource, id)]
+  const cache = client.getQueryCache()
+  const groups = prefixes.map((key) => ({ key, queries: cache.findAll({ queryKey: key }) }))
+  const queries = new Set(groups.flatMap((group) => group.queries))
+  return { groups, queries: [...queries] }
+}
+
 export async function invalidateResourceOptions(client: QueryClient, resource: string): Promise<void> {
   await client.invalidateQueries({ queryKey: resourceOptionsKeyPrefix(resource) }, { throwOnError: true })
 }
 
 export async function invalidateResourceData(client: QueryClient, { resource, id, outcome = 'refresh' }: ResourceInvalidation): Promise<void> {
   const selection = selectResourceQueries(client, resource, id)
-  const retires = (key: QueryKey): boolean => outcome === 'removed'
-    && id !== undefined
-    && isSameKey(key, recordKey({ resource, id, variant: 'display' }).slice(0, 4))
+  const retiredPrefix = outcome === 'removed' && id !== undefined ? recordKeyPrefix(resource, id) : undefined
+  const retires = (key: QueryKey): boolean => retiredPrefix !== undefined && isSameKey(key, retiredPrefix)
   const retiredQueries = new Set(selection.groups.filter((group) => retires(group.key)).flatMap((group) => group.queries))
   const activeQueries = new Map(selection.queries
     .filter((query) => !retiredQueries.has(query))

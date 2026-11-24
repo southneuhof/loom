@@ -1,3 +1,20 @@
+<script lang="ts">
+const editorMountQueue: (() => void)[] = []
+let processingEditorQueue = false
+
+function processEditorQueue() {
+  if (processingEditorQueue) return
+  const mountEditor = editorMountQueue.shift()
+  if (!mountEditor) return
+  processingEditorQueue = true
+  mountEditor()
+  setTimeout(() => {
+    processingEditorQueue = false
+    processEditorQueue()
+  }, 50)
+}
+</script>
+
 <script setup lang="ts">
 import { commonProps } from './commonprops'
 import BaseInput from './BaseInput.vue'
@@ -42,14 +59,7 @@ const props = defineProps({
 
 const modelValue = defineModel<string>()
 
-// const imageUploadHandler = (blobInfo: any, progress: any) => new Promise((resolve, reject) => {
-//   services.fileMediaUpload(blobInfo.blob(), () => {}).then(res => {
-//     resolve(res.url);
-//   })
-// })
-
 const init = {
-  // images_upload_handler: imageUploadHandler,
   plugins: [
     'advlist',
     'autolink',
@@ -66,8 +76,6 @@ const init = {
     'insertdatetime',
     'media',
     'table',
-    // 'help',
-    // 'wordcount'
   ],
   elementpath: false,
   file_picker_types: 'image',
@@ -78,25 +86,6 @@ const init = {
   content_style: ".mce-content-body {font-family: -apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,'Open Sans','Helvetica Neue',sans-serif;}",
 }
 
-const editorMountQueue: (() => void)[] = ((window as any).__tinymce_mount_queue__ ??= [])
-let isProcessingQueue = (window as any).__tinymce_queue_processing__ ?? false
-
-const processQueue = () => {
-  if (isProcessingQueue || editorMountQueue.length === 0) return
-  isProcessingQueue = true
-  ;(window as any).__tinymce_queue_processing__ = true
-
-  const next = editorMountQueue.shift()
-  if (next) {
-    next()
-    setTimeout(() => {
-      isProcessingQueue = false
-      ;(window as any).__tinymce_queue_processing__ = false
-      processQueue()
-    }, 50)
-  }
-}
-
 const shouldMount = ref(false)
 
 const mountEditor = () => {
@@ -104,7 +93,7 @@ const mountEditor = () => {
 }
 
 editorMountQueue.push(mountEditor)
-processQueue()
+processEditorQueue()
 
 onBeforeUnmount(() => {
   const idx = editorMountQueue.indexOf(mountEditor)

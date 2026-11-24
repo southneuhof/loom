@@ -1,5 +1,6 @@
-import { computed, inject, onBeforeUnmount, ref, watch } from 'vue'
-import type { MaybePromise, UploadContext, UploadOperation, UploadProgress } from '../../contracts'
+import { computed, inject, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import type { MaybePromise } from '../../contracts/load'
+import type { UploadOperation, UploadProgress } from '../../contracts/upload'
 import type { AssetValue } from '../../assets/contracts'
 import { useAssetAdapter } from '../../assets/provider'
 import { frameworkAdaptersKey } from '../../adapters/projectAdapters'
@@ -14,6 +15,8 @@ export type FileInputRow =
   | { id: string; kind: 'value'; value: FileInputValue }
   | { id: string; kind: 'pending'; file?: File; stage: 'reading' | 'preparing' | 'transforming' | 'uploading'; progress?: UploadProgress }
   | { id: string; kind: 'invalid' }
+
+type PendingFileRow = Extract<FileInputRow, { kind: 'pending' }>
 
 type FileRules = {
   accept: readonly string[]
@@ -30,9 +33,6 @@ type OperationBase = {
   mode: FileInputMode
   multi: boolean
   rules: FileRules
-  stage: 'reading' | 'preparing' | 'transforming' | 'uploading'
-  file?: File
-  progress?: UploadProgress
 }
 
 type FileSource =
@@ -104,6 +104,22 @@ function matchesAccept(name: string, mimeType: string | undefined, accept: reado
   })
 }
 
+function validateCandidate(candidate: Pick<AssetValue, 'name' | 'mimeType' | 'size'>, rules: FileRules): string | undefined {
+  const { name, mimeType } = candidate
+  if (rules.imageOnly && !isImage(name, mimeType)) return 'Choose an image file.'
+  if (rules.accept.length > 0 && !matchesAccept(name, mimeType, rules.accept)) {
+    return `The selected file type is not accepted. Choose ${rules.accept.join(', ')}.`
+  }
+  if (typeof candidate.size === 'number' && candidate.size > rules.maxSize * 1_000_000) {
+    return `The file exceeds the ${rules.maxSize} MB limit.`
+  }
+  return undefined
+}
+
+function validateFile(file: File, rules: FileRules): string | undefined {
+  return validateCandidate({ name: file.name, mimeType: file.type, size: file.size }, rules)
+}
+
 function sameAsset(left: AssetValue, right: AssetValue): boolean {
   return left.kind === right.kind
     && left.id === right.id
@@ -142,8 +158,8 @@ export function useFileInputController(options: FileInputControllerOptions) {
   const rows = ref<FileInputRow[]>([])
   const inputError = ref<string>()
   const invalidModel = ref(false)
-  const pending = computed(() => rows.value.some((row) => row.kind === 'pending'))
   const pendingCount = computed(() => rows.value.filter((row) => row.kind === 'pending').length)
+  const pending = computed(() => pendingCount.value > 0)
   const values = computed(() => rows.value.flatMap((row) => row.kind === 'value' ? [row.value] : []))
   const operations = new Map<string, Operation>()
   let operationSequence = 0
@@ -185,35 +201,15 @@ export function useFileInputController(options: FileInputControllerOptions) {
     }
   }
 
-  function validateFile(file: File, rules: FileRules): string | undefined {
-    if (rules.imageOnly && !isImage(file.name, file.type)) return 'Choose an image file.'
-    if (rules.accept.length > 0 && !matchesAccept(file.name, file.type, rules.accept)) {
-      return `The selected file type is not accepted. Choose ${rules.accept.join(', ')}.`
-    }
-    if (file.size > rules.maxSize * 1_000_000) return `The file exceeds the ${rules.maxSize} MB limit.`
-    return undefined
-  }
-
-  function validateAsset(asset: AssetValue, rules: FileRules): string | undefined {
-    if (rules.imageOnly && !isImage(asset.name, asset.mimeType)) return 'Choose an image file.'
-    if (rules.accept.length > 0 && !matchesAccept(asset.name, asset.mimeType, rules.accept)) {
-      return `The selected file type is not accepted. Choose ${rules.accept.join(', ')}.`
-    }
-    if (typeof asset.size === 'number' && asset.size > rules.maxSize * 1_000_000) {
-      return `The file exceeds the ${rules.maxSize} MB limit.`
-    }
-    return undefined
-  }
-
-  function parseValue(value: unknown, mode: FileInputMode, rules: FileRules): FileInputValue | undefined {
+  function parseValue(value: unknown, mode: FileInputMode): FileInputValue | undefined {
     if (mode === 'file') {
       if (!isFile(value)) return undefined
-      if (rules.imageOnly && !isImage(value.name, value.type)) return undefined
+      if (options.imageOnly === true && !isImage(value.name, value.type)) return undefined
       return { kind: 'file', file: value }
     }
     if (!assets) return undefined
     const asset = assets.read(value)
-    if (!asset || (rules.imageOnly && !isImage(asset.name, asset.mimeType))) return undefined
+    if (!asset || (options.imageOnly === true && !isImage(asset.name, asset.mimeType))) return undefined
     return { kind: 'asset', asset }
   }
 
@@ -224,15 +220,11 @@ export function useFileInputController(options: FileInputControllerOptions) {
       return { values: [], error: multi ? 'This field requires an array value.' : 'This field requires one value.' }
     }
     const candidates: unknown[] = Array.isArray(value) ? value : [value]
-    const parsed = candidates.map((candidate) => parseValue(candidate, options.mode(), makeFileRules()))
-    if (parsed.some((candidate) => candidate === undefined)) {
-      return { values: parsed.filter((candidate): candidate is FileInputValue => candidate !== undefined), error: options.mode() === 'asset' ? 'Invalid asset value.' : 'The value does not match file mode.' }
-    }
-    return { values: parsed.filter((candidate): candidate is FileInputValue => candidate !== undefined) }
-  }
-
-  function ownedValues(): FileInputValue[] {
-    return rows.value.flatMap((row) => row.kind === 'value' ? [row.value] : [])
+    const mode = options.mode()
+    const parsed = candidates.map((candidate) => parseValue(candidate, mode))
+    const valid = parsed.filter((candidate) => candidate !== undefined)
+    if (!parsed.some((candidate) => candidate === undefined)) return { values: valid }
+    return { values: valid, error: mode === 'asset' ? 'Invalid asset value.' : 'The value does not match file mode.' }
   }
 
   function modelValueFor(valuesToWrite: readonly FileInputValue[]): FileInputModelValue<FileInputMode, boolean> {
@@ -247,7 +239,7 @@ export function useFileInputController(options: FileInputControllerOptions) {
   }
 
   function writeModel(): void {
-    const current = ownedValues()
+    const current = values.value
     targetValues = current
     options.setModelValue(modelValueFor(current))
   }
@@ -278,29 +270,12 @@ export function useFileInputController(options: FileInputControllerOptions) {
     operation.controller.abort()
     operation.pending.release()
     operation.complete(false)
-    rows.value = rows.value.filter((row) => row.kind !== 'pending' || row.id !== operation.id)
+    removePending(operation)
   }
 
   function cancelAll(): void {
     generation += 1
     for (const operation of [...operations.values()]) cancel(operation)
-  }
-
-  function setStage(operation: Operation, stage: Operation['stage'], file?: File): void {
-    operation.stage = stage
-    if (file) operation.file = file
-    const row = rows.value.find((candidate) => candidate.kind === 'pending' && candidate.id === operation.id)
-    if (row?.kind === 'pending') {
-      row.stage = stage
-      row.file = operation.file
-    }
-  }
-
-  function reportProgress(operation: FileOperation, progress: UploadProgress): void {
-    if (!isCurrent(operation)) return
-    operation.progress = progress
-    const row = rows.value.find((candidate) => candidate.kind === 'pending' && candidate.id === operation.id)
-    if (row?.kind === 'pending') row.progress = progress
   }
 
   function commit(operation: Operation, value: FileInputValue): void {
@@ -321,15 +296,13 @@ export function useFileInputController(options: FileInputControllerOptions) {
     rows.value = rows.value.filter((row) => row.kind !== 'pending' || row.id !== operation.id)
   }
 
-  function startOperation<TOperation extends Operation>(operation: TOperation): Promise<boolean> {
+  function startOperation(operation: Operation, stage: PendingFileRow['stage']): Promise<boolean> {
+    const row = reactive<PendingFileRow>({ id: operation.id, kind: 'pending', stage })
+    const completion = new Promise<boolean>((resolve) => {
+      operation.complete = resolve
+    })
     operations.set(operation.id, operation)
-    rows.value = [...rows.value, {
-      id: operation.id,
-      kind: 'pending',
-      file: operation.file,
-      stage: operation.stage,
-      progress: operation.progress,
-    }]
+    rows.value = [...rows.value, row]
     void (async () => {
       let accepted = false
       try {
@@ -340,7 +313,8 @@ export function useFileInputController(options: FileInputControllerOptions) {
           if (!isCurrent(operation)) return
           const sourceError = validateFile(file, operation.rules)
           if (sourceError) throw new Error(sourceError)
-          setStage(operation, operation.transform ? 'transforming' : operation.mode === 'asset' ? 'uploading' : 'preparing', file)
+          row.stage = operation.transform ? 'transforming' : operation.mode === 'asset' ? 'uploading' : 'preparing'
+          row.file = file
           if (operation.transform) file = await operation.transform(file, { signal: operation.controller.signal })
           if (!isCurrent(operation)) return
           if (!isFile(file)) throw new Error('The transform must return a File.')
@@ -353,16 +327,19 @@ export function useFileInputController(options: FileInputControllerOptions) {
           }
           const upload = operation.upload ?? assets?.upload
           if (!upload || !assets) throw new Error('[loom] ASSET_ADAPTER_REQUIRED')
-          setStage(operation, 'uploading', file)
+          row.stage = 'uploading'
+          row.file = file
           const uploaded = await upload(file, {
             destination: operation.destination,
             signal: operation.controller.signal,
-            onProgress: (progress) => reportProgress(operation, progress),
+            onProgress: (progress) => {
+              if (isCurrent(operation)) row.progress = progress
+            },
           })
           if (!isCurrent(operation)) return
           const asset = assets.read(uploaded)
           if (!asset) throw new Error('The upload returned an invalid asset.')
-          const assetError = validateAsset(asset, operation.rules)
+          const assetError = validateCandidate(asset, operation.rules)
           if (assetError) throw new Error(assetError)
           commit(operation, { kind: 'asset', asset })
           accepted = true
@@ -376,7 +353,7 @@ export function useFileInputController(options: FileInputControllerOptions) {
           if (!assets) throw new Error('[loom] ASSET_ADAPTER_REQUIRED')
           const asset = assets.read(value)
           if (!asset) throw new Error('Invalid asset value.')
-          const assetError = validateAsset(asset, operation.rules)
+          const assetError = validateCandidate(asset, operation.rules)
           if (assetError) throw new Error(assetError)
           commit(operation, { kind: 'asset', asset })
           accepted = true
@@ -389,17 +366,11 @@ export function useFileInputController(options: FileInputControllerOptions) {
         finish(operation, accepted)
       }
     })()
-    return new Promise((resolve) => {
-      const current = operations.get(operation.id)
-      if (!current) {
-        resolve(false)
-        return
-      }
-      operation.complete = resolve
-    })
+    return completion
   }
 
-  function operationBase(stage: Operation['stage'], mode = options.mode(), multi = options.multi()): OperationBase {
+  function operationBase(mode = options.mode()): OperationBase {
+    const multi = options.multi()
     operationSequence += 1
     return {
       id: `file-operation-${operationSequence}`,
@@ -410,7 +381,6 @@ export function useFileInputController(options: FileInputControllerOptions) {
       mode,
       multi,
       rules: makeFileRules(),
-      stage,
     }
   }
 
@@ -418,7 +388,7 @@ export function useFileInputController(options: FileInputControllerOptions) {
     const limit = options.limit()
     if (limit === undefined) return true
     if (!multi) return candidateCount <= limit
-    return ownedValues().length + pendingCount.value + candidateCount <= limit
+    return values.value.length + pendingCount.value + candidateCount <= limit
   }
 
   function acceptFiles(files: readonly File[]): void {
@@ -448,7 +418,8 @@ export function useFileInputController(options: FileInputControllerOptions) {
       return
     }
     for (const file of files) {
-      const base = operationBase(options.transform() ? 'transforming' : options.mode() === 'asset' ? 'uploading' : 'preparing')
+      const stage = options.transform() ? 'transforming' : options.mode() === 'asset' ? 'uploading' : 'preparing'
+      const base = operationBase()
       const operation: FileOperation = {
         ...base,
         kind: 'file',
@@ -457,7 +428,7 @@ export function useFileInputController(options: FileInputControllerOptions) {
         upload: options.upload(),
         destination: options.destination(),
       }
-      void startOperation(operation)
+      void startOperation(operation, stage)
     }
   }
 
@@ -465,7 +436,7 @@ export function useFileInputController(options: FileInputControllerOptions) {
     if (disposed || options.disabled() || invalidModel.value || (!options.multi() && pending.value) || !countCanAccept(1, options.multi())) return Promise.resolve(false)
     if (!options.multi()) cancelAll()
     setError(undefined)
-    const base = operationBase('reading')
+    const base = operationBase()
     const operation: FileOperation = {
       ...base,
       kind: 'file',
@@ -474,7 +445,7 @@ export function useFileInputController(options: FileInputControllerOptions) {
       upload: options.upload(),
       destination: options.destination(),
     }
-    return startOperation(operation)
+    return startOperation(operation, 'reading')
   }
 
   function acquireStoredAsset(acquire: () => MaybePromise<unknown>): Promise<boolean> {
@@ -485,9 +456,9 @@ export function useFileInputController(options: FileInputControllerOptions) {
     }
     if (!options.multi()) cancelAll()
     setError(undefined)
-    const base = operationBase('reading', 'asset')
+    const base = operationBase('asset')
     const operation: StoredAssetOperation = { ...base, kind: 'stored-asset', acquire }
-    return startOperation(operation)
+    return startOperation(operation, 'reading')
   }
 
   function remove(id: string): void {

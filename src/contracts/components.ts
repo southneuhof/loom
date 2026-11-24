@@ -1,12 +1,8 @@
 /**
- * Core component prop contracts.
- *
  * `Table`, `Detail`, and `Form` are resource-agnostic: they own data and field
  * orchestration only. Cards, headings, toolbars, and page actions belong
  * to the view shells (plan 005). Form owns draft state, rendering, validation,
  * and submission — it never learns whether it creates or updates.
- *
- * Plan 004 implements the components against exactly these props.
  *
  * `data` and `load` are alternatives: `data` means the caller controls the
  * data, `load` means the component owns loading. Supplying both is a

@@ -153,6 +153,36 @@ describe('form field bindings', () => {
     expect(view.exposed().draft).toEqual({ name: 'Harbor', latitude: 0, longitude: 0 })
   })
 
+  it('rejects a derived cycle through bound draft keys', () => {
+    expect(() => {
+      const view = mountCore(Form, {
+        schema: z.object({ left: z.string(), right: z.string() }),
+        modelValue: { left: 'same', right: 'same' },
+        fields: {
+          leftInput: {
+            renderer: 'text',
+            binding: {
+              keys: ['left'],
+              read: ({ left }: { left?: string | null }) => left,
+              write: (value: string) => ({ left: value }),
+            },
+            behavior: { derived: ({ draft }: { draft: { right?: string | null } }) => draft.right ?? '' },
+          },
+          rightInput: {
+            renderer: 'text',
+            binding: {
+              keys: ['right'],
+              read: ({ right }: { right?: string | null }) => right,
+              write: (value: string) => ({ right: value }),
+            },
+            behavior: { derived: ({ draft }: { draft: { left?: string | null } }) => draft.left ?? '' },
+          },
+        },
+      })
+      mounted.push(view)
+    }).toThrow('Form behavior value-effect cycle')
+  })
+
   it.each([
     { ...fields, latitude: { renderer: 'number' } },
     { ...fields, other: { renderer: 'text', binding } },

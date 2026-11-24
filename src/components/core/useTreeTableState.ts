@@ -114,11 +114,10 @@ export function useTreeTableState<TRecord extends object>(props: TreePresentatio
   })
 
   function setExpandedKeys(next: readonly string[]) {
-    const unique = [...new Set(next)]
-    const emitted = [...unique]
+    const emitted = [...new Set(next)]
     if (!hasControlledKeys.value) internalKeys.value = emitted
     return emitted
   }
 
-  return { expandedKeys, setExpandedKeys, internalKeys }
+  return { expandedKeys, setExpandedKeys }
 }

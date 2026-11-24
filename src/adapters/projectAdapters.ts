@@ -7,28 +7,18 @@
  * at bootstrap through `FrameworkPlugin`.
  */
 import { inject, type InjectionKey } from 'vue'
-import type {
-  AccessAdapter,
-  CollectionResult,
-  RecordResult,
-  QueryLocationAdapter,
-  QueryNamespace,
-  QueryValues,
-  SubmitError,
-} from '../contracts'
+import type { AccessAdapter } from '../contracts/access'
+import type { QueryLocationAdapter, QueryNamespace, QueryValues } from '../contracts/query'
+import type { CollectionResult, RecordResult, SubmitError } from '../contracts/results'
 import type { SchemaIssue } from '../contracts/schema'
 import type { AssetAdapter } from '../assets/contracts'
 
 export interface DataAdapter {
-  /** Normalizes any backend collection envelope into rows plus metadata. */
   normalizeCollection: <TRecord extends object>(payload: unknown) => CollectionResult<TRecord>
-  /** Normalizes any backend record envelope into one record. */
   normalizeRecord: <TRecord extends object>(payload: unknown) => RecordResult<TRecord>
-  /** Normalizes a rejected request into a message plus field issues. */
   normalizeError: (error: unknown) => SubmitError
 }
 
-/** Project-owned UI environment signals (theme, …). */
 export interface UiAdapter {
   /** Current color scheme preference; `'dark'` switches date pickers to dark. */
   colorPreference(): { value: 'light' | 'dark' }

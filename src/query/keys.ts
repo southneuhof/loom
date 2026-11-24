@@ -1,13 +1,5 @@
-/**
- * Deterministic internal query identities.
- *
- * Keys are framework-generated and private: application code never authors
- * them, and resources invalidate by resource/record semantics instead. Equal
- * logical inputs must produce equal keys so that resource prop factories may
- * return fresh closures per call without re-executing loads (plan 006).
- */
-import type { QueryKey, QueryNamespace, QueryValues, RecordIdentity } from '../contracts'
-
+import type { RecordIdentity } from '../contracts/load'
+import type { QueryKey, QueryNamespace, QueryValues } from '../contracts/query'
 import { normalizeQueryFilters } from './filters'
 
 export const resourceKeyPrefix = 'resource'
@@ -57,6 +49,14 @@ export function resourceKey(resource: string): QueryKey {
   return [resourceKeyPrefix, resource]
 }
 
+export function collectionKeyPrefix(resource: string): QueryKey {
+  return [...resourceKey(resource), 'list']
+}
+
+export function recordKeyPrefix(resource: string, id: RecordIdentity | null): QueryKey {
+  return [...resourceKey(resource), 'detail', stableValue(id)]
+}
+
 export function resourceOptionsKeyPrefix(resource: string): QueryKey {
   return [...resourceKey(resource), 'options']
 }
@@ -67,16 +67,14 @@ export function resourceOptionsKey({ resource, operation, namespace, query, sear
 
 export function collectionKey({ resource, query, searchParameters, namespace }: CollectionKeyInput): QueryKey {
   return [
-    resourceKeyPrefix,
-    resource,
-    'list',
+    ...collectionKeyPrefix(resource),
     namespace ?? null,
     stableValue(normalizeQueryFilters({ ...searchParameters, ...query })),
   ]
 }
 
 export function recordKey({ resource, id, variant, namespace, searchParameters }: RecordKeyInput): QueryKey {
-  return [resourceKeyPrefix, resource, 'detail', stableValue(id), variant, namespace ?? null, stableValue(normalizeQueryFilters(searchParameters ?? {}))]
+  return [...recordKeyPrefix(resource, id), variant, namespace ?? null, stableValue(normalizeQueryFilters(searchParameters ?? {}))]
 }
 
 export function isSameKey(left: QueryKey, right: QueryKey): boolean {

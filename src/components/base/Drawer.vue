@@ -38,10 +38,6 @@ watch(
   }
 )
 
-function closeDialog() {
-  isOpen.value = false
-  props.onClose()
-}
 function openDialog() {
   props.onOpen()
   isOpen.value = true
@@ -69,9 +65,3 @@ watch(isOpen, (val) => {
     </DrawerPortal>
   </DrawerRoot>
 </template>
-
-<style scoped>
-.drawer-transition {
-  transition: all 0.5s cubic-bezier(0.32, 0.72, 0, 1);
-}
-</style>

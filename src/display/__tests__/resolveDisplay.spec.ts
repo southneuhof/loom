@@ -78,11 +78,16 @@ describe('display resolution', () => {
   it('requires explicit date formatting and rejects structured fallback values', () => {
     const dateRecord = { createdAt: new Date('2026-01-01T00:00:00Z') }
     const dateField = resolveDisplayFields({ surface: 'table', entries: { createdAt: {} } })[0]!
+    const dateRenderer = resolveDisplayFields({ surface: 'table', entries: { createdAt: { renderer: 'assetPreview' } } })[0]!
     const objectField = resolveDisplayFields({ surface: 'detail', entries: { asset: {} } })[0]!
 
     expect(() => resolveDisplayValue(dateRecord, dateField)).toThrow(
       '[loom][DISPLAY_VALUE_INVALID] Table column "createdAt" produced a Date; expected an explicit date format.',
     )
+    expect(() => resolveDisplayValue(dateRecord, dateRenderer)).toThrow(
+      '[loom][DISPLAY_VALUE_INVALID] Table column "createdAt" produced a Date; expected an explicit date format.',
+    )
+    expect(resolveDisplayValue({ createdAt: '2026-01-01' }, dateField)).toBe('2026-01-01')
     expect(() => resolveDisplayValue({ asset: { url: '/file.png' } }, objectField)).toThrow(
       '[loom][DISPLAY_VALUE_INVALID] Detail field "asset" produced an object; expected a renderer or displayable text from the accessor or formatter.',
     )

@@ -7,7 +7,7 @@ import { useFrameworkUi } from '../../adapters/projectAdapters'
 import { commonProps } from './commonprops'
 import { ref, watch } from 'vue'
 import { lightFormat } from 'date-fns'
-import { datepickerPopupClass, datepickerPopupConfig, datepickerTeleportProp } from './datepickerPopup'
+import { datepickerInputBindings, datepickerPopupClass, datepickerPopupConfig, datepickerTeleportProp, useDatepickerBlur } from './datepickerPopup'
 
 const props = defineProps({
   locale: {
@@ -38,7 +38,7 @@ const emit = defineEmits<{ (event: 'validation:touch'): void }>()
 const modelValue = defineModel<string | null>()
 
 const internalValue = ref()
-const modelUpdated = ref(false)
+const { markModelUpdated, handleBlur } = useDatepickerBlur(() => emit('validation:touch'))
 
 if (props.defaultToCurrent) internalValue.value = { month: String(new Date().getMonth()), year: String(new Date().getFullYear()) }
 else if (modelValue.value) internalValue.value = { month: Number(modelValue.value.split('-')[1]) - 1, year: modelValue.value.split('-')[0] }
@@ -76,16 +76,6 @@ watch(
 function displayFormatter(date: Date) {
   return date.toLocaleDateString(props.locale, { year: 'numeric', month: 'long' })
 }
-
-function markModelUpdated() {
-  modelUpdated.value = true
-}
-
-function handleBlur() {
-  const wasUpdated = modelUpdated.value
-  modelUpdated.value = false
-  if (!wasUpdated) emit('validation:touch')
-}
 </script>
 
 <template>
@@ -107,18 +97,12 @@ function handleBlur() {
       @update:model-value="markModelUpdated"
       @blur="handleBlur"
     >
-      <template #dp-input="{ value, isMenuOpen, onInput, onBlur, onFocus, onKeypress, onPaste }">
+      <template #dp-input="picker">
         <DatepickerControlInput
           :control-bindings="controlBindings"
-          :value="value"
-          :is-menu-open="isMenuOpen"
+          v-bind="datepickerInputBindings(picker)"
           input-mode="none"
           :placeholder="props.placeholder"
-          :on-input="onInput"
-          :on-blur="onBlur"
-          :on-focus="onFocus"
-          :on-keypress="onKeypress"
-          :on-paste="onPaste"
         />
       </template>
       <template #input-icon><DatepickerInputIcon /></template>

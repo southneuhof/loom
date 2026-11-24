@@ -1,23 +1,15 @@
 <script setup lang="ts">
 import { watch, type PropType } from 'vue'
-import type { OptionLoad, QueryNamespace } from '../../contracts'
+import type { OptionLoad } from '../../contracts/load'
+import type { QueryNamespace } from '../../contracts/query'
 import { commonProps } from './commonprops'
 import BaseInput from './BaseInput.vue'
 import Checkbox from './CheckboxInput.vue'
-import { useOptionSource } from './useOptionSource'
+import { sameOptionSourceContext, useOptionSource } from './useOptionSource'
 
 type Option = Record<string, unknown>
 type ModelValue = Array<string | number | Record<string, unknown>>
-type SelectionContext = {
-  mode: 'data' | 'load' | 'none'
-  load: OptionLoad<Option> | undefined
-  resource: string | undefined
-  namespace: QueryNamespace | undefined
-  searchParameters: unknown
-  pick: string
-  uniqueIDAs: string | undefined
-  optionIdentities: readonly unknown[]
-}
+type SelectionContext = ReturnType<typeof readContext>
 type SelectedIdentity = { kind: 'record' | 'value'; value: unknown }
 
 const props = defineProps({
@@ -32,7 +24,7 @@ const props = defineProps({
   ...commonProps,
 })
 const modelValue = defineModel<ModelValue>({ default: () => [] })
-const source = useOptionSource(props)
+const source = useOptionSource(props, (options) => options.map((item) => item[props.pick]))
 const { options: data, loading, error, refresh } = source
 
 function identity(value: unknown, pick = props.pick, uniqueIDAs = props.uniqueIDAs): unknown {
@@ -41,31 +33,12 @@ function identity(value: unknown, pick = props.pick, uniqueIDAs = props.uniqueID
   return uniqueIDAs && item[pick] === undefined ? item[uniqueIDAs] : item[pick]
 }
 
-function readContext(): SelectionContext {
-  const mode = props.data !== undefined ? 'data' : props.load ? 'load' : 'none'
+function readContext() {
   return {
-    mode,
-    load: source.externalContext.value.load,
-    resource: source.externalContext.value.resource,
-    namespace: source.externalContext.value.namespace,
-    searchParameters: source.externalContext.value.searchParameters,
+    source: source.externalContext.value,
     pick: props.pick,
     uniqueIDAs: props.uniqueIDAs,
-    optionIdentities: mode === 'data' ? (props.data ?? []).map((item) => item[props.pick]) : [],
   }
-}
-
-function sameContext(left: SelectionContext, right: SelectionContext): boolean {
-  if (left.mode !== right.mode || left.pick !== right.pick || left.uniqueIDAs !== right.uniqueIDAs) return false
-  if (left.mode === 'data' && right.mode === 'data') {
-    return left.optionIdentities.length === right.optionIdentities.length
-      && left.optionIdentities.every((value, index) => Object.is(value, right.optionIdentities[index]))
-  }
-  if (left.mode !== 'load' || right.mode !== 'load') return true
-  return left.load === right.load
-    && left.resource === right.resource
-    && left.namespace === right.namespace
-    && JSON.stringify(left.searchParameters) === JSON.stringify(right.searchParameters)
 }
 
 function modelIdentities(value: readonly ModelValue[number][], context: SelectionContext): readonly SelectedIdentity[] {
@@ -102,17 +75,19 @@ function reconcileStaticValues(): void {
 watch(() => ({ context: readContext(), model: modelValue.value }), ({ context, model }) => {
   const currentModel = modelIdentities(model ?? [], previousContext)
   const modelChanged = !sameModel(previousModel, currentModel)
-  const contextChanged = !sameContext(previousContext, context)
+  const contextChanged = previousContext.pick !== context.pick
+    || previousContext.uniqueIDAs !== context.uniqueIDAs
+    || !sameOptionSourceContext(previousContext.source, context.source)
   const isInitialState = initialState
   initialState = false
   previousContext = context
   previousModel = modelIdentities(model ?? [], context)
   if (isInitialState) {
-    if (context.mode === 'data') reconcileStaticValues()
+    if (context.source.mode === 'data') reconcileStaticValues()
     return
   }
   if (!contextChanged) return
-  if (context.mode === 'data') {
+  if (context.source.mode === 'data') {
     reconcileStaticValues()
   } else if (!modelChanged && previousModel.length > 0) {
     setModelValue([])

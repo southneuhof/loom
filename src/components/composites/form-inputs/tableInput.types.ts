@@ -1,6 +1,7 @@
 import type { FormRenderer } from '../../../renderers/formContracts'
+import type { TableProps } from '../../../contracts/components'
 import type { FormDefinition, FormDraft } from '../../../contracts/forms'
-import type { TableColumnEntry, TableDefinition, TableProps } from '../../../contracts'
+import type { TableColumnEntry, TableDefinition } from '../../../contracts/tables'
 
 export type TableInputTable<TRow extends object, TContext extends object = Readonly<Record<string, unknown>>> = Omit<
   TableDefinition<TRow, Readonly<Record<string, TableColumnEntry<NoInfer<TRow>, TContext>>>, TContext>,

@@ -2,7 +2,7 @@ import type { DetailField, DetailFieldContext, DetailFieldsContext, DetailDefini
 import type { CompactDisplayField, DisplayFieldGuard, DisplayFieldValue } from '../display/compatibility'
 import type { LabelDictionary } from '../contracts/labels'
 import type { RawSchema, RawSchemaOutput } from '../contracts/schema'
-import { assertDisplayEntry, assertSafeDisplayKey } from '../display/assertDisplayDefinition'
+import { assertDisplayDefinition, snapshotDisplayEntries } from '../display/assertDisplayDefinition'
 
 type UnsafeKey = '__proto__' | 'prototype' | 'constructor' | `${number}`
 type FiniteRecordGuard<TRecord extends object> = string extends Extract<keyof TRecord, string> ? never : unknown
@@ -53,51 +53,16 @@ type CompactDetailFields<TRecord extends object, TFields extends object> = {
 
 type DefinedDetail<TSchema extends RawSchema<object, object>, TFields extends object> = DetailDefinition<RawSchemaOutput<TSchema>, CompactDetailFields<RawSchemaOutput<TSchema>, TFields>, Extract<DetailFieldsContext<TFields>, object>>
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function invalidOption(member: string, expected: string): never {
-  throw new Error(`[loom][SURFACE_OPTION_INVALID] Detail member "${member}" must be ${expected}.`)
-}
-
-function assertLabels(value: unknown): void {
-  if (value === undefined) return
-  if (!isRecord(value)) invalidOption('labels', 'a label dictionary')
-  for (const [key, label] of Object.entries(value)) {
-    if (typeof label !== 'string' && typeof label !== 'function') invalidOption(`labels.${key}`, 'a string or a function that returns a string')
-  }
-}
-
-function snapshotMap<T extends object>(value: T): T {
-  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, isRecord(entry) ? { ...entry, ...(isRecord(entry.props) ? { props: { ...entry.props } } : {}) } : entry])) as T
-}
-
 export function defineDetail<
   TSchema extends RawSchema<object, object>,
   const TFields extends object,
   const TLabels extends LabelDictionary | undefined = undefined,
 >(definition: DetailArgument<TSchema, TFields> & { readonly labels?: TLabels }): DefinedDetail<TSchema, TFields> {
-  if (!isRecord(definition)) invalidOption('definition', 'an object')
-  for (const member of Object.keys(definition)) {
-    if (!['schema', 'fields', 'labels'].includes(member)) invalidOption(member, 'a DetailDefinition member')
-  }
-  if (!isRecord(definition.schema) || typeof definition.schema.parseAsync !== 'function') invalidOption('schema', 'a raw record schema')
-  if (!isRecord(definition.fields)) invalidOption('fields', 'an ordered detail field map')
-  assertLabels(definition.labels)
-  for (const key of Reflect.ownKeys(definition.fields)) {
-    assertSafeDisplayKey(key, (invalidKey, expected) => invalidOption(`fields.${String(invalidKey)}`, expected))
-    const field = definition.fields[key]
-    if (typeof field !== 'function') {
-      assertDisplayEntry('detail', `fields.${key}`, field, (_surface, location, member, expected) => {
-        invalidOption(member === 'definition' ? location : `${location}.${member}`, expected)
-      })
-    }
-  }
+  assertDisplayDefinition('detail', definition)
 
   const result = {
     schema: definition.schema,
-    fields: snapshotMap(definition.fields),
+    fields: snapshotDisplayEntries(definition.fields),
     ...(definition.labels !== undefined ? { labels: { ...definition.labels } } : {}),
   } as DefinedDetail<TSchema, TFields>
   return result

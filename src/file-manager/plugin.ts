@@ -1,12 +1,14 @@
-import { defineAsyncComponent, type App, type Plugin } from 'vue'
+import { defineAsyncComponent, inject, type Plugin } from 'vue'
 import { frameworkQueryClientKey } from '../query/client'
-import { rendererRegistriesKey, type RendererRegistries } from '../renderers/registry'
+import { rendererRegistriesKey } from '../renderers/registry'
 import type { FileManagerPluginOptions } from './contracts'
 import { fileManagerKey, type FileManagerProvider } from './provider'
 
+const loadFileManagerInput = () => import('../components/composites/form-inputs/FileManager/FileManagerInput.vue')
+
 declare module '../renderers/formContracts' {
   interface FormRendererComponents {
-    'file-manager': () => Promise<{ default: typeof import('../components/composites/form-inputs/FileManager/FileManagerInput.vue').default }>
+    'file-manager': typeof loadFileManagerInput
   }
 }
 
@@ -20,38 +22,35 @@ function validate(options: FileManagerPluginOptions | undefined): asserts option
   }
 }
 
-function provided<T>(app: App, key: symbol): T | undefined {
-  return (app as any)._context?.provides?.[key] as T | undefined
-}
+const folderKey = (parentId: string | null) => ['file-manager', 'list', parentId] as const
 
 export const FileManagerPlugin: Plugin<[options: FileManagerPluginOptions]> = {
   install(app, options) {
     validate(options)
-    const queryClient = provided<any>(app, frameworkQueryClientKey as symbol)
-    const registries = provided<RendererRegistries>(app, rendererRegistriesKey as symbol)
+    const { queryClient, registries, existing } = app.runWithContext(() => ({
+      queryClient: inject(frameworkQueryClientKey, null),
+      registries: inject(rendererRegistriesKey, null),
+      existing: inject(fileManagerKey, null),
+    }))
     if (!queryClient || !registries) {
       throw new Error('[loom/file-manager] Install FrameworkPlugin before FileManagerPlugin.')
     }
-    if (provided(app, fileManagerKey as symbol)) throw new Error('[loom/file-manager] Only one provider may be installed per app.')
+    if (existing) throw new Error('[loom/file-manager] Only one provider may be installed per app.')
 
-    const listKey = (parentId: string | null, sort?: unknown) => ['file-manager', 'list', parentId, sort ?? null] as const
+    const invalidateParent = (parentId: string | null) => queryClient.invalidateQueries({ queryKey: folderKey(parentId) })
     const provider: FileManagerProvider = {
       ...options,
       queryClient,
-      listKey,
-      invalidateParent: async (parentId) => {
-        await queryClient.invalidateQueries({ queryKey: ['file-manager', 'list', parentId] })
-      },
+      listKey: (parentId, sort) => [...folderKey(parentId), sort ?? null],
+      invalidateParent,
       invalidateRemovedSubtree: async (id, parentId) => {
         await Promise.all([
-          queryClient.invalidateQueries({ queryKey: ['file-manager', 'list', parentId] }),
-          queryClient.removeQueries({ queryKey: ['file-manager', 'list', id] }),
+          invalidateParent(parentId),
+          queryClient.removeQueries({ queryKey: folderKey(id) }),
         ])
       },
     }
     app.provide(fileManagerKey, provider)
-    registries.form.register('file-manager', defineAsyncComponent(
-      () => import('../components/composites/form-inputs/FileManager/FileManagerInput.vue'),
-    ))
+    registries.form.register('file-manager', defineAsyncComponent(loadFileManagerInput))
   },
 }

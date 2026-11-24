@@ -6,7 +6,7 @@ import DatepickerInputIcon from './DatepickerInputIcon.vue'
 import { useFrameworkUi } from '../../adapters/projectAdapters'
 import { commonProps } from './commonprops'
 import { nextTick, onMounted, ref } from 'vue'
-import { datepickerPopupClass, datepickerPopupConfig, datepickerTeleportProp } from './datepickerPopup'
+import { datepickerInputBindings, datepickerPopupClass, datepickerPopupConfig, datepickerTeleportProp, useDatepickerBlur } from './datepickerPopup'
 
 const props = defineProps({
   placeholder: String,
@@ -30,7 +30,7 @@ const props = defineProps({
 
 const emit = defineEmits<{ (event: 'validation:touch'): void }>()
 const modelValue = defineModel<Date | number>()
-const modelUpdated = ref(false)
+const { markModelUpdated, handleBlur } = useDatepickerBlur(() => emit('validation:touch'))
 if (!modelValue.value && props.defaultToCurrent) {
   modelValue.value = new Date().getFullYear()
 }
@@ -61,16 +61,6 @@ onMounted(() => {
     scrollToCurrentYear()
   }
 })
-
-function markModelUpdated() {
-  modelUpdated.value = true
-}
-
-function handleBlur() {
-  const wasUpdated = modelUpdated.value
-  modelUpdated.value = false
-  if (!wasUpdated) emit('validation:touch')
-}
 </script>
 
 <template>
@@ -93,18 +83,12 @@ function handleBlur() {
         @update:model-value="markModelUpdated"
         @blur="handleBlur"
       >
-        <template #dp-input="{ value, isMenuOpen, onInput, onBlur, onFocus, onKeypress, onPaste }">
+        <template #dp-input="picker">
           <DatepickerControlInput
             :control-bindings="controlBindings"
-            :value="value"
-            :is-menu-open="isMenuOpen"
+            v-bind="datepickerInputBindings(picker)"
             input-mode="none"
             :placeholder="props.placeholder"
-            :on-input="onInput"
-            :on-blur="onBlur"
-            :on-focus="onFocus"
-            :on-keypress="onKeypress"
-            :on-paste="onPaste"
           />
         </template>
         <template #input-icon><DatepickerInputIcon /></template>

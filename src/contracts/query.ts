@@ -1,13 +1,3 @@
-/**
- * Query state and query runtime contracts.
- *
- * Each table owns an independent query under a URL namespace. Core components
- * never import the router: URL reading and writing arrive through the location
- * adapter. Caching, deduplication, cancellation, and invalidation stay internal
- * to the framework's TanStack Query runtime — public APIs expose `load`,
- * `submit`, and namespaces, never query keys or options.
- */
-
 /** URL prefix distinguishing one table's query from its siblings. */
 export type QueryNamespace = string
 

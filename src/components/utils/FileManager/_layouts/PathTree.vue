@@ -1,30 +1,15 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { computed, onMounted } from 'vue'
 import type { ManagedAsset } from '../../../../file-manager/contracts'
 import { useFileManager } from '../../../../file-manager/provider'
+import { useDirectoryList } from '../../../../file-manager/useDirectoryList'
 
 defineProps<{ activeId?: string }>()
 const emit = defineEmits<{ navigate: [asset: ManagedAsset] }>()
 const provider = useFileManager()
-const folders = ref<ManagedAsset[]>([])
-const loading = ref(false)
-const error = ref<string>()
-let controller: AbortController | undefined
-
-async function load() {
-  controller?.abort()
-  controller = new AbortController()
-  loading.value = true
-  try {
-    folders.value = (await provider.operations.list({ parentId: provider.root, signal: controller.signal })).data.filter((asset) => asset.kind === 'folder')
-  } catch (reason) {
-    if (!controller.signal.aborted) error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally {
-    if (!controller.signal.aborted) loading.value = false
-  }
-}
-onMounted(load)
-onBeforeUnmount(() => controller?.abort())
+const { assets, loading, error, load } = useDirectoryList(provider.operations)
+const folders = computed(() => assets.value.filter((asset) => asset.kind === 'folder'))
+onMounted(() => load(provider.root))
 </script>
 
 <template>

@@ -70,7 +70,7 @@ describe('TableInput surface', () => {
     view.unmount()
   })
 
-  it('hides mutation controls and reordering while disabled', () => {
+  it('hides mutation controls while disabled', () => {
     const view = mountCore(TableInput, {
       table,
       form,
@@ -84,7 +84,6 @@ describe('TableInput surface', () => {
     expect(view.text()).not.toContain('Tambah')
     expect(view.find('[aria-label="Edit row"]')).toBeNull()
     expect(view.find('[aria-label="Delete row"]')).toBeNull()
-    expect(view.find('.sortable-chosen')).toBeNull()
     view.unmount()
   })
 

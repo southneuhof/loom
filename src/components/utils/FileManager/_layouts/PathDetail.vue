@@ -1,39 +1,23 @@
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watch } from 'vue'
+import { watch } from 'vue'
 import type { ManagedAsset } from '../../../../file-manager/contracts'
 import { useFileManager } from '../../../../file-manager/provider'
+import { useDirectoryList } from '../../../../file-manager/useDirectoryList'
 import Button from '../../../base/Button.vue'
 
 const props = defineProps<{ folder: ManagedAsset; ancestry?: ManagedAsset[] }>()
 const selected = defineModel<ManagedAsset | undefined>('selected')
 const emit = defineEmits<{ navigate: [folder: ManagedAsset] }>()
 const provider = useFileManager()
-const assets = ref<ManagedAsset[]>([])
-const loading = ref(false)
-const error = ref<string>()
-let controller: AbortController | undefined
+const { assets, loading, error, load } = useDirectoryList(provider.operations)
 
-async function load() {
-  controller?.abort()
-  controller = new AbortController()
-  loading.value = true
-  error.value = undefined
-  try {
-    assets.value = (await provider.operations.list({ parentId: props.folder.id, signal: controller.signal })).data
-  } catch (reason) {
-    if (!controller.signal.aborted) error.value = reason instanceof Error ? reason.message : String(reason)
-  } finally {
-    if (!controller.signal.aborted) loading.value = false
-  }
-}
 async function remove(asset: ManagedAsset) {
   if (!provider.operations.remove) return
   await provider.operations.remove({ id: asset.id })
   await provider.invalidateRemovedSubtree(asset.id, props.folder.id)
-  await load()
+  await load(props.folder.id)
 }
 watch(() => props.folder.id, load, { immediate: true })
-onBeforeUnmount(() => controller?.abort())
 </script>
 
 <template>

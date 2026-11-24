@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import Datepicker from '@vuepic/vue-datepicker'
 import { commonProps } from './commonprops'
-import { ref, type PropType, watch, computed } from 'vue'
+import { ref, type PropType, watch } from 'vue'
 import BaseInput from './BaseInput.vue'
 import DatepickerControlInput from './DatepickerControlInput.vue'
 import DatepickerInputIcon from './DatepickerInputIcon.vue'
 import { useFrameworkUi } from '../../adapters/projectAdapters'
 import { lightFormat } from 'date-fns'
-import { datepickerPopupClass, datepickerPopupConfig, datepickerTeleportProp } from './datepickerPopup'
+import { datepickerInputBindings, datepickerPopupClass, datepickerPopupConfig, datepickerTeleportProp, useDatepickerBlur } from './datepickerPopup'
 
 const props = defineProps({
   placeholder: String,
@@ -34,7 +34,7 @@ const emit = defineEmits<{
   (event: 'validation:touch'): void
 }>()
 const internalValue = ref()
-const modelUpdated = ref(false)
+const { markModelUpdated, handleBlur } = useDatepickerBlur(() => emit('validation:touch'))
 
 if (modelValue.value) internalValue.value = [new Date(modelValue.value[0]), new Date(modelValue.value[1])]
 
@@ -48,7 +48,6 @@ watch(internalValue, () => {
 
 function displayFormatter(date: any) {
   if (props.unit === 'week') {
-    console.log('type week', date)
     const firstDate = new Date(lightFormat(date, 'yyyy-MM-dd'))
     const secondDate = new Date(lightFormat(date, 'yyyy-MM-dd'))
     secondDate.setDate(date.getDate() + 6)
@@ -59,7 +58,6 @@ function displayFormatter(date: any) {
       day: 'numeric',
     })}`
   } else if (date[0] && date[1]) {
-    console.log('type arbitrary', date)
     const firstDate = new Date(lightFormat(date[0], 'yyyy-MM-dd'))
     const secondDate = new Date(lightFormat(date[1], 'yyyy-MM-dd'))
     return `${firstDate?.toLocaleDateString(props.locale, { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })} - ${secondDate?.toLocaleDateString(props.locale, {
@@ -90,18 +88,6 @@ watch(
   },
   { immediate: true, deep: true }
 )
-
-const testRef = ref()
-
-function markModelUpdated() {
-  modelUpdated.value = true
-}
-
-function handleBlur() {
-  const wasUpdated = modelUpdated.value
-  modelUpdated.value = false
-  if (!wasUpdated) emit('validation:touch')
-}
 </script>
 
 <template>
@@ -123,18 +109,12 @@ function handleBlur() {
       @update:model-value="markModelUpdated"
       @blur="handleBlur"
     >
-      <template #dp-input="{ value, isMenuOpen, onInput, onBlur, onFocus, onKeypress, onPaste }">
+      <template #dp-input="picker">
         <DatepickerControlInput
           :control-bindings="controlBindings"
-          :value="value"
-          :is-menu-open="isMenuOpen"
+          v-bind="datepickerInputBindings(picker)"
           input-mode="none"
           :placeholder="props.placeholder"
-          :on-input="onInput"
-          :on-blur="onBlur"
-          :on-focus="onFocus"
-          :on-keypress="onKeypress"
-          :on-paste="onPaste"
         />
       </template>
       <template #input-icon><DatepickerInputIcon /></template>

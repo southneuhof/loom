@@ -1,21 +1,13 @@
 <script setup lang="ts">
-import { computed, watch, type PropType } from 'vue'
-import type { OptionLoad, QueryNamespace } from '../../contracts'
+import { watch, type PropType } from 'vue'
+import type { OptionLoad } from '../../contracts/load'
+import type { QueryNamespace } from '../../contracts/query'
 import Radio from '@southneuhof/loom/components/inputs/Radio.vue'
 import { commonProps } from './commonprops'
 import BaseInput from './BaseInput.vue'
-import { useOptionSource } from './useOptionSource'
+import { sameOptionSourceContext, useOptionSource } from './useOptionSource'
 
 type Option = Record<string, unknown>
-type SelectionContext = {
-  mode: 'data' | 'load' | 'none'
-  load: OptionLoad<Option> | undefined
-  resource: string | undefined
-  namespace: QueryNamespace | undefined
-  searchParameters: unknown
-  pick: string
-  optionIdentities: readonly unknown[]
-}
 
 const props = defineProps({
   data: Array as PropType<readonly Option[]>,
@@ -32,7 +24,7 @@ const props = defineProps({
 })
 const modelValue = defineModel<string | number | boolean>()
 const emit = defineEmits<{ (event: 'validation:touch'): void }>()
-const source = useOptionSource(props)
+const source = useOptionSource(props, (options) => options.map((item) => item[props.pick]))
 const { options: data, loading, error, refresh } = source
 const directionClass = {
   row: 'flex flex-row gap-x-8 gap-y-4',
@@ -40,30 +32,8 @@ const directionClass = {
 }
 let suppressDefault = false
 
-function readContext(): SelectionContext {
-  const mode = props.data !== undefined ? 'data' : props.load ? 'load' : 'none'
-  return {
-    mode,
-    load: source.externalContext.value.load,
-    resource: source.externalContext.value.resource,
-    namespace: source.externalContext.value.namespace,
-    searchParameters: source.externalContext.value.searchParameters,
-    pick: props.pick,
-    optionIdentities: mode === 'data' ? (props.data ?? []).map((item) => item[props.pick]) : [],
-  }
-}
-
-function sameContext(left: SelectionContext, right: SelectionContext): boolean {
-  if (left.mode !== right.mode || left.pick !== right.pick) return false
-  if (left.mode === 'data' && right.mode === 'data') {
-    return left.optionIdentities.length === right.optionIdentities.length
-      && left.optionIdentities.every((value, index) => Object.is(value, right.optionIdentities[index]))
-  }
-  if (left.mode !== 'load' || right.mode !== 'load') return true
-  return left.load === right.load
-    && left.resource === right.resource
-    && left.namespace === right.namespace
-    && JSON.stringify(left.searchParameters) === JSON.stringify(right.searchParameters)
+function readContext() {
+  return { source: source.externalContext.value, pick: props.pick }
 }
 
 let previousContext = readContext()
@@ -99,13 +69,13 @@ function applyDefault(): void {
 
 watch(() => ({ context: readContext(), model: modelValue.value }), ({ context, model }) => {
   const modelChanged = !Object.is(previousModel, model)
-  const contextChanged = !sameContext(previousContext, context)
+  const contextChanged = previousContext.pick !== context.pick
+    || !sameOptionSourceContext(previousContext.source, context.source)
   const isInitialState = initialState
   initialState = false
   previousContext = context
   previousModel = model
-  if (isInitialState && context.mode === 'data') reconcileStaticValue()
-  else if (contextChanged && context.mode === 'data') reconcileStaticValue()
+  if ((isInitialState || contextChanged) && context.source.mode === 'data') reconcileStaticValue()
   else if (contextChanged && !modelChanged && modelValue.value != null) {
     suppressDefault = true
     setModelValue(undefined)

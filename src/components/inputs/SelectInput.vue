@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch, type PropType } from 'vue'
-import type { OptionLoad, QueryNamespace } from '../../contracts'
-import { useOptionSource } from './useOptionSource'
+import type { OptionLoad } from '../../contracts/load'
+import type { QueryNamespace } from '../../contracts/query'
+import { sameOptionSourceContext, useOptionSource } from './useOptionSource'
 import { commonProps } from './commonprops'
 import type { SelectModelValue } from './selectInput.types'
 import BaseInput from './BaseInput.vue'
@@ -11,18 +12,7 @@ import Card from '@southneuhof/loom/components/base/Card.vue'
 import Icon from '@southneuhof/loom/components/base/Icon.vue'
 
 type Option = Record<string, unknown>
-type SelectionContext = {
-  mode: 'data' | 'load' | 'none'
-  load: OptionLoad<Option> | undefined
-  resource: string | undefined
-  namespace: QueryNamespace | undefined
-  searchParameters: unknown
-  pick: string
-  multi: boolean
-  asWhole: boolean
-  identityTransform: Readonly<Record<string, string>>
-  optionIdentities: readonly string[]
-}
+type SelectionContext = ReturnType<typeof readContext>
 type SelectedIdentity = { kind: 'record' | 'value'; value: unknown }
 type ModelIdentity =
   | { kind: 'empty' }
@@ -49,7 +39,9 @@ const props = defineProps({
 })
 const modelValue = defineModel<SelectModelValue>()
 const emit = defineEmits<{ (event: 'validation:touch'): void }>()
-const source = useOptionSource(props)
+const source = useOptionSource(props, (options) => transformedOptions(options).map((item) => (
+  normalizedIdentity(item[props.pick]) ?? 'null'
+)))
 const loading = source.loading
 const sourceError = source.error
 const query = ref('')
@@ -118,36 +110,23 @@ function sameModelIdentity(left: ModelIdentity, right: ModelIdentity): boolean {
   return false
 }
 
-function readContext(): SelectionContext {
-  const mode = props.data !== undefined ? 'data' : props.load ? 'load' : 'none'
-  const staticOptions = mode === 'data' ? transformedOptions(props.data ?? []) : []
+function readContext() {
   return {
-    mode,
-    load: source.externalContext.value.load,
-    resource: source.externalContext.value.resource,
-    namespace: source.externalContext.value.namespace,
-    searchParameters: source.externalContext.value.searchParameters,
+    source: source.externalContext.value,
     pick: props.pick,
     multi: props.multi,
     asWhole: props.asWhole,
     identityTransform: Object.fromEntries(Object.entries(props.transform ?? {})
       .filter(([from, to]) => from === props.pick || to === props.pick)),
-    optionIdentities: staticOptions.map((item) => normalizedIdentity(item[props.pick]) ?? 'null'),
   }
 }
 
 function sameContext(left: SelectionContext, right: SelectionContext): boolean {
-  if (left.mode !== right.mode || left.pick !== right.pick || left.multi !== right.multi || left.asWhole !== right.asWhole) return false
-  if (left.mode === 'data' && right.mode === 'data') {
-    return left.optionIdentities.length === right.optionIdentities.length
-      && left.optionIdentities.every((value, index) => value === right.optionIdentities[index])
-  }
-  if (left.mode !== 'load' || right.mode !== 'load') return true
-  return left.load === right.load
-    && left.resource === right.resource
-    && left.namespace === right.namespace
-    && JSON.stringify(left.searchParameters) === JSON.stringify(right.searchParameters)
-    && JSON.stringify(left.identityTransform) === JSON.stringify(right.identityTransform)
+  return left.pick === right.pick
+    && left.multi === right.multi
+    && left.asWhole === right.asWhole
+    && sameOptionSourceContext(left.source, right.source)
+    && (left.source.mode !== 'load' || JSON.stringify(left.identityTransform) === JSON.stringify(right.identityTransform))
 }
 
 function modelOption(value: unknown, options = data.value): Option | undefined {
@@ -249,7 +228,7 @@ function hasSelection(value: SelectModelValue | undefined): boolean {
 }
 
 function handleContextChange(nextContext: SelectionContext, modelChanged: boolean): void {
-  if (nextContext.mode === 'data') {
+  if (nextContext.source.mode === 'data') {
     reconcileStaticSelection(modelValue.value)
     return
   }
@@ -297,7 +276,7 @@ watch(() => ({ context: readContext(), model: modelValue.value }), ({ context, m
   initialState = false
   previousContext = context
   previousModelIdentity = modelIdentity(model, context)
-  if (isInitialState && context.mode === 'data') reconcileStaticSelection(model)
+  if (isInitialState && context.source.mode === 'data') reconcileStaticSelection(model)
   else if (contextChanged) handleContextChange(context, modelChanged)
   else if (modelChanged) suppressDefault = false
   pickSelected()

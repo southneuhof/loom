@@ -1,4 +1,6 @@
-import type { CollectionResult, MaybePromise, UploadProgress } from '../contracts'
+import type { MaybePromise } from '../contracts/load'
+import type { CollectionResult } from '../contracts/results'
+import type { UploadProgress } from '../contracts/upload'
 import type { AssetValue } from '../assets/contracts'
 
 export interface ManagedAsset {

@@ -197,13 +197,6 @@ function setPageSize(value: unknown) {
   updateQuery({ limit, page: 1 })
 }
 
-function setVisibleColumns(next: readonly string[]) {
-  const normalized = fieldKeys.value.filter((key) => next.includes(key))
-  if (!slots['row-actions'] && normalized.length === 0 && fieldKeys.value.length) return
-  if (!hasVisibleColumns) preferences.setVisible(normalized)
-  emit('update:visibleColumns', normalized)
-}
-
 function normalizeColumnSizing(next: ColumnSizingState) {
   return Object.fromEntries(
     Object.entries(next)
@@ -217,12 +210,6 @@ function commitColumnSizing(next: ColumnSizingState) {
   columnSizing.value = normalized
   if (!hasColumnSizing) preferences.setSizes(normalized)
   emit('update:columnSizing', { ...normalized })
-}
-
-function resetColumns() {
-  preferences.resetColumns()
-  setVisibleColumns(fieldKeys.value)
-  columnSizing.value = {}
 }
 
 function rowIdentity(record: TRecord) {
@@ -400,9 +387,6 @@ watch(
   { flush: 'pre' }
 )
 
-// Let normal tables fill their container.  Column sizes remain a minimum, so
-// resize state still controls overflow on narrow screens instead of shrinking
-// every column into the left edge.
 const tableMinimumWidth = computed(() => visibleFields.value.reduce((total, field) => total + sizeFor(field.key), slots['row-actions'] ? 64 : 0))
 
 function setHeaderElement(key: string, element: unknown) {
@@ -428,10 +412,7 @@ function resizeColumn(event: MouseEvent) {
 
 function stopResize() {
   if (!resizingColumn.value) return
-  resizingColumn.value = undefined
-  resizeStartX.value = 0
-  document.removeEventListener('mousemove', resizeColumn)
-  document.removeEventListener('mouseup', stopResize)
+  cancelResize()
   commitColumnSizing(columnSizing.value)
 }
 
@@ -456,18 +437,6 @@ function sizeFor(key: string) {
   return columnSizing.value[key] ?? table.getColumn(key)?.getSize() ?? minimumColumnWidth.value
 }
 
-// Long values keep the list comparable: a text value stays on one line and
-// truncates with an ellipsis instead of widening the whole table, and its full
-// text stays reachable through the native tooltip (`title`) on hover.  Renderer
-// content is not plain text, so it wraps inside the same cap instead of losing
-// chips, while a `cell:<key>` slot shares the cap but owns its own markup and
-// its own tooltip.
-// A resized column owns its own limit so an explicit width still shows more of
-// the value.  The column cap arrives once per table as
-// `--loom-table-cell-max-width`, so a cell only carries inline style when it
-// deviates from that default.  Style objects are cached per column key so a
-// re-render patches the same object instead of creating work for every cell of
-// a large page.
 const cellStyles = computed(() => {
   const styles = new Map<string, Record<string, string>>()
   for (const field of fields.value) {
@@ -485,9 +454,6 @@ function cellContentStyle(field: ResolvedDisplayField<TRecord, TContext>): Recor
   return cellStyles.value.get(field.key)
 }
 
-// The tooltip carries the text a clamped cell no longer shows, so it only
-// applies to plain text: renderer content wraps instead of being clipped, and a
-// slot cell owns both its markup and its tooltip.
 function cellTitle(record: TRecord, field: ResolvedDisplayField<TRecord, TContext>): string | undefined {
   if (displayFieldFor(record, field).renderer || hasCellSlot(field.key)) return undefined
   const value = valueFor(record, field)
@@ -724,8 +690,6 @@ function hasCellSlot(key: string): boolean {
   white-space: nowrap;
 }
 
-/* Renderer content is chips and previews rather than text, so it wraps inside
-   the same cap instead of being clipped away. */
 .is-table-cell-value--rich {
   overflow-wrap: anywhere;
   white-space: normal;

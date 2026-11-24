@@ -249,13 +249,18 @@ describe('LookupInput real dialog', () => {
   it('keeps a parent replacement when older detail and staged work resolve', async () => {
     const firstDetail = deferred<Option>()
     const secondDetail = deferred<Option>()
-    const loadDetail = ({ id }: { id: unknown }) => id === 'one' ? firstDetail.promise : secondDetail.promise
-    const view = mountLookup({ model: 'one', loadDetail })
+    const loadDetail = vi.fn(({ id }: { id: unknown }) => id === 'one' ? firstDetail.promise : secondDetail.promise)
+    const view = mountLookup({
+      model: 'one',
+      data: [...options, { id: 'three', name: 'Option three' }],
+      loadDetail,
+    })
     await frame()
 
     trigger(view.host).click()
     await frame()
-    rowNamed('Option two').click()
+    rowNamed('Option three').click()
+    await frame()
     view.model.value = 'two'
     await frame()
     firstDetail.resolve(options[0]!)
@@ -266,6 +271,7 @@ describe('LookupInput real dialog', () => {
 
     expect(view.model.value).toBe('two')
     expect(trigger(view.host).textContent).toContain('Option two')
+    expect(loadDetail.mock.calls.map(([context]) => context.id)).toEqual(['one', 'two'])
   })
 
   it('revalidates an already displayed scalar under the new remote context', async () => {

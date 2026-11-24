@@ -9,7 +9,6 @@
 
 export type MaybePromise<T> = T | Promise<T>
 
-/** Cancellation context shared by every loader invocation. */
 export interface LoadSignalContext {
   signal?: AbortSignal
 }
@@ -22,19 +21,16 @@ export interface OptionLoadContext
 export type OptionLoad<TOption extends object> =
   Load<OptionLoadContext, readonly TOption[] | import('./results').CollectionResult<TOption>>
 
-/** Context handed to a collection loader. */
 export interface CollectionLoadContext<TQuery = Record<string, unknown>> extends LoadSignalContext {
   query: TQuery
   searchParameters: Record<string, unknown>
 }
 
-/** Context handed to a single-record loader. */
 export interface RecordLoadContext<TIdentity extends RecordIdentity = RecordIdentity> extends LoadSignalContext {
   id?: TIdentity
   searchParameters: Record<string, unknown>
 }
 
-/** One scalar component of a record identity. */
 export type RecordIdentityValue = string | number
 
 /**

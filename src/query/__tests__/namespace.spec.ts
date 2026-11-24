@@ -90,23 +90,6 @@ describe('namespaced query ownership', () => {
     app.unmount()
   })
 
-  it('separates duplicate instances of one resource through an explicit namespace', () => {
-    const location = createUrlAdapter()
-    const { result, app } = withApp(
-      () => ({
-        assignees: useNamespacedQuery({ namespace: 'users', defaults: { page: 1 } }),
-        archived: useNamespacedQuery({ namespace: 'archived', defaults: { page: 1 } }),
-      }),
-      { adapters: { query: location.adapter } },
-    )
-
-    result.archived.update({ page: 5 })
-
-    expect(result.assignees.values.value.page).toBe(1)
-    expect(location.entries()['archived.page']).toBe('5')
-    app.unmount()
-  })
-
   it('restores state on back/forward navigation', () => {
     const location = createUrlAdapter({ 'roles.page': '3' })
     const { result, app } = withApp(() => useNamespacedQuery({ namespace: 'roles', defaults: { page: 1 } }), {

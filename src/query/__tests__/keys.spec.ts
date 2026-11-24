@@ -72,6 +72,8 @@ describe('query identities', () => {
   })
 
   it('serializes nested structures deterministically', () => {
-    expect(stableValue({ b: 1, a: { d: [3, { f: 1, e: 2 }], c: 2 } })).toEqual({ a: { c: 2, d: [3, { e: 2, f: 1 }] }, b: 1 })
+    expect(JSON.stringify(stableValue({ b: 1, a: { d: [3, { f: 1, e: 2 }], c: 2 } }))).toBe(
+      '{"a":{"c":2,"d":[3,{"e":2,"f":1}]},"b":1}',
+    )
   })
 })

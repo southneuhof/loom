@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, type PropType } from 'vue'
-import type { Coordinate, LocationOperations } from '../../../contracts'
+import type { Coordinate, LocationOperations } from '../../../contracts/location'
 import LocationInput from './LocationInput.vue'
 import BaseInput from '../../inputs/BaseInput.vue'
 import { commonProps } from '../../inputs/commonprops'

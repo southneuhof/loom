@@ -10,14 +10,16 @@ export type ConfirmedWriteRefreshError<TResult = unknown> = Readonly<SubmitError
 
 const confirmedErrors = new WeakSet<object>()
 
-export function markConfirmedWriteRefreshError<TError extends SubmitError>(error: TError): TError {
-  if (
-    error.code === 'RESOURCE_POST_WRITE_INVALIDATION_FAILED'
-    && error.postWrite === true
-    && error.writeOutcome === 'confirmed'
+function hasConfirmedOutcome(error: object): boolean {
+  return Reflect.get(error, 'code') === 'RESOURCE_POST_WRITE_INVALIDATION_FAILED'
+    && Reflect.get(error, 'postWrite') === true
+    && Reflect.get(error, 'writeOutcome') === 'confirmed'
     && Object.hasOwn(error, 'result')
-    && typeof error.refresh === 'function'
-  ) confirmedErrors.add(error)
+    && typeof Reflect.get(error, 'refresh') === 'function'
+}
+
+export function markConfirmedWriteRefreshError<TError extends SubmitError>(error: TError): TError {
+  if (hasConfirmedOutcome(error)) confirmedErrors.add(error)
   return error
 }
 
@@ -25,11 +27,7 @@ export function isConfirmedWriteRefreshError<TResult = unknown>(error: unknown):
   return typeof error === 'object'
     && error !== null
     && confirmedErrors.has(error)
-    && Reflect.get(error, 'code') === 'RESOURCE_POST_WRITE_INVALIDATION_FAILED'
-    && Reflect.get(error, 'postWrite') === true
-    && Reflect.get(error, 'writeOutcome') === 'confirmed'
-    && Object.hasOwn(error, 'result')
-    && typeof Reflect.get(error, 'refresh') === 'function'
+    && hasConfirmedOutcome(error)
 }
 
 export function normalizeWriteError(

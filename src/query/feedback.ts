@@ -1,10 +1,9 @@
 import type { App } from 'vue'
 import { isCancelledError, type QueryClient } from '@tanstack/vue-query'
 import { toast } from 'vue-sonner'
-import type { QueryKey, RecordIdentity, SubmitError } from '../contracts'
-import { recordKey, resourceKey, resourceOptionsKeyPrefix } from './keys'
-
-type ResourceQuery = ReturnType<ReturnType<QueryClient['getQueryCache']>['findAll']>[number]
+import type { RecordIdentity } from '../contracts/load'
+import type { SubmitError } from '../contracts/results'
+import { selectResourceQueries } from './client'
 
 export const readFailureFeedbackMetaKey = 'loomReadFailureFeedback'
 
@@ -16,29 +15,6 @@ interface FeedbackOwner {
   appCount: number
   unsubscribe?: () => void
   suppressedQueries: Map<object, number>
-}
-
-function resourceQueryPrefixes(resource: string, id: RecordIdentity | undefined): readonly QueryKey[] {
-  if (id === undefined) return [resourceKey(resource)]
-  return [
-    [...resourceKey(resource), 'list'],
-    resourceOptionsKeyPrefix(resource),
-    recordKey({ resource, id, variant: 'display' }).slice(0, 4),
-  ]
-}
-
-export interface ResourceQuerySelection {
-  groups: readonly { key: QueryKey; queries: readonly ResourceQuery[] }[]
-  queries: readonly ResourceQuery[]
-}
-
-export function selectResourceQueries(client: QueryClient, resource: string, id?: RecordIdentity): ResourceQuerySelection {
-  const groups = resourceQueryPrefixes(resource, id).map((key) => ({
-    key,
-    queries: client.getQueryCache().findAll({ queryKey: key }),
-  }))
-  const queries = new Set(groups.flatMap((group) => group.queries))
-  return { groups, queries: [...queries] }
 }
 
 const owners = new WeakMap<QueryClient, FeedbackOwner>()

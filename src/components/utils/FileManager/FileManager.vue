@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { ref } from 'vue'
 import type { ManagedAsset } from '../../../file-manager/contracts'
 import { useFileManager } from '../../../file-manager/provider'
 import PathTree from './_layouts/PathTree.vue'

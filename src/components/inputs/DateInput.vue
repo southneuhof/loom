@@ -7,7 +7,7 @@ import { useFrameworkUi } from '../../adapters/projectAdapters'
 import { commonProps } from './commonprops'
 import { ref, watch, type PropType } from 'vue'
 import { isValid, lightFormat, parse } from 'date-fns'
-import { datepickerPopupClass, datepickerPopupConfig, datepickerTeleportProp } from './datepickerPopup'
+import { datepickerInputBindings, datepickerPopupClass, datepickerPopupConfig, datepickerTeleportProp, useDatepickerBlur } from './datepickerPopup'
 
 const props = defineProps({
   placeholder: String,
@@ -42,7 +42,7 @@ const emit = defineEmits<{
 }>()
 const modelValue = defineModel<string | null | undefined>()
 const internalValue = ref<Date | null>(null)
-const modelUpdated = ref(false)
+const { markModelUpdated, handleBlur } = useDatepickerBlur(() => emit('validation:touch'))
 const dateFormat = props.withTimePicker ? 'yyyy-MM-dd HH:mm:ss' : 'yyyy-MM-dd'
 
 const parseModelValue = (value: string | null | undefined) => {
@@ -107,15 +107,9 @@ function markInvalidDate() {
   emit('validation:error', 'Enter a valid date.')
 }
 
-function markModelUpdated() {
-  modelUpdated.value = true
+function handleModelUpdate() {
+  markModelUpdated()
   emit('validation:error', undefined)
-}
-
-function handleBlur() {
-  const wasUpdated = modelUpdated.value
-  modelUpdated.value = false
-  if (!wasUpdated) emit('validation:touch')
 }
 </script>
 
@@ -138,23 +132,17 @@ function handleBlur() {
       :config="datepickerPopupConfig"
       :text-input="{ format: parseTextInput }"
       @focusout.stop
-      @update:model-value="markModelUpdated"
+      @update:model-value="handleModelUpdate"
       @invalid-date="markInvalidDate"
       @text-input="handleTextInput"
       @blur="handleBlur"
     >
-      <template #dp-input="{ value, isMenuOpen, onInput, onBlur, onFocus, onKeypress, onPaste }">
+      <template #dp-input="picker">
         <DatepickerControlInput
           :control-bindings="controlBindings"
-          :value="value"
-          :is-menu-open="isMenuOpen"
+          v-bind="datepickerInputBindings(picker)"
           input-mode="text"
           :placeholder="props.placeholder"
-          :on-input="onInput"
-          :on-blur="onBlur"
-          :on-focus="onFocus"
-          :on-keypress="onKeypress"
-          :on-paste="onPaste"
         />
       </template>
       <template #input-icon><DatepickerInputIcon /></template>

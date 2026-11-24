@@ -1,1 +1,0 @@
-export { resolveLabel } from './resolveLabel'

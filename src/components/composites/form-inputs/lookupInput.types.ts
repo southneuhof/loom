@@ -1,14 +1,7 @@
-import type {
-  CollectionLoadContext,
-  CollectionResult,
-  Load,
-  QueryNamespace,
-  RecordIdentity,
-  RecordLoadContext,
-  RecordResult,
-  TableColumnEntry,
-  TableDefinition,
-} from '../../../contracts'
+import type { CollectionLoadContext, Load, RecordIdentity, RecordLoadContext } from '../../../contracts/load'
+import type { QueryNamespace } from '../../../contracts/query'
+import type { CollectionResult, RecordResult } from '../../../contracts/results'
+import type { TableColumnEntry, TableDefinition } from '../../../contracts/tables'
 
 export type LookupModelValue<TValue extends object> = string | number | TValue | TValue[] | null
 

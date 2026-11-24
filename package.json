@@ -17,7 +17,6 @@
     "./renderers/*": "./src/renderers/*",
     "./utilities/*": "./src/utilities/*",
     "./styles/*": "./src/styles/*",
-    "./router/*": "./src/router/*",
     "./file-manager": "./src/file-manager/index.ts"
   },
   "peerDependencies": {
@@ -32,6 +31,7 @@
     "@vuepic/vue-datepicker": "^11.0.3",
     "@vueuse/core": "^12.5.0",
     "date-fns": "^4.1.0",
+    "html2pdf.js": "^0.10.3",
     "leaflet": "^1.9.4",
     "reka-ui": "^2.9.8",
     "tailwind-merge": "^1.13.1",

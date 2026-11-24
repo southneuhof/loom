@@ -7,7 +7,7 @@ import { useFrameworkUi } from '../../adapters/projectAdapters'
 import { commonProps } from './commonprops'
 import { formatTimeValue, parseTimeValue, type TimeParts } from './timeInput.utils'
 import { ref, watch } from 'vue'
-import { datepickerPopupClass, datepickerPopupConfig, datepickerTeleportProp } from './datepickerPopup'
+import { datepickerInputBindings, datepickerPopupClass, datepickerPopupConfig, datepickerTeleportProp } from './datepickerPopup'
 
 const props = defineProps({
   placeholder: String,
@@ -27,7 +27,6 @@ const props = defineProps({
 
 const emit = defineEmits<{ (event: 'validation:touch'): void }>()
 const modelValue = defineModel<string>()
-// if (props.defaultToCurrent && !modelValue.value) modelValue.value = {hours: String(new Date().getHours()), minutes: String(new Date().getMinutes()), seconds: String(new Date().getSeconds())}
 
 const internalValue = ref<TimeParts | null>()
 
@@ -63,7 +62,7 @@ watch(
   { immediate: true }
 )
 
-function displayFormatter(value: Record<string, any>) {
+function displayFormatter() {
   return modelValue.value ? modelValue.value : 'Masukkan Waktu'
 }
 
@@ -88,18 +87,12 @@ function handleBlur() {
       @focusout.stop
       @blur="handleBlur"
     >
-      <template #dp-input="{ value, isMenuOpen, onInput, onBlur, onFocus, onKeypress, onPaste }">
+      <template #dp-input="picker">
         <DatepickerControlInput
           :control-bindings="controlBindings"
-          :value="value"
-          :is-menu-open="isMenuOpen"
+          v-bind="datepickerInputBindings(picker)"
           input-mode="none"
           :placeholder="props.placeholder"
-          :on-input="onInput"
-          :on-blur="onBlur"
-          :on-focus="onFocus"
-          :on-keypress="onKeypress"
-          :on-paste="onPaste"
         />
       </template>
       <template #input-icon><DatepickerInputIcon /></template>

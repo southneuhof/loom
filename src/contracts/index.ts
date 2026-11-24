@@ -1,9 +1,3 @@
-/**
- * Canonical migration contracts: types only, no behavior, no Vue or app
- * dependencies. Later phases extend these interfaces rather than creating
- * parallel concepts.
- */
-
 export type { Load, LoadSignalContext, CollectionLoadContext, RecordLoadContext, MaybePromise, RecordIdentity, RecordIdentityValue, OptionLoadContext, OptionLoad } from './load'
 
 export type { CollectionMeta, CollectionResult, RecordResult, SubmitError } from './results'

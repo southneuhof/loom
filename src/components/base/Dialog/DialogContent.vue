@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { type HTMLAttributes, computed, useAttrs } from 'vue'
-import { DialogClose, DialogContent, type DialogContentEmits, type DialogContentProps, DialogOverlay, DialogPortal, useForwardPropsEmits } from 'reka-ui'
+import { DialogContent, type DialogContentEmits, type DialogContentProps, DialogOverlay, DialogPortal, useForwardPropsEmits } from 'reka-ui'
 import { twMerge } from 'tailwind-merge'
 
 const props = withDefaults(defineProps<DialogContentProps & { class?: HTMLAttributes['class']; closeOnOutsideClick?: boolean; closeOnEscape?: boolean }>(), { closeOnOutsideClick: true, closeOnEscape: true })
