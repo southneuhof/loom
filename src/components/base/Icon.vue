@@ -36,5 +36,5 @@ const props = defineProps({
 </script>
 
 <template>
-  <i :class="[`ri-${props.name}-${props.fill ? 'fill' : 'line'}`, `ri-${props.name}`, boxSizeClasses.get(props.size)]" class="inline-flex items-center justify-center leading-none"></i>
+  <i aria-hidden="true" :class="[`ri-${props.name}-${props.fill ? 'fill' : 'line'}`, `ri-${props.name}`, boxSizeClasses.get(props.size)]" class="inline-flex items-center justify-center leading-none"></i>
 </template>

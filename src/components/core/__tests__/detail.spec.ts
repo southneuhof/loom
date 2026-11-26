@@ -43,6 +43,11 @@ describe('Detail core', () => {
     expect(view.all('td:not([aria-hidden])').map((node) => node.textContent)).toEqual(['Admin', 'Ruas 1'])
     expect(view.all('dt, dd')).toHaveLength(0)
     view.unmount()
+
+    const multiline = mountCore(Detail, { fields, data: { name: 'Line one\nLine two', rel_section_name: 'Ruas 1' } })
+    await flush()
+    expect(multiline.find('td span.whitespace-pre-line')?.textContent).toBe('Line one\nLine two')
+    multiline.unmount()
   })
 
   it('rejects supplying both data and load', () => {

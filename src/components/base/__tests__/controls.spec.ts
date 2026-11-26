@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { h } from 'vue'
 import Button from '../Button.vue'
 import ListItem from '../ListItem.vue'
+import Tabs from '../../composites/Tabs.vue'
 import { flush, mountCore } from '../../core/__tests__/harness'
 
 describe('Button selected state on label buttons', () => {
@@ -26,21 +27,31 @@ describe('Button selected state on label buttons', () => {
 })
 
 describe('ListItem', () => {
-  it('renders an accessible selectable row and switches to anchor semantics when href is provided', async () => {
+  it('renders a flat selectable row with vertical content layout and switches to anchor semantics with href', async () => {
     const clicked = vi.fn()
-    const selectable = mountCore(
+    const unselected = mountCore(
       ListItem,
-      { selected: true, onClick: clicked },
-      { slots: { default: () => h('span', 'WO-2026-0003') } },
+      { selected: false, onClick: clicked },
+      { slots: { default: () => h('span', 'WO-2026-0001') } },
     )
     await flush()
 
-    const button = selectable.find<HTMLButtonElement>('button')!
-    expect(button.getAttribute('aria-pressed')).toBe('true')
-    expect(button.classList.contains('bg-primary-container')).toBe(true)
-    button.click()
+    const unselectedButton = unselected.find<HTMLButtonElement>('button')!
+    expect(unselectedButton.getAttribute('aria-pressed')).toBe('false')
+    expect(unselectedButton.classList.contains('bg-transparent')).toBe(true)
+    expect(unselectedButton.classList.contains('border')).toBe(false)
+    unselectedButton.click()
     expect(clicked).toHaveBeenCalledOnce()
-    selectable.unmount()
+    unselected.unmount()
+
+    const selected = mountCore(
+      ListItem,
+      { selected: true },
+      { slots: { default: () => h('span', 'WO-2026-0003') } },
+    )
+    await flush()
+    expect(selected.find<HTMLButtonElement>('button')?.classList.contains('bg-primary-container')).toBe(true)
+    selected.unmount()
 
     const link = mountCore(
       ListItem,
@@ -54,5 +65,27 @@ describe('ListItem', () => {
     expect(anchor.getAttribute('aria-current')).toBe('page')
     expect(anchor.hasAttribute('aria-pressed')).toBe(false)
     link.unmount()
+  })
+})
+
+describe('Tabs', () => {
+  it('renders optional icons inside tab triggers and updates local selection', async () => {
+    const changes: string[] = []
+    const view = mountCore(Tabs, {
+      label: 'Presentation',
+      modelValue: 'table',
+      items: [
+        { value: 'table', label: 'Table', icon: 'table' },
+        { value: 'cards', label: 'Cards', icon: 'layout-grid' },
+      ],
+      'onUpdate:modelValue': (value: string) => changes.push(value),
+    })
+    await flush()
+
+    const icons = view.all('i[aria-hidden="true"]')
+    expect(icons).toHaveLength(2)
+    expect(icons[0]?.className).toContain('ri-table-line')
+    expect(icons[1]?.className).toContain('ri-layout-grid-line')
+    view.unmount()
   })
 })

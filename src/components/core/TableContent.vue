@@ -39,7 +39,7 @@ const props = withDefaults(defineProps<TableContentRendererProps<TRecord, TQuery
   pageSizeOptions: () => [10, 25, 50, 100],
   defaultPageSize: 10,
   minColumnWidth: 96,
-  maxColumnWidth: 280,
+  maxColumnWidth: 360,
 })
 
 const emit = defineEmits<{
@@ -81,7 +81,7 @@ const fields = computed(() => {
 })
 const fieldKeys = computed(() => fields.value.map((field) => field.key))
 const minimumColumnWidth = computed(() => (Number.isFinite(props.minColumnWidth) && props.minColumnWidth! > 0 ? props.minColumnWidth! : 96))
-const maximumColumnWidth = computed(() => (Number.isFinite(props.maxColumnWidth) && props.maxColumnWidth! > 0 ? props.maxColumnWidth! : 280))
+const maximumColumnWidth = computed(() => (Number.isFinite(props.maxColumnWidth) && props.maxColumnWidth! > 0 ? props.maxColumnWidth! : 360))
 const preferences = useTablePreferences(
   toRef(() => props.namespace),
   fieldKeys,
@@ -180,7 +180,6 @@ const columns = computed<ColumnDef<TRecord>[]>(() =>
     id: field.key,
     accessorFn: (record) => readDisplayValue(record, field, (props.context ?? {}) as TContext),
     header: field.label,
-    size: 120,
     enableSorting: field.sortable === true && !props.reorderable,
     sortDescFirst: false,
   }))
@@ -749,7 +748,7 @@ function hasCellSlot(key: string): boolean {
 
 .is-table-cell-value {
   display: block;
-  max-width: var(--loom-table-cell-max-width, 280px);
+  max-width: var(--loom-table-cell-max-width, 360px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

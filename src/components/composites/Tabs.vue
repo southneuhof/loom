@@ -3,6 +3,7 @@ import { TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 import { computed, inject } from 'vue'
 import { RouterLink, routeLocationKey, routerKey } from 'vue-router'
 import { defaultAccessAdapter, frameworkAdaptersKey } from '../../adapters/projectAdapters'
+import Icon from '../base/Icon.vue'
 import type { TabsItem, TabsProps } from './tabs'
 export type { TabsItem, RoutedTabItem, TabsProps } from './tabs'
 
@@ -32,38 +33,45 @@ const activePath = computed(() =>
     return matches && (!active || path.length > active.length) ? path : active
   }, undefined)
 )
-const listClass = computed(() => ((props.variant ?? 'filled') === 'filled' ? 'rounded-xl border border-outline-variant bg-surface-container-low p-1.5' : 'rounded-lg bg-surface-container p-1'))
+const listClass = computed(() => ((props.variant ?? 'filled') === 'filled' ? 'rounded-xl border border-outline-variant bg-surface-container-low p-1' : 'rounded-lg bg-surface-container p-1'))
 const triggerClass = computed(() =>
   (props.variant ?? 'filled') === 'filled'
-    ? 'rounded-lg px-4 py-3 hover:bg-primary/10 hover:text-primary active:bg-primary/20 data-[state=active]:bg-primary data-[state=active]:text-on-primary data-[state=active]:hover:bg-primary/90 data-[state=active]:active:bg-primary/80'
-    : 'rounded-md px-4 py-2 hover:bg-surface-container-high hover:text-on-surface data-[state=active]:bg-surface data-[state=active]:text-on-surface data-[state=active]:shadow-sm'
+    ? 'rounded-lg px-3 py-1.5 hover:bg-primary/10 hover:text-primary active:bg-primary/20 data-[state=active]:bg-primary data-[state=active]:text-on-primary data-[state=active]:hover:bg-primary/90 data-[state=active]:active:bg-primary/80'
+    : 'rounded-md px-3 py-1.5 hover:bg-surface-container-high hover:text-on-surface data-[state=active]:bg-surface data-[state=active]:text-on-surface data-[state=active]:shadow-sm'
 )
 const orientationClass = computed(() => (props.orientation === 'vertical' ? 'w-full flex-col items-stretch overflow-y-auto' : 'w-fit flex-row items-center overflow-x-auto'))
 const itemClass = computed(() => [
   triggerClass.value,
-  'text-sm font-medium text-on-surface-variant outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50',
-  props.orientation === 'vertical' ? 'w-full text-start' : 'min-w-max',
+  'inline-flex items-center gap-1.5 text-sm font-medium leading-5 text-on-surface-variant outline-none transition-colors focus-visible:ring-2 focus-visible:ring-primary motion-reduce:transition-none disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50',
+  props.orientation === 'vertical' ? 'w-full justify-start text-start' : 'min-w-max justify-center',
 ])
 </script>
 
 <template>
   <nav v-if="routed && routes.length" :aria-label="props.label" :class="[listClass, orientationClass]" class="flex max-w-full gap-1">
     <template v-for="item in routes" :key="item.target.path">
-      <span v-if="item.disabled" :class="itemClass" aria-disabled="true">{{ item.label }}</span>
+      <span v-if="item.disabled" :class="itemClass" aria-disabled="true">
+        <Icon v-if="item.icon" :name="item.icon" size="base" />
+        <span>{{ item.label }}</span>
+      </span>
       <RouterLink
         v-else
         :to="item.target"
         :class="itemClass"
         v-bind="{ 'data-state': item.target.path === activePath ? 'active' : 'inactive', 'aria-current': item.target.path === activePath ? 'page' : undefined }"
       >
-        {{ item.label }}
+        <Icon v-if="item.icon" :name="item.icon" size="base" />
+        <span>{{ item.label }}</span>
       </RouterLink>
     </template>
   </nav>
   <TabsRoot v-else-if="!routed" v-model="modelValue" :orientation="props.orientation ?? 'horizontal'">
     <TabsList v-bind="{ 'aria-label': props.label }" :class="[listClass, orientationClass]" class="flex max-w-full gap-1">
       <TabsTrigger v-for="item in localItems" :key="item.value" :value="item.value" :disabled="item.disabled" as-child>
-        <button type="button" :disabled="item.disabled" :class="itemClass">{{ item.label }}</button>
+        <button type="button" :disabled="item.disabled" :class="itemClass">
+          <Icon v-if="item.icon" :name="item.icon" size="base" />
+          <span>{{ item.label }}</span>
+        </button>
       </TabsTrigger>
     </TabsList>
   </TabsRoot>

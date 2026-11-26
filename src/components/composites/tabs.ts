@@ -1,8 +1,12 @@
 import type { RouteLocationRaw } from 'vue-router'
+import type remixiconTags from '../base/remixicon-tags'
+
+export type TabIconName = (typeof remixiconTags)[number]
 
 export interface TabsItem {
   value: string
   label: string
+  icon?: TabIconName
   disabled?: boolean
   to?: never
 }
@@ -10,6 +14,7 @@ export interface TabsItem {
 export interface RoutedTabItem {
   to: RouteLocationRaw
   label: string
+  icon?: TabIconName
   permission?: string | null
   disabled?: boolean
   value?: never

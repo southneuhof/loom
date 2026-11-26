@@ -30,10 +30,10 @@ const rootAttrs = computed(() => {
 
 const itemClass = computed(() =>
   twMerge(
-    'is-list-item overlay relative flex w-full items-start gap-3 rounded-xl border px-4 py-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50',
+    'is-list-item overlay relative flex w-full items-start gap-3 px-4 py-3 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-primary disabled:pointer-events-none disabled:opacity-50',
     props.selected
-      ? 'border-primary bg-primary-container text-on-primary-container after:bg-on-primary-container-hover focus-visible:after:bg-on-primary-container-active active:after:bg-on-primary-container-active'
-      : 'border-outline-variant bg-surface-container-lowest text-on-surface hover:bg-surface-container-high after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active',
+      ? 'bg-primary-container text-on-primary-container after:bg-on-primary-container-hover focus-visible:after:bg-on-primary-container-active active:after:bg-on-primary-container-active'
+      : 'bg-transparent text-on-surface hover:bg-surface-container-high after:bg-on-surface-hover focus-visible:after:bg-on-surface-active active:after:bg-on-surface-active',
     attrs.class as string | undefined,
   ),
 )
@@ -65,7 +65,7 @@ function handleClick(event: MouseEvent): void {
     <span v-if="$slots.leading" class="shrink-0">
       <slot name="leading" />
     </span>
-    <span class="min-w-0 flex-1">
+    <span class="flex min-w-0 flex-1 flex-col gap-1">
       <slot />
     </span>
     <span v-if="$slots.trailing" class="shrink-0">

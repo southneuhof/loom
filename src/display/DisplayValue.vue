@@ -12,9 +12,11 @@ const props = defineProps<{
 
 const renderers = useRendererRegistry('display')
 const renderer = computed(() => (props.field.renderer ? renderers.require(props.field.renderer) : undefined))
+const isMultilineText = computed(() => !renderer.value && typeof props.value === 'string' && props.value.includes('\n'))
 </script>
 
 <template>
   <component :is="renderer" v-if="renderer" v-bind="field.props" :value="value" :record="record" :field="field" :index="index" />
+  <span v-else-if="isMultilineText" class="whitespace-pre-line">{{ value }}</span>
   <template v-else>{{ value ?? '-' }}</template>
 </template>
