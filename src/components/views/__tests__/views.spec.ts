@@ -735,6 +735,25 @@ describe('ListView', () => {
     expect(updates.at(-1)).toMatchObject({ status: 'closed', page: 1 })
     view.unmount()
   })
+
+  it('omits the outer body card frame when bodyVariant is plain', async () => {
+    const view = mountCore(ListView, {
+      title: 'Work Orders',
+      bodyVariant: 'plain',
+      table: {
+        schema: z.object({ name: z.string() }),
+        columns: { name: { label: 'Name' } },
+        data: [{ name: 'WO-1' }],
+      },
+    })
+    await flush()
+
+    const body = view.find('.is-list-view-body')
+    expect(body).not.toBeNull()
+    expect(body?.classList.contains('bg-surface-container')).toBe(false)
+    expect(view.text()).toContain('WO-1')
+    view.unmount()
+  })
 })
 
 describe('PageHeader', () => {

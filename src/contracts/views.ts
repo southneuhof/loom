@@ -117,6 +117,7 @@ export interface ListFilterField<TValue = unknown> {
 }
 
 export type ListViewFilterControls = 'auto' | 'slot'
+export type ListViewBodyVariant = 'card' | 'plain'
 
 export type ListViewProps<
   TRecord extends object = Record<string, unknown>,
@@ -129,6 +130,7 @@ export type ListViewProps<
   actionLabels?: Partial<Record<'create' | 'view' | 'edit' | 'delete', string>>
   filters?: ListFilters<TQuery, TFilterInput, TContext>
   filterControls?: ListViewFilterControls
+  bodyVariant?: ListViewBodyVariant
   exportAccess?: (record?: TRecord) => boolean
   export?: ListExportConfiguration<TRecord, TQuery, TContext> | boolean
   table: TableProps<TRecord, TQuery, TContext>

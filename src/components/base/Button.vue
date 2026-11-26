@@ -140,12 +140,12 @@ const variantClasses: Record<ButtonColor, Record<ButtonVariant, string>> = {
   },
 }
 
-const selectedStandardIconClass: Record<ButtonColor, string> = {
-  primary: 'bg-primary text-on-primary after:bg-on-primary-hover focus-visible:after:bg-on-primary-active active:after:bg-on-primary-active',
-  info: 'bg-info text-on-info after:bg-on-info-hover focus-visible:after:bg-on-info-active active:after:bg-on-info-active',
-  success: 'bg-success text-on-success after:bg-on-success-hover focus-visible:after:bg-on-success-active active:after:bg-on-success-active',
-  warning: 'bg-warning text-on-warning after:bg-on-warning-hover focus-visible:after:bg-on-warning-active active:after:bg-on-warning-active',
-  error: 'bg-error text-on-error after:bg-on-error-hover focus-visible:after:bg-on-error-active active:after:bg-on-error-active',
+const selectedToggleClass: Record<ButtonColor, string> = {
+  primary: 'border-transparent bg-primary text-on-primary after:bg-on-primary-hover focus-visible:after:bg-on-primary-active active:after:bg-on-primary-active',
+  info: 'border-transparent bg-info text-on-info after:bg-on-info-hover focus-visible:after:bg-on-info-active active:after:bg-on-info-active',
+  success: 'border-transparent bg-success text-on-success after:bg-on-success-hover focus-visible:after:bg-on-success-active active:after:bg-on-success-active',
+  warning: 'border-transparent bg-warning text-on-warning after:bg-on-warning-hover focus-visible:after:bg-on-warning-active active:after:bg-on-warning-active',
+  error: 'border-transparent bg-error text-on-error after:bg-on-error-hover focus-visible:after:bg-on-error-active active:after:bg-on-error-active',
 }
 
 const regularPaddingClass = computed(() => {
@@ -156,7 +156,14 @@ const regularPaddingClass = computed(() => {
 })
 
 const regularClasses = computed(() =>
-  twMerge(baseInteractiveClass, labelButtonClass, variantClasses[props.color][resolvedVariant.value], regularPaddingClass.value, attrs.class as string | undefined),
+  twMerge(
+    baseInteractiveClass,
+    labelButtonClass,
+    variantClasses[props.color][resolvedVariant.value],
+    props.selected && resolvedVariant.value !== 'filled' ? selectedToggleClass[props.color] : '',
+    regularPaddingClass.value,
+    attrs.class as string | undefined,
+  ),
 )
 
 const iconClasses = computed(() =>
@@ -164,7 +171,7 @@ const iconClasses = computed(() =>
     baseInteractiveClass,
     iconButtonClass,
     variantClasses[props.color][resolvedVariant.value],
-    props.selected && props.toggle && resolvedVariant.value === 'standard' ? selectedStandardIconClass[props.color] : '',
+    props.selected && props.toggle && resolvedVariant.value === 'standard' ? selectedToggleClass[props.color] : '',
     attrs.class as string | undefined,
   ),
 )
@@ -333,7 +340,7 @@ function closeMenu() {
     :aria-disabled="softDisabled || (isLink && disabled) ? 'true' : undefined"
     :tabindex="softDisabled ? 0 : undefined"
     :aria-label="isIcon ? currentAriaLabel : undefined"
-    :aria-pressed="isIcon && toggle ? String(selected) : undefined"
+    :aria-pressed="toggle ? String(selected) : undefined"
     :class="isIcon ? iconClasses : regularClasses"
     @click="handleClick"
   >

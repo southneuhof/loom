@@ -68,6 +68,7 @@ export type {
   ListFilterFieldOption,
   ListFilters,
   ListViewActions,
+  ListViewBodyVariant,
   ListViewDeleteState,
   ListViewFilterControls,
   ListViewProps,

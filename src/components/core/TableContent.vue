@@ -2,7 +2,7 @@
 /**
  * Loaded-row table presentation. Collection owns data loading and query state.
  */
-import { computed, nextTick, onBeforeUnmount, provide, ref, shallowRef, toRef, useSlots, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, provide, ref, shallowRef, toRef, useSlots, watch } from 'vue'
 import { getCoreRowModel, getExpandedRowModel, useVueTable, type ColumnDef, type ColumnSizingState, type ExpandedState, type Row } from '@tanstack/vue-table'
 import type { QueryValues, RowReorderPayload, TableContentProps, TreeRowContext } from '../../contracts'
 import { createSchemaRuntime, schemaOutputKeys, schemaSortByValues } from '../../schemas/schemaRuntime'
@@ -38,7 +38,7 @@ const props = withDefaults(defineProps<TableContentRendererProps<TRecord, TQuery
   pageSizeOptions: () => [10, 25, 50, 100],
   defaultPageSize: 10,
   minColumnWidth: 96,
-  maxColumnWidth: 360,
+  maxColumnWidth: 280,
 })
 
 const emit = defineEmits<{
@@ -79,7 +79,7 @@ const fields = computed(() => {
 })
 const fieldKeys = computed(() => fields.value.map((field) => field.key))
 const minimumColumnWidth = computed(() => (Number.isFinite(props.minColumnWidth) && props.minColumnWidth! > 0 ? props.minColumnWidth! : 96))
-const maximumColumnWidth = computed(() => (Number.isFinite(props.maxColumnWidth) && props.maxColumnWidth! > 0 ? props.maxColumnWidth! : 360))
+const maximumColumnWidth = computed(() => (Number.isFinite(props.maxColumnWidth) && props.maxColumnWidth! > 0 ? props.maxColumnWidth! : 280))
 const preferences = useTablePreferences(
   toRef(() => props.namespace),
   fieldKeys,
@@ -178,6 +178,7 @@ const columns = computed<ColumnDef<TRecord>[]>(() =>
     id: field.key,
     accessorFn: (record) => readDisplayValue(record, field, (props.context ?? {}) as TContext),
     header: field.label,
+    size: 120,
     enableSorting: field.sortable === true && !props.reorderable,
     sortDescFirst: false,
   }))
@@ -308,6 +309,44 @@ function visibleTreeEntries(): VisibleTreeEntry[] {
 
 const disclosureElements = new Map<string, HTMLButtonElement>()
 const tableElement = ref<HTMLTableElement>()
+const scrollContainer = ref<HTMLElement>()
+const canScrollLeft = ref(false)
+const canScrollRight = ref(false)
+let scrollResizeObserver: ResizeObserver | undefined
+
+function updateScrollOverflow(): void {
+  const container = scrollContainer.value
+  if (!container) {
+    canScrollLeft.value = false
+    canScrollRight.value = false
+    return
+  }
+  const maxScroll = Math.max(0, container.scrollWidth - container.clientWidth)
+  canScrollLeft.value = container.scrollLeft > 1
+  canScrollRight.value = maxScroll > 1 && container.scrollLeft < maxScroll - 1
+}
+
+onMounted(() => {
+  if (typeof ResizeObserver !== 'undefined') {
+    scrollResizeObserver = new ResizeObserver(updateScrollOverflow)
+    if (scrollContainer.value) scrollResizeObserver.observe(scrollContainer.value)
+    if (tableElement.value) scrollResizeObserver.observe(tableElement.value)
+  }
+  void nextTick(updateScrollOverflow)
+})
+
+watch([scrollContainer, tableElement], ([nextContainer, nextTable]) => {
+  scrollResizeObserver?.disconnect()
+  if (scrollResizeObserver) {
+    if (nextContainer) scrollResizeObserver.observe(nextContainer)
+    if (nextTable) scrollResizeObserver.observe(nextTable)
+  }
+  void nextTick(updateScrollOverflow)
+})
+
+watch([visibleFields, tableData, columnSizing], () => {
+  void nextTick(updateScrollOverflow)
+})
 
 function treeContext(row: Row<TRecord>): TreeRowContext | undefined {
   const hierarchy = props.hierarchy
@@ -423,7 +462,11 @@ function cancelResize() {
   document.removeEventListener('mouseup', stopResize)
 }
 
-onBeforeUnmount(cancelResize)
+onBeforeUnmount(() => {
+  cancelResize()
+  scrollResizeObserver?.disconnect()
+  scrollResizeObserver = undefined
+})
 
 function valueFor(record: TRecord, field: ResolvedDisplayField<TRecord, TContext>) {
   return resolveDisplayValue(record, field, (props.context ?? {}) as TContext)
@@ -504,7 +547,17 @@ function hasCellSlot(key: string): boolean {
         :refresh="refreshCollection"
         :update-query="props.updateQuery ?? updateQuery"
       />
-      <div v-else class="overflow-x-auto rounded-xl">
+      <div
+        v-else
+        ref="scrollContainer"
+        class="is-table-scroll overflow-x-auto rounded-xl"
+        v-bind="{ 'data-overflow-x': canScrollLeft || canScrollRight ? 'true' : undefined }"
+        :class="{
+          'is-table-scroll--left': canScrollLeft,
+          'is-table-scroll--right': canScrollRight,
+        }"
+        @scroll="updateScrollOverflow"
+      >
         <table
           ref="tableElement"
           :class="{ 'is-table-compact': props.density === 'compact' }"
@@ -678,13 +731,23 @@ function hasCellSlot(key: string): boolean {
 </template>
 
 <style scoped>
-/* Keeps a long value from widening the list: one line, clipped with an
-   ellipsis, and the full text stays available through the cell tooltip.  A
-   `cell:<key>` slot shares the cap; declaring `white-space: normal` on its
-   content (or on the wrapper below) restores multi-line rendering there. */
+.is-table-scroll--left {
+  box-shadow: inset 12px 0 10px -10px rgb(var(--md-sys-color-shadow) / 0.16);
+}
+
+.is-table-scroll--right {
+  box-shadow: inset -12px 0 10px -10px rgb(var(--md-sys-color-shadow) / 0.16);
+}
+
+.is-table-scroll--left.is-table-scroll--right {
+  box-shadow:
+    inset 12px 0 10px -10px rgb(var(--md-sys-color-shadow) / 0.16),
+    inset -12px 0 10px -10px rgb(var(--md-sys-color-shadow) / 0.16);
+}
+
 .is-table-cell-value {
   display: block;
-  max-width: var(--loom-table-cell-max-width, 360px);
+  max-width: var(--loom-table-cell-max-width, 280px);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

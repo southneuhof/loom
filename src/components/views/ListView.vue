@@ -840,9 +840,12 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
 
     <slot v-if="filterQueryReady" name="context" v-bind="contextSlotProps" />
 
-    <Card variant="outlined" color="surfaceContainer" class="gap-0 p-0">
+    <component
+      :is="props.bodyVariant === 'plain' ? 'div' : Card"
+      v-bind="props.bodyVariant === 'plain' ? { class: 'is-list-view-body flex flex-col gap-3' } : { variant: 'outlined', color: 'surfaceContainer', class: 'gap-0 p-0' }"
+    >
       <slot name="body" v-bind="{ table: surface.table, exportControls }">
-        <div class="p-3 sm:p-4">
+        <div :class="props.bodyVariant === 'plain' ? '' : 'p-3 sm:p-4'">
           <Table
             ref="tableRef"
             v-bind="tableBindings"
@@ -881,11 +884,11 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
 
       <footer
         v-if="$slots.footer"
-        class="border-t border-outline-variant px-5 py-3"
+        :class="props.bodyVariant === 'plain' ? 'pt-2' : 'border-t border-outline-variant px-5 py-3'"
       >
         <slot name="footer" :export-controls="exportControls" />
       </footer>
-    </Card>
+    </component>
   </section>
   <ExportPreview v-model="exportState.open.value" v-model:target="exportState.target.value" :snapshot="exportState.snapshot.value" :document-target="exportState.documentTarget.value" :configuration="exportState.configuration.value" :controls="exportControls" :output-formats="['xlsx']" @error="exportState.reportError" />
 </template>

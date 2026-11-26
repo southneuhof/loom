@@ -798,7 +798,7 @@ export type ResourceDefinitionGuard<TDefinition, TIdentityFunction extends Resou
   ResourceDefinitionDiagnostic<TDefinition, IdentityRecord<TIdentityFunction>> &
   ResourceExportDiagnostic<TDefinition>
 
-type ResourceListPagePropKeys = 'title' | 'description' | 'actionLabels' | 'filters' | 'filterControls' | 'export' | 'createRoute' | 'detailRoute' | 'updateRoute'
+type ResourceListPagePropKeys = 'title' | 'description' | 'actionLabels' | 'filters' | 'filterControls' | 'bodyVariant' | 'export' | 'createRoute' | 'detailRoute' | 'updateRoute'
 type ResourceListPageProps<TList> = Pick<TList, Extract<keyof TList, Exclude<ResourceListPagePropKeys, 'filters'>>>
 type ResourceListBindingExtra<TList> = TList extends { table: infer TTable }
   ? { query?: TableQuery<TTable>; searchParameters?: Record<string, unknown> }
