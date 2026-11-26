@@ -591,6 +591,28 @@ export function bindResource<
     }
   }
 
+  function canOperation(operation: ResourceOperation, record?: IdentityRecord<TIdentityFunction>): boolean {
+    const current = definition[operation]
+    if (!current) return false
+    const visible = 'visible' in current ? current.visible : undefined
+    const row = record !== undefined && isStandardRowOperation(operation)
+      ? snapshotRecordBinding(resourceKey, identity, record, operation).record
+      : undefined
+    return standardAllowed(useResourceRuntime().adapters.access, operation, current.permission, visible, row)
+  }
+
+  function bindDeleteAction() {
+    const deleteDeclaration = definition.delete
+    if (!deleteDeclaration) return undefined
+    return {
+      deleteRecord: async (record: IdentityRecord<TIdentityFunction>) => {
+        const binding = snapshotRecordBinding(resourceKey, identity, record, 'delete')
+        return runDelete(resourceKey, deleteDeclaration, binding)
+      },
+      recordIdentity: identity,
+    }
+  }
+
   if (definition.list) {
     const declaration = definition.list
     page.list = (options: { context?: object; query?: object; searchParameters?: Record<string, unknown> } = {}) => {
@@ -619,23 +641,9 @@ export function bindResource<
       if (detailRoute !== undefined) list.detailRoute = detailRoute
       const updateRoute = bindRowRoute('update', declaration.updateRoute, definition.update)
       if (updateRoute !== undefined) list.updateRoute = updateRoute
-      list.can = (operation: ResourceOperation, record?: IdentityRecord<TIdentityFunction>) => {
-        const current = definition[operation]
-        if (!current) return false
-        const visible = 'visible' in current ? current.visible : undefined
-        const row = record !== undefined && isStandardRowOperation(operation)
-          ? snapshotRecordBinding(resourceKey, identity, record, operation).record
-          : undefined
-        return standardAllowed(useResourceRuntime().adapters.access, operation, current.permission, visible, row)
-      }
-      const deleteDeclaration = definition.delete
-      if (deleteDeclaration) {
-        list.deleteRecord = async (record: IdentityRecord<TIdentityFunction>) => {
-          const binding = snapshotRecordBinding(resourceKey, identity, record, 'delete')
-          return runDelete(resourceKey, deleteDeclaration, binding)
-        }
-        list.recordIdentity = identity
-      }
+      list.can = canOperation
+      const deleteAction = bindDeleteAction()
+      if (deleteAction) Object.assign(list, deleteAction)
       return list
     }
   }
@@ -709,8 +717,13 @@ export function bindResource<
           assertAllowed(resourceKey, useResourceRuntime().adapters.access, 'detail', declaration.permission, declaration.visible, record)
         },
       }
+      const updateRoute = bindRowRoute('update', declaration.updateRoute, definition.update)
+      const deleteAction = bindDeleteAction()
       return {
-        ...withoutMembers(declaration, ['permission', 'route', 'visible', 'detail']),
+        ...withoutMembers(declaration, ['permission', 'route', 'visible', 'detail', 'can', 'deleteRecord', 'recordIdentity']),
+        ...(updateRoute !== undefined ? { updateRoute } : {}),
+        can: canOperation,
+        ...(deleteAction ?? {}),
         exportAccess: (record?: IdentityRecord<TIdentityFunction>) => standardAllowed(useResourceRuntime().adapters.access, 'detail', declaration.permission, declaration.visible, record ?? bound.record),
         export: (() => {
           const configuration = definition.exports?.detail

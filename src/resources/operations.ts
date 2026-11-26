@@ -14,7 +14,7 @@ import type {
   ResourceOperation,
   TableProps,
 } from '../contracts'
-import type { DetailViewProps, FormViewProps, LoadedFormSource, ListFilters, ListViewActions, ListViewProps } from '../contracts/views'
+import type { DetailViewActions, DetailViewProps, FormViewProps, LoadedFormSource, ListFilters, ListViewActions, ListViewProps } from '../contracts/views'
 import type { RawSchema, RawSchemaOutput } from '../contracts/schema'
 import type { RouteLocationRaw, RouteMap } from 'vue-router'
 import type { CompactFormDefinition, FormDefinitionError } from '../forms/definitionTypes'
@@ -264,12 +264,14 @@ export type ResourceDetailDeclaration<
   TIdentity extends RecordIdentity,
   TIdentityRecord extends object,
   TFactory extends (binding: ResourceBinding<TIdentity, TIdentityRecord>) => DetailBagShape = (binding: ResourceBinding<TIdentity, TIdentityRecord>) => DetailBagShape,
-> = Omit<DetailViewProps<TIdentityRecord>, 'detail' | 'backTo' | 'export' | 'exportAccess'> &
+> = Omit<DetailViewProps<TIdentityRecord>, 'detail' | 'backTo' | 'afterDeleteTo' | 'updateRoute' | 'can' | 'deleteRecord' | 'recordIdentity' | 'export' | 'exportAccess'> &
   ResourceVisibility<TIdentityRecord> & {
     permission: string | null
     route?: ResourceRoute<TIdentity>
     detail: TFactory
     backTo?: RouteLocationRaw | false
+    afterDeleteTo?: RouteLocationRaw | false
+    updateRoute?: ((record: TIdentityRecord) => RouteLocationRaw | undefined) | false
   }
 
 type ResourceUpdateViewProps<TFactory extends (binding: never) => UpdateFormBagShape> = ResourceFormViewProps<ResourceFormResult<ReturnType<TFactory>>>
@@ -796,7 +798,7 @@ export type ResourceDefinitionGuard<TDefinition, TIdentityFunction extends Resou
   ResourceDefinitionDiagnostic<TDefinition, IdentityRecord<TIdentityFunction>> &
   ResourceExportDiagnostic<TDefinition>
 
-type ResourceListPagePropKeys = 'title' | 'description' | 'filters' | 'export' | 'createRoute' | 'detailRoute' | 'updateRoute'
+type ResourceListPagePropKeys = 'title' | 'description' | 'actionLabels' | 'filters' | 'filterControls' | 'export' | 'createRoute' | 'detailRoute' | 'updateRoute'
 type ResourceListPageProps<TList> = Pick<TList, Extract<keyof TList, Exclude<ResourceListPagePropKeys, 'filters'>>>
 type ResourceListBindingExtra<TList> = TList extends { table: infer TTable }
   ? { query?: TableQuery<TTable>; searchParameters?: Record<string, unknown> }
@@ -844,7 +846,7 @@ type ResourceFormPageProps<TDeclaration, TResult> = ResourceFormPageStaticProps<
       ? ReplacePageCallback<TDeclaration[TKey], ResourceFormViewProps<TResult>['defaultTo']>
       : ResourceFormViewProps<TResult>['afterSubmit']
   }
-type ResourceDetailPagePropKeys = 'title' | 'backTo'
+type ResourceDetailPagePropKeys = 'title' | 'description' | 'actionLabels' | 'backTo' | 'afterDeleteTo' | 'updateRoute'
 type ResourceDetailPageProps<TDeclaration> = Pick<TDeclaration, Extract<keyof TDeclaration, ResourceDetailPagePropKeys>>
 
 export type ResourceListPage<
@@ -872,11 +874,26 @@ export type ResourceCreatePage<TForm extends object, TResult, TPageProps extends
   form: TForm
 }
 
-export type ResourceDetailPage<TRecord extends object, TDetail extends object, TPageProps extends object> = TPageProps &
-  Partial<Omit<DetailViewProps<TRecord>, 'detail' | 'backTo'>> & {
+export type ResourceDetailPage<
+  TRecord extends object,
+  TDetail extends object,
+  TPageProps extends object,
+  THasDelete extends boolean = false,
+> = TPageProps &
+  Partial<Omit<DetailViewProps<TRecord>, 'detail' | 'backTo' | 'afterDeleteTo' | 'can' | 'deleteRecord' | 'recordIdentity'>> & {
     detail: TDetail
     backTo?: RouteLocationRaw | false
-  }
+    afterDeleteTo?: RouteLocationRaw | false
+    can?: DetailViewActions<TRecord>['can']
+  } & (THasDelete extends true
+    ? {
+        deleteRecord: NonNullable<DetailViewActions<TRecord>['deleteRecord']>
+        recordIdentity: NonNullable<DetailViewActions<TRecord>['recordIdentity']>
+      }
+    : {
+        deleteRecord?: never
+        recordIdentity?: never
+      })
 
 export type ResourceUpdatePage<TForm extends object, TResult, TPageProps extends object> = TPageProps & Partial<ResourceFormViewProps<TResult>> & {
   form: TForm
@@ -927,7 +944,8 @@ export type ResourceBoundOperations<TDefinition, TIdentityFunction extends Resou
           detail: (binding: RecordBindingOptions<ResourceIdentityValue<TIdentityFunction>, IdentityRecord<TIdentityFunction>, DetailContext<TBag>, DetailBindingExtra>) => ResourceDetailPage<
             DetailRecord<TBag>,
             BoundDetailContract<TBag, ResourceIdentityValue<TIdentityFunction>>,
-            ResourceDetailPageProps<TDetail>
+            ResourceDetailPageProps<TDetail>,
+            TDefinition extends { delete: unknown } ? true : false
           >
         }
       : never

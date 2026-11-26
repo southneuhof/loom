@@ -22,7 +22,7 @@ import { recordCacheKey, instanceIdentity } from '../core/useCoreData'
 import Button from '../base/Button.vue'
 import Card from '../base/Card.vue'
 import Dialog from '../base/Dialog.vue'
-import NavigationHeader from './NavigationHeader.vue'
+import PageHeader from './PageHeader.vue'
 import { useFrameworkUiDefaults } from './uiDefaults'
 import { withCurrentQuery } from './routeQuery'
 
@@ -239,10 +239,10 @@ onBeforeUnmount(() => {
 
 <template>
   <section class="is-form-view flex flex-col gap-2">
-    <NavigationHeader :title="title" :description="description" :back-to="backTo === false ? undefined : backTo">
+    <PageHeader :title="title" :description="description" :back-to="backTo === false ? undefined : (backTo ?? 'history')">
       <template v-if="$slots.header" #header><slot name="header" /></template>
       <template v-if="$slots.controls" #controls><slot name="controls" /></template>
-    </NavigationHeader>
+    </PageHeader>
 
     <Card variant="outlined" color="surfaceContainer" class="p-0">
       <div class="p-5 sm:p-6">

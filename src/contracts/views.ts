@@ -99,6 +99,25 @@ export type ListViewSlotActions<TRecord extends object = Record<string, unknown>
   deleteState: (record: TRecord) => ListViewDeleteState
 }
 
+export interface ListFilterFieldOption {
+  readonly id: string
+  readonly label: string
+}
+
+export interface ListFilterField<TValue = unknown> {
+  readonly key: string
+  readonly label: string
+  readonly value: TValue | undefined
+  readonly setValue: (value: TValue | undefined) => void
+  readonly error: string | undefined
+  readonly touched: boolean
+  readonly props: Readonly<Record<string, unknown>>
+  readonly input: Readonly<Record<string, unknown>>
+  readonly options: readonly ListFilterFieldOption[]
+}
+
+export type ListViewFilterControls = 'auto' | 'slot'
+
 export type ListViewProps<
   TRecord extends object = Record<string, unknown>,
   TQuery extends object = Record<string, unknown>,
@@ -109,6 +128,7 @@ export type ListViewProps<
   description?: string
   actionLabels?: Partial<Record<'create' | 'view' | 'edit' | 'delete', string>>
   filters?: ListFilters<TQuery, TFilterInput, TContext>
+  filterControls?: ListViewFilterControls
   exportAccess?: (record?: TRecord) => boolean
   export?: ListExportConfiguration<TRecord, TQuery, TContext> | boolean
   table: TableProps<TRecord, TQuery, TContext>
@@ -124,6 +144,16 @@ export type ListViewProps<
       }
   )
 
+export interface DetailViewActions<TRecord extends object = Record<string, unknown>> {
+  updateRoute?: ((record: TRecord) => RouteTarget | undefined) | false
+  can?: (operation: ResourceOperation, record?: TRecord) => boolean
+  deleteRecord?: (record: TRecord) => Promise<unknown>
+  recordIdentity?: (record: TRecord) => RecordIdentity
+  afterDeleteTo?: RouteTarget | false
+}
+
+export type DetailViewDeleteState = ListViewDeleteState
+
 export type DetailViewReadyProps<TRecord extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>> = {
   record: TRecord
   exportControls?: ExportControls
@@ -136,6 +166,10 @@ export type DetailViewControls<TRecord extends object = Record<string, unknown>>
   error?: SubmitError
   refresh: () => Promise<void>
   exportControls?: ExportControls
+  updateTarget?: RouteTarget
+  can?: DetailViewActions<TRecord>['can']
+  deleteRecord?: (record: TRecord) => Promise<unknown>
+  deleteState?: DetailViewDeleteState
 }
 
 export type DetailViewProps<TRecord extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>> = {
@@ -143,5 +177,7 @@ export type DetailViewProps<TRecord extends object = Record<string, unknown>, TC
   exportAccess?: (record?: TRecord) => boolean
   export?: DetailExportConfiguration<TRecord, TContext> | boolean
   title?: string
+  description?: string
+  actionLabels?: Partial<Record<'edit' | 'delete', string>>
   backTo?: RouteTarget | false
-}
+} & DetailViewActions<TRecord>

@@ -127,7 +127,7 @@ export type DialogFormSlots<TInput extends object, TKeys extends string = Extrac
   footer?: (props: { readonly requestClose: (reason: DialogFormCloseReason) => Promise<boolean> }) => unknown
 }
 
-const formInputMembers = new Set(['label', 'renderer', 'props', 'span', 'visible', 'initialValue', 'behavior', 'binding'])
+const formInputMembers = new Set(['label', 'renderer', 'props', 'span', 'visible', 'required', 'initialValue', 'behavior', 'binding'])
 const unsafeKeys = new Set(['__proto__', 'prototype', 'constructor'])
 
 interface FormInputRuntime {
@@ -173,6 +173,7 @@ export function assertFormInput(key: string, value: unknown): asserts value is F
     invalidOption(key, 'span', 'a positive integer')
   }
   if ('visible' in value && typeof value.visible !== 'boolean') invalidOption(key, 'visible', 'a boolean')
+  if ('required' in value && typeof value.required !== 'boolean') invalidOption(key, 'required', 'a boolean')
   if ('behavior' in value) assertFormBehavior(value.behavior, key)
 
   if (!isFormRenderer(value.renderer)) throw new Error(`[loom][INPUT_RENDERER_REQUIRED] Form field "${key}" needs an explicit renderer.`)

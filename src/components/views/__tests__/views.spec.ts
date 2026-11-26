@@ -7,6 +7,7 @@ import type { ListViewSlotActions } from '../../../contracts/views'
 import { FrameworkPlugin } from '../../../adapters/plugin'
 import ListView from '../ListView.vue'
 import DetailView from '../DetailView.vue'
+import PageHeader from '../PageHeader.vue'
 import FormView from '../FormView.vue'
 import Detail from '../../core/Detail.vue'
 import Form from '../../core/Form.vue'
@@ -675,6 +676,80 @@ describe('ListView', () => {
       resetResourceRuntimeForTests()
     }
   })
+
+  it('omits the filter popover when filterControls is slot and derives field bindings in #filters', async () => {
+    const query = ref<QueryValues>({ page: 1, limit: 10 })
+    const updates: QueryValues[] = []
+    const view = mountCore(ListView, {
+      title: 'Work Orders',
+      filterControls: 'slot',
+      table: {
+        schema: z.object({ name: z.string() }),
+        columns: { name: { label: 'Name' } },
+        query: query.value,
+        data: [{ name: 'WO-1' }],
+      },
+      filters: {
+        schema: z.object({ status: z.string().optional() }),
+        fields: {
+          status: {
+            label: 'Status',
+            renderer: 'select',
+            props: {
+              data: [
+                { id: 'open', name: 'Open' },
+                { id: 'closed', name: 'Closed' },
+              ],
+            },
+          },
+        },
+        queryKeys: ['status'],
+        toDraft: (current) => ({ status: typeof current.status === 'string' ? current.status : undefined }),
+      },
+      'onUpdate:query': (next: QueryValues) => {
+        updates.push(next)
+        query.value = { ...next }
+      },
+    }, {
+      slots: {
+        filters: ({ field }: { field: (key: 'status') => { label: string; value: unknown; options: readonly { id: string; label: string }[]; setValue: (v: string | undefined) => void } }) => {
+          const status = field('status')
+          return h('div', { 'data-quick-filters': '' }, [
+            h('span', { 'data-filter-label': '' }, status.label),
+            ...status.options.map((option) =>
+              h('button', { type: 'button', 'data-chip': option.id, onClick: () => status.setValue(option.id) }, option.label),
+            ),
+          ])
+        },
+      },
+    })
+    await flush()
+
+    expect(view.find('[aria-label="Filter"]')).toBeNull()
+    expect(view.find('[data-filter-label]')?.textContent).toBe('Status')
+    expect(view.all('[data-chip]').map((node) => node.textContent)).toEqual(['Open', 'Closed'])
+
+    view.find<HTMLButtonElement>('[data-chip="closed"]')!.click()
+    await flush()
+
+    expect(updates.at(-1)).toMatchObject({ status: 'closed', page: 1 })
+    view.unmount()
+  })
+})
+
+describe('PageHeader', () => {
+  it('omits Back button unless backTo is provided', async () => {
+    const topLevel = mountCore(PageHeader, { title: 'Dispatch Board', description: 'Live work queue.' })
+    await flush()
+    expect(topLevel.find('[aria-label="Back"]')).toBeNull()
+    expect(topLevel.find('h1')?.textContent).toBe('Dispatch Board')
+    topLevel.unmount()
+
+    const linked = mountCore(PageHeader, { title: 'Work Order', backTo: { name: 'test-route' } })
+    await flush()
+    expect(linked.find<HTMLAnchorElement>('a[aria-label="Back"]')).not.toBeNull()
+    linked.unmount()
+  })
 })
 
 describe('DetailView', () => {
@@ -820,6 +895,48 @@ describe('DetailView', () => {
     expect(view.find('[data-detail-sibling]')?.textContent).toBe('Sibling Loaded role')
     expect(view.all('table')).toHaveLength(1)
     expect(readyDetail).not.toHaveProperty('load')
+    view.unmount()
+  })
+
+  it('renders built-in Edit and Delete controls, enforces can, and navigates after delete', async () => {
+    const deleteRecord = vi.fn(async () => undefined)
+    const view = mountCore(DetailView, {
+      title: 'Role',
+      backTo: { name: 'test-route' },
+      detail: {
+        schema: z.object({ id: z.string(), name: z.string() }),
+        fields: { name: { label: 'Name' } },
+        data: { id: 'r1', name: 'Admin' },
+      },
+      updateRoute: (record: { id: string }) => ({ name: 'test-route', query: { edit: record.id } }),
+      deleteRecord,
+      recordIdentity: (record: { id: string }) => record.id,
+      can: (operation: string) => operation === 'update' || operation === 'delete',
+    })
+    await flush()
+
+    const editLink = view.all<HTMLAnchorElement>('header a').find((node) => node.textContent?.includes('Edit'))
+    expect(editLink?.getAttribute('href')).toContain('edit=r1')
+
+    const deleteTrigger = view.all<HTMLButtonElement>('header button').find((node) => node.textContent?.includes('Delete'))
+    expect(deleteTrigger).not.toBeUndefined()
+    deleteTrigger!.click()
+    await flush()
+
+    const confirmButton = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find((node) => node.textContent?.trim() === 'Delete')
+    expect(confirmButton).not.toBeUndefined()
+    confirmButton!.click()
+    await flush()
+
+    expect(deleteRecord).toHaveBeenCalledWith({ id: 'r1', name: 'Admin' })
+    expect(view.router.currentRoute.value.name).toBe('test-route')
+    view.unmount()
+  })
+
+  it('omits Back button when backTo is false', async () => {
+    const view = mountCore(DetailView, { title: 'Role', backTo: false, detail: detailProps })
+    await flush()
+    expect(view.find('[aria-label="Back"]')).toBeNull()
     view.unmount()
   })
 })

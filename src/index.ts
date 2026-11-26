@@ -1,3 +1,4 @@
+import { defineAsyncComponent } from 'vue'
 export type * from './contracts'
 export * from './assets'
 export * from './query'
@@ -25,7 +26,7 @@ export { default as NumberInput } from './components/inputs/NumberInput.vue'
 export { default as PasswordInput } from './components/inputs/PasswordInput.vue'
 export { default as Radio } from './components/inputs/Radio.vue'
 export { default as RadioGroupInput } from './components/inputs/RadioGroupInput.vue'
-export { default as RichTextInput } from './components/inputs/RichTextInput.vue'
+export const RichTextInput = defineAsyncComponent(() => import('./components/inputs/RichTextInput.vue'))
 export { default as SearchBox } from './components/inputs/SearchBox.vue'
 export { default as SelectInput } from './components/inputs/SelectInput.vue'
 export { default as Switch } from './components/inputs/Switch.vue'

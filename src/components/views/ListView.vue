@@ -21,7 +21,7 @@ import type {
   TableProps,
 } from "../../contracts";
 import type { FormDraftSnapshot } from "../../contracts/forms";
-import type { ListViewActions, ListViewDeleteState, ListViewProps, ListViewSlotActions, RouteTarget } from "../../contracts/views";
+import type { ListFilterField, ListFilterFieldOption, ListViewActions, ListViewDeleteState, ListViewProps, ListViewSlotActions, RouteTarget } from "../../contracts/views";
 import { useRouter, type RouteLocationRaw } from "vue-router";
 import { useFrameworkAdapters } from "../../adapters/projectAdapters";
 import { resolveDisplayFields } from "../../display/resolveDisplay";
@@ -50,6 +50,7 @@ import type { ExportControls } from '../../exports/contracts';
 import ExportPreview from '../../exports/ExportPreview.vue';
 import { useTablePreferences } from "../core/useTablePreferences";
 import { isConfirmedWriteRefreshError, normalizeWriteError } from "../../resources/postWriteOutcome";
+import PageHeader from "./PageHeader.vue";
 import { withCurrentQuery } from "./routeQuery";
 
 const props = defineProps<ListViewProps<TRecord, TQuery, TFilterInput, TContext>>();
@@ -101,6 +102,7 @@ type FilterSlotProps = {
   errorFor: (key: Extract<keyof TFilterInput, string>) => string | undefined;
   touched: (key: Extract<keyof TFilterInput, string>) => boolean;
   touch: (key: Extract<keyof TFilterInput, string>) => void;
+  field: <K extends Extract<keyof TFilterInput, string>>(key: K) => ListFilterField<TFilterInput[K]>;
 };
 type ListViewContextSlotProps = FilterSlotProps & Pick<CollectionSlotProps<TRecord, TQuery>, "context" | "loading" | "error"> & { query: QueryValues };
 type DeleteBinding = {
@@ -178,6 +180,59 @@ const filterSession = props.filters ? useFormSession(new Proxy(filterConfigurati
   updateModel: (next) => { callWithAsyncErrorHandling(updateFilters, instance, ErrorCodes.COMPONENT_EVENT_HANDLER, [next]); },
   submitted: () => {}, error: () => {}, reset: () => {},
 }, { modelValuePresent: true }) : undefined;
+function normalizeFilterOptions(data: unknown): readonly ListFilterFieldOption[] {
+  if (!Array.isArray(data)) return [];
+  const items: ListFilterFieldOption[] = [];
+  for (const item of data) {
+    if (typeof item === "string" || typeof item === "number") {
+      const value = String(item);
+      items.push({ id: value, label: value });
+      continue;
+    }
+    if (typeof item !== "object" || item === null) continue;
+    const rawId = Reflect.get(item, "id") ?? Reflect.get(item, "value");
+    if (rawId === undefined || rawId === null) continue;
+    const rawLabel = Reflect.get(item, "label") ?? Reflect.get(item, "name") ?? Reflect.get(item, "title") ?? rawId;
+    items.push({ id: String(rawId), label: String(rawLabel) });
+  }
+  return items;
+}
+
+function filterField<K extends Extract<keyof TFilterInput, string>>(key: K): ListFilterField<TFilterInput[K]> {
+  const runtimeField = filterSession?.fieldFor(key);
+  const label = runtimeField?.label ?? key;
+  const fieldProps = runtimeField?.props ?? {};
+  const value = (filterSession ? filterSession.controlValue(key) : Reflect.get(filterDraftState.value, key)) as TFilterInput[K] | undefined;
+  const setValue = (next: TFilterInput[K] | undefined) => {
+    filterSession?.setValue(key, next);
+  };
+  const error = filterSession?.issueFor(key);
+  const touched = filterSession?.touchedField(key) ?? false;
+  const options = normalizeFilterOptions(Reflect.get(fieldProps, "data"));
+  const input: Readonly<Record<string, unknown>> = {
+    ...fieldProps,
+    label,
+    modelValue: value,
+    "onUpdate:modelValue": setValue,
+    error,
+  };
+  return {
+    key,
+    label,
+    value,
+    setValue,
+    error,
+    touched,
+    props: fieldProps,
+    input,
+    options,
+  };
+}
+
+const hasFilterFields = computed(() => Boolean(props.filters && Object.keys(props.filters.fields).length > 0));
+const showFilterPopover = computed(() => Boolean(props.filters && filterQueryReady.value && props.filterControls !== "slot" && hasFilterFields.value));
+const hasCreateAction = computed(() => Boolean(surface.value.createRoute && (surface.value.can?.("create") ?? true)));
+
 const filterSlotProps = computed<FilterSlotProps>(() => ({
   draft: filterSession?.draft.value ?? filterDraftState.value,
   issues: filterSession?.issues.value ?? [],
@@ -189,6 +244,7 @@ const filterSlotProps = computed<FilterSlotProps>(() => ({
   errorFor: (key) => filterSession?.issueFor(key),
   touched: (key) => filterSession?.touchedField(key) ?? false,
   touch: (key) => filterSession?.touch(key),
+  field: filterField,
 }));
 let filterValidation = 0;
 let pendingFilterQuery: QueryValues | undefined;
@@ -674,127 +730,113 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
         <slot name="row-actions" v-bind="{ record }" />
       </div>
     </DefineRowActions>
-    <Card variant="outlined" color="surfaceContainer" class="gap-0 p-0">
-      <header class="flex flex-col gap-4 px-5 py-4 sm:px-6 sm:py-5">
-        <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div class="flex flex-col gap-4 sm:flex-row sm:items-center">
-            <slot name="header" :export-controls="exportControls">
-              <div class="min-w-0">
-                <h1 v-if="title" class="text-lg font-semibold tracking-tight text-on-surface">
-                  {{ title }}
-                </h1>
-                <p v-if="description" class="mt-1 text-sm text-on-surface-variant">
-                  {{ description }}
-                </p>
-              </div>
-            </slot>
-            <div class="flex flex-wrap items-center gap-2">
-              <SearchBox
-                :model-value="String(currentQuery.search ?? '')"
-                @update:model-value="
-                  (search: string) =>
-                    applyQuery({ search: search || undefined, page: 1 })
-                "
-              />
-              <Popover v-if="filters && filterQueryReady">
-                <template #trigger>
-                  <Button kind="icon" variant="standard" ariaLabel="Filter">
-                    <template #icon><Icon name="filter" /></template>
-                  </Button>
-                </template>
-                <template #content>
-                  <FormRendering
-                    v-if="filterSession"
-                    :configuration="filterConfiguration"
-                    :session="filterSession"
-                  />
-                  <Button
-                    type="button"
-                    variant="text"
-                    @click="resetFilters"
-                    >{{ filters.resetLabel ?? "Reset filter" }}</Button
-                  >
-                </template>
-              </Popover>
-              <Dialog>
-                <template #trigger>
-                  <Button kind="icon" variant="standard" ariaLabel="Columns">
-                    <template #icon><Icon name="table" /></template>
-                  </Button>
-                </template>
-                <template #title>Columns</template>
-                <template #content>
-                  <slot
-                    name="column-dialog"
-                    :columns="columnFields"
-                    :reset="resetColumns"
-                  >
-                    <label
-                      v-for="column in columnFields"
-                      :key="column.key"
-                      class="flex items-center justify-between gap-4"
-                    >
-                      <span>{{ column.label ?? column.key }}</span>
-                      <Switch
-                        :model-value="
-                          columnPreferences.visibleKeys.value.includes(column.key)
-                        "
-                        @update:model-value="
-                          (visible) =>
-                            setVisibleColumns(
-                              visible
-                                ? [
-                                    ...columnPreferences.visibleKeys.value,
-                                    column.key,
-                                  ]
-                                : columnPreferences.visibleKeys.value.filter(
-                                    (key) => key !== column.key,
-                                  ),
-                            )
-                        "
-                      />
-                    </label>
-                    <Button type="button" variant="text" @click="resetColumns"
-                      >Reset columns</Button
-                    >
-                  </slot>
-                </template>
-              </Dialog>
-              <slot v-if="exportControls.available" name="export-action" :export-controls="exportControls">
-                <Menu :items="exportMenuItems" :disabled="exportControls.disabled">
-                  <template #trigger>
-                    <Button type="button" kind="icon" variant="standard" ariaLabel="Ekspor" :disabled="exportControls.disabled">
-                      <template #icon><Icon name="download" size="base" /></template>
-                    </Button>
-                  </template>
-                </Menu>
-              </slot>
-              <slot v-if="filterQueryReady" name="toolbar" :export-controls="exportControls" v-bind="filterSlotProps" />
-              <p v-if="exportControls.error" role="alert">{{ exportControls.error.message }}</p>
-            </div>
-          </div>
-          <div v-if="surface.createRoute || $slots['resource-action']" class="flex flex-row justify-end gap-2">
-            <template v-if="surface.createRoute && (surface.can?.('create') ?? true)">
-              <slot name="create-action" v-bind="{ can: surface.can, target: surface.createRoute }">
-                <RouterLink :to="surface.createRoute as RouteLocationRaw">
-                  <Button>
-                    <template #icon><Icon name="add" /></template>{{ props.actionLabels?.create ?? 'Create' }}
-                  </Button>
-                </RouterLink>
-              </slot>
-            </template>
-            <slot v-if="$slots['resource-action']" name="resource-action" :export-controls="exportControls" />
-          </div>
-        </div>
-      </header>
+    <PageHeader :title="title" :description="description">
+      <template v-if="$slots.header" #header>
+        <slot name="header" :export-controls="exportControls" />
+      </template>
 
-      <div
-        v-if="$slots.filters && filterQueryReady"
-        class="border-t border-outline-variant px-5 py-3 sm:px-6"
-      >
+      <template #toolbar>
+        <SearchBox
+          :model-value="String(currentQuery.search ?? '')"
+          @update:model-value="
+            (search: string) =>
+              applyQuery({ search: search || undefined, page: 1 })
+          "
+        />
+        <Popover v-if="showFilterPopover">
+          <template #trigger>
+            <Button kind="icon" variant="standard" ariaLabel="Filter">
+              <template #icon><Icon name="filter" /></template>
+            </Button>
+          </template>
+          <template #content>
+            <FormRendering
+              v-if="filterSession"
+              :configuration="filterConfiguration"
+              :session="filterSession"
+            />
+            <Button
+              type="button"
+              variant="text"
+              @click="resetFilters"
+              >{{ filters?.resetLabel ?? "Reset filter" }}</Button
+            >
+          </template>
+        </Popover>
+        <Dialog>
+          <template #trigger>
+            <Button kind="icon" variant="standard" ariaLabel="Columns">
+              <template #icon><Icon name="table" /></template>
+            </Button>
+          </template>
+          <template #title>Columns</template>
+          <template #content>
+            <slot
+              name="column-dialog"
+              :columns="columnFields"
+              :reset="resetColumns"
+            >
+              <label
+                v-for="column in columnFields"
+                :key="column.key"
+                class="flex items-center justify-between gap-4"
+              >
+                <span>{{ column.label ?? column.key }}</span>
+                <Switch
+                  :model-value="
+                    columnPreferences.visibleKeys.value.includes(column.key)
+                  "
+                  @update:model-value="
+                    (visible) =>
+                      setVisibleColumns(
+                        visible
+                          ? [
+                              ...columnPreferences.visibleKeys.value,
+                              column.key,
+                            ]
+                          : columnPreferences.visibleKeys.value.filter(
+                              (key) => key !== column.key,
+                            ),
+                      )
+                  "
+                />
+              </label>
+              <Button type="button" variant="text" @click="resetColumns"
+                >Reset columns</Button
+              >
+            </slot>
+          </template>
+        </Dialog>
+        <slot v-if="exportControls.available" name="export-action" :export-controls="exportControls">
+          <Menu :items="exportMenuItems" :disabled="exportControls.disabled">
+            <template #trigger>
+              <Button type="button" kind="icon" variant="standard" ariaLabel="Ekspor" :disabled="exportControls.disabled">
+                <template #icon><Icon name="download" size="base" /></template>
+              </Button>
+            </template>
+          </Menu>
+        </slot>
+        <slot v-if="filterQueryReady" name="toolbar" :export-controls="exportControls" v-bind="filterSlotProps" />
+        <p v-if="exportControls.error" role="alert">{{ exportControls.error.message }}</p>
+      </template>
+
+      <template v-if="hasCreateAction || $slots['resource-action']" #controls>
+        <template v-if="hasCreateAction">
+          <slot name="create-action" v-bind="{ can: surface.can, target: surface.createRoute! }">
+            <RouterLink :to="surface.createRoute as RouteLocationRaw">
+              <Button>
+                <template #icon><Icon name="add" /></template>{{ props.actionLabels?.create ?? 'Create' }}
+              </Button>
+            </RouterLink>
+          </slot>
+        </template>
+        <slot v-if="$slots['resource-action']" name="resource-action" :export-controls="exportControls" />
+      </template>
+
+      <template v-if="$slots.filters && filterQueryReady" #subbar>
         <slot name="filters" v-bind="filterSlotProps" />
-      </div>
-    </Card>
+      </template>
+    </PageHeader>
 
     <slot v-if="filterQueryReady" name="context" v-bind="contextSlotProps" />
 

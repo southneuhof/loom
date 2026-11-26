@@ -1,15 +1,7 @@
-/**
- * App-level chrome defaults for view shells.
- *
- * Provided by `FrameworkPlugin` and consumed by raw chrome components such as
- * `NavigationHeader`, so pages stop repeating app-wide labels.
- */
 import { inject, type InjectionKey } from 'vue'
 
 export interface FrameworkUiDefaultsInput {
-  /** Default accessible label for the header back control. */
   backLabel?: string
-  /** Default label for form submit actions. */
   submitLabel?: string
 }
 
