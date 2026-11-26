@@ -268,7 +268,7 @@ describe('FileInput browser behavior', () => {
 
     expect(model.value.files).toEqual([asset('first.pdf')])
     expect(host.textContent).toContain('first.pdf')
-    expect(host.textContent).toContain('Letakkan file anda di sini')
+    expect(host.textContent).toContain('Drop files here')
     expect(host.querySelector('input[type="file"]')).toBe(input)
     expect(input.disabled).toBe(false)
 
@@ -279,7 +279,7 @@ describe('FileInput browser behavior', () => {
     expect(model.value.files).toEqual([asset('first.pdf'), asset('second.pdf')])
     expect(host.textContent).toContain('first.pdf')
     expect(host.textContent).toContain('second.pdf')
-    expect(host.textContent).toContain('Letakkan file anda di sini')
+    expect(host.textContent).toContain('Drop files here')
   })
 
   it('blocks button and Enter submission during a deferred upload, then submits once', async () => {

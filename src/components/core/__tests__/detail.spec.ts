@@ -95,10 +95,10 @@ describe('Detail core', () => {
   it('renders loading, missing, and error states', async () => {
     const pending = deferred<typeof record | undefined>()
     const loading = mountCore(Detail, { fields, load: () => pending.promise })
-    expect(loading.text()).toContain('Memuat')
+    expect(loading.text()).toContain('Loading')
     pending.resolve(undefined)
     await flush()
-    expect(loading.text()).toContain('tidak ditemukan')
+    expect(loading.text()).toContain('Record not found.')
     loading.unmount()
 
     const failing = mountCore(Detail, {

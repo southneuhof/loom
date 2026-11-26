@@ -20,7 +20,7 @@ describe('TableInput surface', () => {
 
     expect(view.text()).toContain('First')
     expect(view.text()).toContain('Second')
-    expect(view.text()).toContain('Tambah')
+    expect(view.text()).toContain('Add')
     expect(view.all('[aria-label="Edit row"]')).toHaveLength(2)
     expect(view.all('[aria-label="Delete row"]')).toHaveLength(2)
     expect(view.all('[aria-label="Row actions"]')).toHaveLength(2)
@@ -32,7 +32,7 @@ describe('TableInput surface', () => {
 
   it('uses the row form input factory for a new row', async () => {
     const view = mountCore(TableInput, { table, form, toDraft, modelValue: [] })
-    const createButton = view.all('button').find((button) => button.textContent?.includes('Tambah'))
+    const createButton = view.all('button').find((button) => button.textContent?.includes('Add'))
 
     createButton?.click()
     await flush()
@@ -81,7 +81,7 @@ describe('TableInput surface', () => {
       rowKey: 'id',
     })
 
-    expect(view.text()).not.toContain('Tambah')
+    expect(view.text()).not.toContain('Add')
     expect(view.find('[aria-label="Edit row"]')).toBeNull()
     expect(view.find('[aria-label="Delete row"]')).toBeNull()
     view.unmount()
@@ -118,7 +118,7 @@ describe('TableInput surface', () => {
     const view = mountCore(TableInput, { table, modelValue: [first] })
 
     expect(view.text()).toContain('First')
-    expect(view.text()).not.toContain('Tambah')
+    expect(view.text()).not.toContain('Add')
     expect(view.find('[aria-label="Edit row"]')).toBeNull()
     expect(view.find('[aria-label="Delete row"]')).toBeNull()
     view.unmount()

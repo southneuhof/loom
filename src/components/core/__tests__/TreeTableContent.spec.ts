@@ -110,7 +110,7 @@ describe('TreeTableContent', () => {
     })
     await flush()
 
-    const control = view.find<HTMLButtonElement>('button[aria-label="Luaskan Root"]')!
+    const control = view.find<HTMLButtonElement>('button[aria-label="Expand Root"]')!
     expect(control.closest('.is-tree-table-cell')?.querySelector('.custom-label')?.textContent).toBe('Name: Root')
     expect(control.getAttribute('aria-expanded')).toBe('false')
     view.unmount()

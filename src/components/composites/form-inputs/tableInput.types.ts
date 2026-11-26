@@ -62,7 +62,8 @@ type TableInputReordering<TRow extends object> =
       rowKey?: TableProps<TRow>['rowKey']
     }
 
-export interface InlineArrayField {
+export interface InlineArrayInputField {
+  kind?: 'input'
   renderer: FormRenderer
   label: string
   props?: Readonly<Record<string, unknown>>
@@ -71,7 +72,23 @@ export interface InlineArrayField {
   span?: number
 }
 
-export type InlineArrayFields<TRow extends object> = Partial<Record<Extract<keyof TRow, string>, InlineArrayField>>
+export interface InlineArrayDisplayField<TRow extends object = Record<string, unknown>> {
+  kind: 'display'
+  label: string
+  read?: (row: TRow, index: number) => unknown
+  format?: (value: unknown, row: TRow, index: number) => string
+  align?: 'start' | 'center' | 'end'
+  visible?: boolean
+  span?: number
+}
+
+export type InlineArrayField<TRow extends object = Record<string, unknown>> =
+  | InlineArrayInputField
+  | InlineArrayDisplayField<TRow>
+
+export type InlineArrayFields<TRow extends object> =
+  Partial<Record<Extract<keyof TRow, string>, InlineArrayField<TRow>>> &
+  Record<string, InlineArrayField<TRow> | undefined>
 
 type TableInputInline<TRow extends object, TContext extends object> = Omit<TableInputBase<TRow, TRow, TContext>, 'mode' | 'fields' | 'createRow' | 'table' | 'addLabel'> & {
   reorderable?: boolean

@@ -151,7 +151,11 @@ type FormInputEntryMemberGuard<TInput extends object, TKey extends keyof TInput,
     : never
 
 type InlineFieldsGuard<TRow extends object, TFields, TContext extends object> = {
-  [TKey in keyof TFields]: TKey extends keyof TRow ? FormInputEntryMemberGuard<TRow, TKey, Omit<TFields[TKey], 'required'>, TContext> : never
+  [TKey in keyof TFields]: TFields[TKey] extends { kind: 'display' }
+    ? unknown
+    : TKey extends keyof TRow
+      ? FormInputEntryMemberGuard<TRow, TKey, Omit<TFields[TKey], 'required' | 'kind'>, TContext>
+      : never
 }
 
 type InlineArrayGuard<TEntry, TContext extends object> = TEntry extends { props: { mode: 'inline'; createRow: () => infer TRow extends object; fields: infer TFields } }

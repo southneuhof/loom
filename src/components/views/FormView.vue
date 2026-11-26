@@ -97,8 +97,8 @@ const emit = defineEmits<{
 }>()
 const slots = useSlots()
 const router = useRouter()
-const { submitLabel: defaultSubmitLabel } = useFrameworkUiDefaults()
-const submitLabel = computed(() => form.value?.submitLabel ?? defaultSubmitLabel)
+const uiDefaults = useFrameworkUiDefaults()
+const submitLabel = computed(() => form.value?.submitLabel ?? uiDefaults.submitLabel)
 const submittingLabel = computed(() => form.value?.submittingLabel ?? submitLabel.value)
 const hasSubmit = computed(() => typeof form.value?.submit === 'function')
 const instance = shallowRef<FormExposed<TInput, TOutput, TResult, TContext> | null>(null)
@@ -253,12 +253,12 @@ onBeforeUnmount(() => {
           </div>
         </slot>
         <template v-else-if="!form">
-          <slot v-if="reader.loading.value" name="loading"><p role="status">Memuat…</p></slot>
+          <slot v-if="reader.loading.value" name="loading"><p role="status">{{ uiDefaults.loadingLabel }}</p></slot>
           <slot v-else-if="loadError" name="load-error" :error="loadError" :refresh="refresh">
             <p role="alert">{{ loadError.message }}</p>
-            <Button type="button" variant="text" @click="refresh()">Coba lagi</Button>
+            <Button type="button" variant="text" @click="refresh()">{{ uiDefaults.retryLabel }}</Button>
           </slot>
-          <p v-else>Data tidak ditemukan.</p>
+          <p v-else>{{ uiDefaults.notFoundLabel }}</p>
         </template>
         <slot v-else name="body" v-bind="{ form }">
           <Form ref="instance" v-bind="form" @submitted="submitted" @error="emit('error', $event)">

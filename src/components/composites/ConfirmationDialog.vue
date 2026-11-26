@@ -2,6 +2,7 @@
 import { computed, getCurrentInstance, ref, type PropType } from 'vue'
 import Dialog from '../base/Dialog.vue'
 import Button from '@southneuhof/loom/components/base/Button.vue'
+import { useFrameworkUiDefaults } from '../views/uiDefaults'
 
 type ButtonKind = 'button' | 'icon' | 'split'
 type ButtonVariant = 'elevated' | 'filled' | 'tonal' | 'outlined' | 'text' | 'standard'
@@ -27,11 +28,11 @@ export type ConfirmationDialogActions = {
 const props = defineProps({
   title: {
     type: String,
-    default: 'Apakah anda yakin ingin melakukan aksi ini?',
+    default: undefined,
   },
   message: {
     type: String,
-    default: 'Tekan lanjut untuk melanjutkan aksi',
+    default: undefined,
   },
   actions: {
     type: Array as PropType<ConfirmationDialogActions[]>,
@@ -64,6 +65,9 @@ const props = defineProps({
 
 const isPending = ref(false)
 const instance = getCurrentInstance()
+const uiDefaults = useFrameworkUiDefaults()
+const resolvedTitle = computed(() => props.title ?? uiDefaults.confirmTitle)
+const resolvedMessage = computed(() => props.message ?? uiDefaults.confirmMessage)
 
 const resolvedActions = computed<ConfirmationDialogActions[]>(() => {
   const isActionsPropDeclared = !!instance?.vnode.props && 'actions' in instance.vnode.props
@@ -131,13 +135,13 @@ async function handleAction(action: ConfirmationDialogActions, setOpen: (open: b
       <slot name="trigger" v-bind="triggerProps"></slot>
     </template>
     <template #title>
-      <slot name="title">{{ title }}</slot>
+      <slot name="title">{{ resolvedTitle }}</slot>
     </template>
     <template #icon v-if="$slots['icon']">
       <slot name="icon"></slot>
     </template>
     <template #description>
-      <slot name="description">{{ message }}</slot>
+      <slot name="description">{{ resolvedMessage }}</slot>
     </template>
     <template #footer="{ setOpen }">
       <div class="flex w-full flex-row items-center justify-end gap-4">

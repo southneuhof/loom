@@ -86,7 +86,7 @@ describe('TreeTable ownership and presentation', () => {
     expect((actionScopes[0]!.tree as { key: string }).key).toBe('root-a')
     expect(view.text()).toContain('status:open')
 
-    const rootDisclosure = view.find<HTMLButtonElement>('button[aria-label="Luaskan Root A"]')!
+    const rootDisclosure = view.find<HTMLButtonElement>('button[aria-label="Expand Root A"]')!
     rootDisclosure.click()
     await flush()
     expect(rowClick).not.toHaveBeenCalled()
@@ -98,7 +98,7 @@ describe('TreeTable ownership and presentation', () => {
       hasChildren: true,
       expanded: false,
     })
-    view.find<HTMLButtonElement>('button[aria-label="Luaskan Child A"]')!.click()
+    view.find<HTMLButtonElement>('button[aria-label="Expand Child A"]')!.click()
     await flush()
     expect(visibleNames(view)).toEqual(['custom:Root A', 'custom:Child A', 'custom:Grandchild', 'custom:Child B', 'custom:Root B'])
     expect(cellScopes.find((scope) => (scope.record as TreeRecord).id === 'grandchild')?.record).toBe(tree.grandchild)
@@ -126,7 +126,7 @@ describe('TreeTable ownership and presentation', () => {
     await flush()
     expect(view.all('tbody tr')).toHaveLength(4)
 
-    view.find<HTMLButtonElement>('button[aria-label="Ciutkan Root A"]')!.click()
+    view.find<HTMLButtonElement>('button[aria-label="Collapse Root A"]')!.click()
     await flush()
     expect(updates).toEqual([[]])
     expect(updates[0]).not.toBe(supplied)

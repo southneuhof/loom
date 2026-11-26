@@ -4,6 +4,7 @@ import BaseInput from './BaseInput.vue'
 import DatepickerControlInput from './DatepickerControlInput.vue'
 import DatepickerInputIcon from './DatepickerInputIcon.vue'
 import { useFrameworkUi } from '../../adapters/projectAdapters'
+import { useFrameworkUiDefaults } from '../views/uiDefaults'
 import { commonProps } from './commonprops'
 import { ref, watch, type PropType } from 'vue'
 import { isValid, lightFormat, parse } from 'date-fns'
@@ -13,7 +14,7 @@ const props = defineProps({
   placeholder: String,
   locale: {
     type: String,
-    default: 'id-ID',
+    default: undefined,
   },
   inline: {
     type: Boolean,
@@ -79,9 +80,11 @@ watch(
   { immediate: props.defaultToCurrent }
 )
 
+const uiDefaults = useFrameworkUiDefaults()
+
 function displayFormatter(date: Date) {
   if (!(date instanceof Date) || !isValid(date)) return ''
-  return date.toLocaleDateString(props.locale, {
+  return date.toLocaleDateString(props.locale ?? uiDefaults.locale, {
     weekday: 'long',
     year: 'numeric',
     month: 'long',

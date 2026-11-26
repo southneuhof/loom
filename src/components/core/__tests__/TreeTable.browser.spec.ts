@@ -65,14 +65,14 @@ describe('TreeTable browser interactions', () => {
     await frame()
 
     expect(host.querySelectorAll('tbody tr')).toHaveLength(1)
-    const rootButton = host.querySelector<HTMLButtonElement>('button[aria-label="Luaskan Root"]')!
+    const rootButton = host.querySelector<HTMLButtonElement>('button[aria-label="Expand Root"]')!
     rootButton.focus()
     await userEvent.keyboard('{Enter}')
     await frame()
     expect(host.querySelectorAll('tbody tr')).toHaveLength(2)
     expect(rootButton.getAttribute('aria-expanded')).toBe('true')
 
-    const branchButton = host.querySelector<HTMLButtonElement>('button[aria-label="Luaskan Branch"]')!
+    const branchButton = host.querySelector<HTMLButtonElement>('button[aria-label="Expand Branch"]')!
     branchButton.focus()
     await userEvent.keyboard(' ')
     await frame()
@@ -86,7 +86,7 @@ describe('TreeTable browser interactions', () => {
     expect(rowClick).toHaveBeenCalledTimes(1)
     expect(rowClick).toHaveBeenCalledWith(data[0]!.children[0]!.children[0], 2)
 
-    host.querySelector<HTMLButtonElement>('button[aria-label="Ciutkan Root"]')!.focus()
+    host.querySelector<HTMLButtonElement>('button[aria-label="Collapse Root"]')!.focus()
     await userEvent.keyboard('{Enter}')
     await frame()
     expect(host.querySelectorAll('tbody tr')).toHaveLength(1)

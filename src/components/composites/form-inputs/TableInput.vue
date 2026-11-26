@@ -10,7 +10,8 @@ import ConfirmationDialog from '../ConfirmationDialog.vue'
 import DialogForm from '../DialogForm.vue'
 import { formArrayContextKey } from '../../../forms/arrayField'
 import { useRendererRegistry } from '../../../renderers/registry'
-import type { InlineArrayField, TableInputCoreProps } from './tableInput.types'
+import { useFrameworkUiDefaults } from '../../views/uiDefaults'
+import type { InlineArrayDisplayField, InlineArrayField, TableInputCoreProps } from './tableInput.types'
 
 const props = defineProps<TableInputCoreProps<TInput, TRow, TContext>>()
 
@@ -18,6 +19,7 @@ const standaloneId = useId()
 const attrs = useAttrs()
 const arrayForm = inject(formArrayContextKey, undefined)
 const renderers = useRendererRegistry('form')
+const uiDefaults = useFrameworkUiDefaults()
 const inlineRootId = computed(() => (typeof attrs.id === 'string' ? attrs.id : props.field ? arrayForm?.id([props.field]) : undefined))
 const locked = computed(() => props.disabled === true || arrayForm?.disabled.value === true)
 for (const member of ['fields', 'data', 'load', 'submit']) {
@@ -106,11 +108,22 @@ function draftFor(row: TRow): FormDraft<TInput> {
 }
 const read = Reflect.get
 
-function inlineFields(row: TRow, index: number): Array<[string, InlineArrayField]> {
+function inlineFields(row: TRow, index: number): Array<[string, InlineArrayField<TRow>]> {
   if (props.mode !== 'inline') return []
   const fields = typeof props.fields === 'function' ? props.fields(row, index) : props.fields
-  const entries: Array<[string, InlineArrayField | undefined]> = Object.entries(fields)
-  return entries.filter((entry): entry is [string, InlineArrayField] => entry[1] !== undefined && entry[1].visible !== false)
+  const entries: Array<[string, InlineArrayField<TRow> | undefined]> = Object.entries(fields)
+  return entries.filter((entry): entry is [string, InlineArrayField<TRow>] => entry[1] !== undefined && entry[1].visible !== false)
+}
+
+function isDisplayCell(cell: InlineArrayField<TRow>): cell is InlineArrayDisplayField<TRow> {
+  return cell.kind === 'display'
+}
+
+function formatDisplayCell(row: TRow, index: number, key: string, cell: InlineArrayDisplayField<TRow>): string {
+  const raw = cell.read ? cell.read(row, index) : read(row, key)
+  if (cell.format) return cell.format(raw, row, index)
+  if (raw === undefined || raw === null || raw === '') return '-'
+  return String(raw)
 }
 
 function cellPath(index: number, key: string): readonly (string | number)[] {
@@ -127,7 +140,7 @@ function cellError(index: number, key: string): string | undefined {
 
 async function focusRow(index: number): Promise<void> {
   await nextTick()
-  const field = modelValue.value[index] && inlineFields(modelValue.value[index], index)[0]?.[0]
+  const field = modelValue.value[index] && inlineFields(modelValue.value[index], index).find(([, cell]) => !isDisplayCell(cell))?.[0]
   const element = field ? document.getElementById(cellId(index, field)) : document.getElementById(addId.value)
   const control = element?.matches('input,textarea,button,[role="combobox"]') ? element : element?.querySelector<HTMLElement>('input,textarea,button,[role="combobox"]')
   ;(control ?? element)?.focus()
@@ -206,7 +219,7 @@ function moveInline(index: number, direction: -1 | 1): void {
             :name="`cell:${key}`"
             :row="row"
             :index="index"
-            :value="read(row, key)"
+            :value="isDisplayCell(cell) && cell.read ? cell.read(row, index) : read(row, key)"
             :touch="() => arrayForm?.touch(cellPath(index, key))"
             :set-error="(message: string | undefined) => arrayForm?.setError(cellPath(index, key), message)"
             :set-row="(value: TRow) => changeInlineRow(index, key, () => value)"
@@ -215,7 +228,21 @@ function moveInline(index: number, direction: -1 | 1): void {
             :disabled="locked"
             :id="cellId(index, key)"
           >
+            <div v-if="isDisplayCell(cell)" class="flex flex-col gap-2">
+              <span class="text-sm font-medium leading-5 text-on-surface">{{ cell.label }}</span>
+              <output
+                :id="cellId(index, key)"
+                class="flex min-h-10 items-center rounded-md bg-surface-container-low px-3 text-sm font-medium tabular-nums text-on-surface"
+                :class="{
+                  'justify-end text-right': cell.align === 'end',
+                  'justify-center text-center': cell.align === 'center',
+                }"
+              >
+                {{ formatDisplayCell(row, index, key, cell) }}
+              </output>
+            </div>
             <component
+              v-else
               :is="typeof cell.renderer === 'string' ? renderers.require(cell.renderer) : cell.renderer"
               v-bind="cell.props"
               :id="cellId(index, key)"
@@ -231,25 +258,33 @@ function moveInline(index: number, direction: -1 | 1): void {
           </slot>
         </div>
         <div class="col-span-12 flex justify-end gap-1">
-          <Button v-if="reorderable" type="button" kind="icon" variant="standard" ariaLabel="Move row up" :disabled="locked || index === 0" @click="moveInline(index, -1)"
-            ><Icon name="arrow-up"
-          /></Button>
-          <Button v-if="reorderable" type="button" kind="icon" variant="standard" ariaLabel="Move row down" :disabled="locked || index === modelValue.length - 1" @click="moveInline(index, 1)"
-            ><Icon name="arrow-down"
-          /></Button>
-          <Button type="button" kind="icon" variant="standard" ariaLabel="Delete row" :disabled="locked" @click="removeInline(index)"><Icon name="delete-bin" /></Button>
+          <Button v-if="reorderable" type="button" kind="icon" variant="standard" ariaLabel="Move row up" :disabled="locked || index === 0" @click="moveInline(index, -1)">
+            <template #icon><Icon name="arrow-up" size="base" /></template>
+          </Button>
+          <Button v-if="reorderable" type="button" kind="icon" variant="standard" ariaLabel="Move row down" :disabled="locked || index === modelValue.length - 1" @click="moveInline(index, 1)">
+            <template #icon><Icon name="arrow-down" size="base" /></template>
+          </Button>
+          <Button type="button" kind="icon" variant="standard" color="error" ariaLabel="Delete row" :disabled="locked" @click="removeInline(index)">
+            <template #icon><Icon name="delete-bin" size="base" /></template>
+          </Button>
         </div>
       </article>
-      <Button v-bind="{ id: addId }" type="button" variant="outlined" :disabled="locked" @click="addInline"><Icon name="add" />{{ addLabel ?? 'Tambah baris' }}</Button>
+      <Button v-bind="{ id: addId }" type="button" variant="outlined" class="w-fit" :disabled="locked" @click="addInline">
+        <template #icon><Icon name="add" size="base" /></template>
+        {{ addLabel ?? uiDefaults.addRowLabel }}
+      </Button>
     </div>
   </BaseInput>
   <BaseInput v-else-if="props.mode !== 'inline'" v-bind="baseInputProps" :label="''" v-slot="{ controlBindings }">
     <div class="flex flex-col gap-4">
       <div class="flex flex-row justify-end">
-        <DialogForm v-if="!disabled && props.form" v-bind="props.form" :context="formContext" :disabled="disabled" title="Tambah baris" cancel-label="Batal" :submit="createRow">
+        <DialogForm v-if="!disabled && props.form" v-bind="props.form" :context="formContext" :disabled="disabled" :title="uiDefaults.addRowLabel" :cancel-label="uiDefaults.cancelLabel" :submit="createRow">
           <template #trigger>
             <slot v-if="$slots['create-button']" name="create-button" :control-bindings="controlBindings" />
-            <Button v-else v-bind="controlBindings" type="button"><Icon name="add" />Tambah</Button>
+            <Button v-else v-bind="controlBindings" type="button">
+              <template #icon><Icon name="add" size="base" /></template>
+              {{ uiDefaults.addLabel }}
+            </Button>
           </template>
         </DialogForm>
       </div>
@@ -262,8 +297,8 @@ function moveInline(index: number, direction: -1 | 1): void {
               :context="formContext"
               :disabled="disabled"
               :initial-data="draftFor(record)"
-              title="Ubah baris"
-              cancel-label="Batal"
+              :title="uiDefaults.editRowLabel"
+              :cancel-label="uiDefaults.cancelLabel"
               :submit="(payload) => replaceRow(index, payload)"
             >
               <template #trigger>

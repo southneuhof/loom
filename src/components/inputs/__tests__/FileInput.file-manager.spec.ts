@@ -165,7 +165,7 @@ describe('FileManager asset selection', () => {
     apps.push(app)
     await flush()
 
-    const sourceButton = findButton('Pilih sumber file')
+    const sourceButton = findButton('Choose file source')
     expect(sourceButton).toBeDefined()
     sourceButton?.click()
     await flush()
@@ -283,7 +283,7 @@ describe('FileManager asset selection', () => {
     apps.push(app)
     await flush()
 
-    const sourceButton = findButton('Pilih sumber file')
+    const sourceButton = findButton('Choose file source')
     expect(sourceButton).toBeDefined()
     sourceButton?.click()
     await flush()
@@ -331,7 +331,7 @@ describe('FileManager asset selection', () => {
     apps.push(app)
     await flush()
 
-    findButton('Pilih sumber file')?.click()
+    findButton('Choose file source')?.click()
     await flush()
     findButton('Choose from file manager')?.click()
     await vi.waitFor(() => expect(findButton(stored.name), document.body.textContent).toBeDefined())

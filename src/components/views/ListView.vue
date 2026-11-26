@@ -51,12 +51,14 @@ import ExportPreview from '../../exports/ExportPreview.vue';
 import { useTablePreferences } from "../core/useTablePreferences";
 import { isConfirmedWriteRefreshError, normalizeWriteError } from "../../resources/postWriteOutcome";
 import PageHeader from "./PageHeader.vue";
+import { useFrameworkUiDefaults } from "./uiDefaults";
 import { withCurrentQuery } from "./routeQuery";
 
 const props = defineProps<ListViewProps<TRecord, TQuery, TFilterInput, TContext>>();
 const router = useRouter();
 const instance = getCurrentInstance();
 const adapters = useFrameworkAdapters();
+const uiDefaults = useFrameworkUiDefaults();
 const emit = defineEmits<{
   (event: "update:query", query: QueryValues): void;
   (event: "export-error", error: unknown): void;
@@ -617,8 +619,8 @@ const exportState = useExport({
 const exportControls = exportState.controls;
 watch(() => exportControls.value.error, error => { if (error) emit("export-error", error); });
 const exportMenuItems = computed(() => [
-  ...(exportControls.value.formats.includes('pdf') ? [{ name: 'Ekspor sebagai PDF', action: exportControls.value.printPdf }] : []),
-  ...(exportControls.value.formats.includes('xlsx') ? [{ name: 'Ekspor sebagai XLSX', action: exportControls.value.openPreview }] : []),
+  ...(exportControls.value.formats.includes('pdf') ? [{ name: uiDefaults.exportPdfLabel, action: exportControls.value.printPdf }] : []),
+  ...(exportControls.value.formats.includes('xlsx') ? [{ name: uiDefaults.exportXlsxLabel, action: exportControls.value.openPreview }] : []),
 ]);
 
 const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
@@ -810,7 +812,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
         <slot v-if="exportControls.available" name="export-action" :export-controls="exportControls">
           <Menu :items="exportMenuItems" :disabled="exportControls.disabled">
             <template #trigger>
-              <Button type="button" kind="icon" variant="standard" ariaLabel="Ekspor" :disabled="exportControls.disabled">
+              <Button type="button" kind="icon" variant="standard" :ariaLabel="uiDefaults.exportLabel" :disabled="exportControls.disabled">
                 <template #icon><Icon name="download" size="base" /></template>
               </Button>
             </template>

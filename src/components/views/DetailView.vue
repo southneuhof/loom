@@ -21,6 +21,7 @@ import { composeSourceGuards } from '../../resources/sourceGuard'
 import { isConfirmedWriteRefreshError, normalizeWriteError } from '../../resources/postWriteOutcome'
 import { stableValue } from '../../query'
 import PageHeader from './PageHeader.vue'
+import { useFrameworkUiDefaults } from './uiDefaults'
 import { withCurrentQuery } from './routeQuery'
 
 type TRecord = RawSchemaOutput<TSchema>
@@ -29,6 +30,7 @@ type DeleteOutcome = { pending: boolean; refreshing?: boolean; error?: Readonly<
 const props = defineProps<DetailViewProps<TRecord, TContext> & { detail: { schema: TSchema } }>()
 const router = useRouter()
 const adapters = useFrameworkAdapters()
+const uiDefaults = useFrameworkUiDefaults()
 const detail = computed(() => props.detail)
 const reader = useRecord<TRecord, TContext>(() => detail.value)
 const defaultBackTo: RouteTarget = { name: 'dashboard' }
@@ -237,7 +239,7 @@ const hasHeaderControls = computed(() =>
             </slot>
           </template>
           <slot v-if="exportControls.available" name="export-action" :export-controls="exportControls">
-            <Button type="button" kind="icon" variant="standard" ariaLabel="Ekspor" :disabled="exportControls.disabled" @click="exportControls.printPdf">
+            <Button type="button" kind="icon" variant="standard" :ariaLabel="uiDefaults.exportLabel" :disabled="exportControls.disabled" @click="exportControls.printPdf">
               <template #icon><Icon name="download" size="base" /></template>
             </Button>
           </slot>
@@ -256,13 +258,13 @@ const hasHeaderControls = computed(() =>
     </aside>
 
     <slot v-if="!reader.record.value && reader.loading.value" name="loading">
-      <p role="status" aria-live="polite">Memuat…</p>
+      <p role="status" aria-live="polite">{{ uiDefaults.loadingLabel }}</p>
     </slot>
     <slot v-else-if="!reader.record.value && reader.error.value" name="error" :error="reader.error.value" :refresh="reader.refresh">
       <p role="alert">{{ reader.error.value.message }}</p>
     </slot>
     <slot v-else-if="!readyProps" name="empty">
-      <p>Data tidak ditemukan.</p>
+      <p>{{ uiDefaults.notFoundLabel }}</p>
     </slot>
     <template v-else>
       <slot v-if="reader.error.value" name="read-error" :error="reader.error.value" :refresh="reader.refresh">

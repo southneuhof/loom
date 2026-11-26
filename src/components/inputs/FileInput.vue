@@ -8,6 +8,7 @@ import Button from '@southneuhof/loom/components/base/Button.vue'
 import Popover from '@southneuhof/loom/components/base/Popover.vue'
 import { Dialog, DialogContent } from '@southneuhof/loom/components/base/Dialog/index'
 import BaseInput from './BaseInput.vue'
+import { useFrameworkUiDefaults } from '../views/uiDefaults'
 import { useOptionalFileManager } from '../../file-manager/provider'
 import type { ManagedAsset } from '../../file-manager/contracts'
 import type { FileInputMode, FileInputModelValue, FileInputProps } from './fileInput.types'
@@ -24,6 +25,7 @@ const emit = defineEmits<{
   (event: 'validation:error', message: string | undefined): void
 }>()
 const attrs = useAttrs()
+const uiDefaults = useFrameworkUiDefaults()
 const fileManager = useOptionalFileManager()
 const AssetPicker = defineAsyncComponent(() => import('../../file-manager/AssetPicker.vue'))
 const sourcePopoverOpen = ref(false)
@@ -82,7 +84,7 @@ function rowName(row: Extract<FileInputRow, { kind: 'pending' }>): string {
 }
 
 function stageLabel(stage: 'reading' | 'preparing' | 'transforming' | 'uploading'): string {
-  if (stage === 'uploading') return 'Mengunggah'
+  if (stage === 'uploading') return 'Uploading'
   if (stage === 'reading') return 'Preparing'
   if (stage === 'transforming' || stage === 'preparing') return 'Processing'
   return 'Processing'
@@ -130,12 +132,12 @@ async function selectFileManagerAsset(payload: ManagedAsset): Promise<void> {
           <FileComponent
             v-if="row.kind === 'value' && row.value.kind === 'asset'"
             :asset="row.value.asset"
-            :action="props.disabled ? undefined : { label: 'Hapus', action: () => controller.remove(row.id) }"
+            :action="props.disabled ? undefined : { label: uiDefaults.removeLabel, action: () => controller.remove(row.id) }"
           />
           <FileComponent
             v-else-if="row.kind === 'value' && row.value.kind === 'file'"
             :filename="row.value.file.name"
-            :action="props.disabled ? undefined : { label: 'Hapus', action: () => controller.remove(row.id) }"
+            :action="props.disabled ? undefined : { label: uiDefaults.removeLabel, action: () => controller.remove(row.id) }"
           />
           <div
             v-else-if="row.kind === 'pending'"
@@ -175,13 +177,13 @@ async function selectFileManagerAsset(payload: ManagedAsset): Promise<void> {
           :class="{ 'after:bg-primary-drag after:opacity-100 outline-primary/[33%]': isOverDropZone }"
         >
           <div v-if="!isOverDropZone" class="flex flex-row items-center gap-4">
-            <div class="text-black-light font-bold">Letakkan file anda di sini</div>
+            <div class="text-black-light font-bold">Drop files here</div>
             <div class="text-black-light">/</div>
             <Popover v-model="sourcePopoverOpen" contentClass="p-0">
               <template #trigger>
                 <Button type="button" :disabled="props.disabled || !canAddFile">
                   <template #icon><Icon name="add-circle" /></template>
-                  <div>Pilih sumber file</div>
+                  <div>Choose file source</div>
                 </Button>
               </template>
               <template #content>
@@ -200,7 +202,7 @@ async function selectFileManagerAsset(payload: ManagedAsset): Promise<void> {
           </div>
           <div v-else class="flex flex-col items-center justify-center gap-4">
             <div><Icon name="upload-cloud" /></div>
-            <div class="text-black-light font-bold">Lepaskan kursor untuk mengunggah</div>
+            <div class="text-black-light font-bold">Release to upload</div>
           </div>
         </div>
         <div v-if="acceptTypes.length > 0 || maxFileSize" class="flex flex-row gap-4">
@@ -208,17 +210,17 @@ async function selectFileManagerAsset(payload: ManagedAsset): Promise<void> {
             <template #trigger>
               <div class="flex flex-row items-center gap-1 text-muted">
                 <Icon name="information" size="xs" :fill="true" />
-                <p class="text-sm">File yang diterima</p>
+                <p class="text-sm">Accepted files</p>
               </div>
             </template>
             <template #content>
               <div class="flex flex-col gap-2">
                 <div v-if="acceptTypes.length > 0" class="flex flex-col">
-                  <p class="text-sm uppercase text-white/[67%]">Tipe File</p>
+                  <p class="text-sm uppercase text-white/[67%]">File types</p>
                   <p class="text-sm">{{ acceptTypesPretty.join(', ') }}</p>
                 </div>
                 <div v-if="maxFileSize" class="flex flex-col">
-                  <p class="text-sm uppercase text-white/[67%]">Maksimal Ukuran File</p>
+                  <p class="text-sm uppercase text-white/[67%]">Maximum file size</p>
                   <p class="text-sm">{{ maxFileSize }}MB</p>
                 </div>
               </div>

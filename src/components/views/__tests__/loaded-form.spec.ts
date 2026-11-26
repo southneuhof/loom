@@ -42,7 +42,7 @@ describe('resource-loaded edit forms', () => {
     await flush()
     expect(configured).not.toHaveBeenCalled()
     expect(view.find('input')).toBeNull()
-    expect(view.text()).toContain('Memuat')
+    expect(view.text()).toContain('Loading')
     pending.resolve({ id: 1, name: 'Original', version: 7 })
     await flush(20)
     expect(configured).toHaveBeenCalledOnce()
@@ -128,7 +128,7 @@ describe('resource-loaded edit forms', () => {
     grant = true
     await refresh()
     await flush(20)
-    expect(view.text()).toContain('Data tidak ditemukan')
+    expect(view.text()).toContain('Record not found.')
     expect(configured).not.toHaveBeenCalled()
     loaded = { id: 2, name: 'Wrong identity' }
     await expect(refresh()).rejects.toThrow('conflicts with its bound id')

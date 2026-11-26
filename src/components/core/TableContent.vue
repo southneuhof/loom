@@ -17,6 +17,7 @@ import { useTablePreferences } from './useTablePreferences'
 import Draggable from 'vuedraggable'
 import TreeSubtreeFooter from './TreeSubtreeFooter.vue'
 import { tableCompositionKey, tableFooterOwnerKey } from './tableComposition'
+import { useFrameworkUiDefaults } from '../views/uiDefaults'
 
 interface TableTreeHierarchy<TRecord extends object> {
   children: (record: TRecord) => readonly TRecord[]
@@ -55,6 +56,7 @@ defineSlots<{
 }>()
 
 const renderers = useRendererRegistry('display')
+const uiDefaults = useFrameworkUiDefaults()
 const slots = useSlots()
 const activeQuery = computed(() => props.query as unknown as QueryValues)
 
@@ -512,7 +514,7 @@ function hasCellSlot(key: string): boolean {
   <div class="is-table flex flex-col gap-3 text-sm text-on-surface" :class="{ 'is-tree-table': Boolean(props.hierarchy) }">
     <div v-if="props.loading" class="flex min-h-40 items-center justify-center rounded-xl bg-surface-container px-6 py-10 text-on-surface-variant">
       <slot name="loading">
-        <p role="status" aria-live="polite">Memuat…</p>
+        <p role="status" aria-live="polite">{{ uiDefaults.loadingLabel }}</p>
       </slot>
     </div>
 
@@ -656,7 +658,7 @@ function hasCellSlot(key: string): boolean {
                         variant="standard"
                         type="button"
                         class="is-tree-table-disclosure h-8 w-8 min-w-8 shrink-0 aspect-square p-1"
-                        :ariaLabel="`${row.getIsExpanded() ? 'Ciutkan' : 'Luaskan'} ${treeLabel(row.original, field) ?? 'baris'}`"
+                        :ariaLabel="`${row.getIsExpanded() ? uiDefaults.collapseLabel : uiDefaults.expandLabel} ${treeLabel(row.original, field) ?? 'row'}`"
                         v-bind="{ 'aria-expanded': String(row.getIsExpanded()) }"
                         @click.stop="row.toggleExpanded()"
                       >

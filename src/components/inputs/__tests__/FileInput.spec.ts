@@ -286,8 +286,8 @@ describe('FileInput upload surface', () => {
 
     await flush()
 
-    expect(view.text()).toContain('Letakkan file anda di sini')
-    expect(view.text()).toContain('Pilih sumber file')
+    expect(view.text()).toContain('Drop files here')
+    expect(view.text()).toContain('Choose file source')
     view.unmount()
   })
 
@@ -365,16 +365,16 @@ describe('FileInput upload surface', () => {
     })
     await view.flush()
 
-    expect(view.host.textContent?.includes('Pilih sumber file')).toBe(multi)
+    expect(view.host.textContent?.includes('Choose file source')).toBe(multi)
 
     const remove = [...view.host.querySelectorAll<HTMLButtonElement>('button')]
-      .find((button) => button.textContent?.trim() === 'Hapus')
+      .find((button) => button.textContent?.trim() === 'Remove')
     expect(remove).toBeDefined()
     remove?.click()
     await view.flush()
 
     expect(view.model.value).toEqual(emptyValue)
-    expect(view.host.textContent).toContain('Pilih sumber file')
+    expect(view.host.textContent).toContain('Choose file source')
     view.cleanup()
   })
 
@@ -614,7 +614,7 @@ describe('FileInput upload surface', () => {
     expect(uploadCards(view.host)).toHaveLength(1)
     expect(uploadCards(view.host)[0].textContent).toContain('first.pdf')
     expect(uploadCards(view.host)[0].firstElementChild?.className).toContain('animate-pulse')
-    expect(uploadCards(view.host)[0].querySelector('[role="status"]')?.textContent).toContain('Mengunggah')
+    expect(uploadCards(view.host)[0].querySelector('[role="status"]')?.textContent).toContain('Uploading')
     expect(view.model.value).toBeNull()
     expect(view.host.querySelector('input[type="file"]')).toBe(input)
     expect(input.disabled).toBe(true)

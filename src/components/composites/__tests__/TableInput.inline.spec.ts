@@ -124,3 +124,48 @@ it('resets a malformed nested number even when its stored value did not change',
   expect(view.find<HTMLInputElement>('input')?.value).toBe('5')
   expect(view.text()).not.toContain('Enter a valid number.')
 })
+
+it('renders inline display cells and visible row control icons without stealing focus', async () => {
+  const view = mountCore(
+    Form,
+    {
+      schema: z.object({
+        items: z.array(z.object({ qty: z.number(), price: z.number() })),
+      }),
+      initialData: { items: [{ qty: 3, price: 25 }] },
+      fields: {
+        items: {
+          renderer: 'table',
+          props: {
+            mode: 'inline',
+            reorderable: true,
+            createRow: () => ({ qty: 1, price: 10 }),
+            fields: {
+              subtotal: {
+                kind: 'display',
+                label: 'Subtotal',
+                align: 'end',
+                read: (row: { qty: number; price: number }) => row.qty * row.price,
+                format: (value: unknown) => `$${Number(value).toFixed(2)}`,
+              },
+              qty: { renderer: NumberInput, label: 'Qty' },
+              price: { renderer: NumberInput, label: 'Price' },
+            },
+          },
+        },
+      },
+      submit: async () => undefined,
+    },
+    { renderers: { form: { table: TableInput } } },
+  )
+  mounted.push(view)
+  await flush()
+
+  expect(view.find('output')?.textContent?.trim()).toBe('$75.00')
+  expect(view.find('[aria-label="Delete row"] i')).not.toBeNull()
+  expect(view.find('[aria-label="Move row up"] i')).not.toBeNull()
+
+  view.find<HTMLButtonElement>('[id$="-field-items-add"]')?.click()
+  await flush()
+  expect(document.activeElement?.id).toEqual(expect.stringContaining('-field-items.1.qty'))
+})

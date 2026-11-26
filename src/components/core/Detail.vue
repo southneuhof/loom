@@ -13,6 +13,7 @@ import { schemaOutputKeys } from '../../schemas/schemaRuntime'
 import { useRendererRegistry } from '../../renderers/registry'
 import { useRecord } from './useRecord'
 import { assertSingleDataSource } from './useCoreData'
+import { useFrameworkUiDefaults } from '../views/uiDefaults'
 
 const props = withDefaults(defineProps<DetailProps<TRecord, TContext>>(), {
   searchParameters: () => ({}),
@@ -23,6 +24,7 @@ assertSingleDataSource('Detail', props.data, props.load, 'record', instance?.vno
 onBeforeUpdate(() => assertSingleDataSource('Detail', props.data, props.load, 'record', instance?.vnode.props ?? {}))
 
 const renderers = useRendererRegistry('display')
+const uiDefaults = useFrameworkUiDefaults()
 const slots = useSlots()
 const recordReader = useRecord(() => props)
 const record = recordReader.record
@@ -87,7 +89,7 @@ defineExpose({ refresh: recordReader.refresh })
 <template>
   <div class="is-detail">
     <slot v-if="recordReader.loading.value && !record" name="loading">
-      <p role="status" aria-live="polite">Memuat…</p>
+      <p role="status" aria-live="polite">{{ uiDefaults.loadingLabel }}</p>
     </slot>
 
     <slot v-else-if="recordReader.error.value && !record" name="error" :error="recordReader.error.value">
@@ -95,7 +97,7 @@ defineExpose({ refresh: recordReader.refresh })
     </slot>
 
     <slot v-else-if="!record" name="empty">
-      <p>Data tidak ditemukan.</p>
+      <p>{{ uiDefaults.notFoundLabel }}</p>
     </slot>
 
     <div v-else class="overflow-x-auto">

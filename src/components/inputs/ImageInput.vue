@@ -139,12 +139,12 @@ async function selectFileManagerAsset(payload: ManagedAsset): Promise<void> {
       <div class="flex flex-col gap-2">
         <div v-if="!props.disableInformation" class="flex flex-col gap-2">
           <div v-if="multi || imageRows.length === 0">
-            <div class="font-bold text-tertiary">Unggah gambar yang akan digunakan</div>
-            <div class="text-sm text-muted">Ukuran berkas maksimal {{ maxFileSize }} MB</div>
-            <div v-if="props.limit !== undefined" class="text-sm text-muted">Maksimal {{ props.limit }} gambar</div>
+            <div class="font-bold text-tertiary">Upload image</div>
+            <div class="text-sm text-muted">Maximum file size {{ maxFileSize }} MB</div>
+            <div v-if="props.limit !== undefined" class="text-sm text-muted">Up to {{ props.limit }} images</div>
             <div v-if="props.additionalInfo" class="mt-2"><Chip color="info">{{ props.additionalInfo }}</Chip></div>
           </div>
-          <div v-else class="font-semibold text-tertiary">{{ imageRows.length }} gambar dipilih</div>
+          <div v-else class="font-semibold text-tertiary">{{ imageRows.length }} {{ imageRows.length === 1 ? 'image' : 'images' }} selected</div>
         </div>
         <div class="flex flex-row items-center gap-4">
           <Draggable v-if="imageRows.length" v-model="imageRows" :move="allowMove" item-key="id" class="flex flex-row items-center gap-4">
