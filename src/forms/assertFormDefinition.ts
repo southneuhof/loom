@@ -3,7 +3,7 @@ import type { FormDefinition } from '../contracts/forms'
 import { createSchemaRuntime, type SchemaRuntime } from '../schemas/schemaRuntime'
 import { assertFormInput, assertSafeFieldKey, isFormInputRecord } from './props'
 
-const definitionMembers = new Set(['schema', 'fields', 'labels', 'validators', 'submit'])
+const definitionMembers = new Set(['schema', 'fields', 'sections', 'labels', 'validators', 'submit'])
 const validatorMembers = new Set(['validate', 'triggers', 'path'])
 const validationTriggers = new Set(['blur', 'submit'])
 
@@ -44,6 +44,36 @@ function assertValidators(value: unknown): void {
   }
 }
 
+function assertSections(value: unknown, fieldKeysSet: ReadonlySet<string>): void {
+  if (value === undefined) return
+  if (!Array.isArray(value)) invalidOption('sections', 'an array of section descriptors')
+  const seen = new Set<string>()
+  for (const [index, section] of value.entries()) {
+    if (!isRecord(section)) invalidOption(`sections[${index}]`, 'a section object')
+    for (const member of Object.keys(section)) {
+      if (!['title', 'description', 'fields'].includes(member)) {
+        invalidOption(`sections[${index}].${member}`, 'a FormSection member')
+      }
+    }
+    if (typeof section.title !== 'string' || section.title.trim().length === 0) {
+      invalidOption(`sections[${index}].title`, 'a nonempty string')
+    }
+    if (section.description !== undefined && typeof section.description !== 'string') {
+      invalidOption(`sections[${index}].description`, 'a string')
+    }
+    if (!Array.isArray(section.fields)) invalidOption(`sections[${index}].fields`, 'an array of field keys')
+    for (const fieldKey of section.fields) {
+      if (typeof fieldKey !== 'string' || !fieldKeysSet.has(fieldKey)) {
+        invalidOption(`sections[${index}].fields`, `declared form field keys (unknown key "${String(fieldKey)}")`)
+      }
+      if (seen.has(fieldKey)) {
+        invalidOption(`sections[${index}].fields`, `unique field keys (duplicate key "${fieldKey}")`)
+      }
+      seen.add(fieldKey)
+    }
+  }
+}
+
 export function assertFormDefinition<TInput extends object, TOutput extends object, TResult, TKeys extends string, TContext extends object, TFields extends object = {}>(
   definition: FormDefinition<TInput, TOutput, TResult, TKeys, TContext, TFields>,
   schemaRuntime?: SchemaRuntime<TOutput>
@@ -63,6 +93,7 @@ export function assertFormDefinition<TInput extends object, TOutput extends obje
   assertValidators(definition.validators)
 
   assertFormFields(definition.fields, runtime.inputKeys)
+  assertSections(definition.sections, new Set(Object.keys(definition.fields)))
 }
 
 export function assertFormFields(fields: unknown, inputKeys: readonly string[]): void {

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, ref } from 'vue'
 import { z } from 'zod'
 import DetailComponent from '../Detail.vue'
+import { defineDetail } from '../../../details/defineDetail'
 import { deferred, flush, mountCore } from './harness'
 
 const recordSchema = z.object({ name: z.string(), rel_section_name: z.string() })
@@ -140,5 +141,42 @@ describe('Detail core', () => {
 
     expect(view.text()).toContain('Admin')
     view.unmount()
+  })
+
+  it('renders sections inside one table and rejects unknown or duplicate section keys', async () => {
+    const defined = defineDetail({
+      schema: recordSchema,
+      fields,
+      sections: [
+        { title: 'Identity', fields: ['name'] },
+        { title: 'Assignment', description: 'Operational zone', fields: ['section'] },
+      ],
+    })
+    const view = mountCore(DetailComponent, { ...defined, data: record })
+    await flush()
+
+    expect(view.all('table')).toHaveLength(1)
+    expect(view.all('th[scope="colgroup"]').map((node) => node.textContent)).toEqual(['Identity', 'AssignmentOperational zone'])
+    expect(view.all('th[scope="row"]').map((node) => node.textContent)).toEqual(['Nama', 'Ruas'])
+    view.unmount()
+
+    expect(() =>
+      defineDetail({
+        schema: recordSchema,
+        fields,
+        sections: [{ title: 'Invalid', fields: ['missing' as 'name'] }],
+      }),
+    ).toThrow('[loom][SURFACE_OPTION_INVALID]')
+
+    expect(() =>
+      defineDetail({
+        schema: recordSchema,
+        fields,
+        sections: [
+          { title: 'First', fields: ['name'] },
+          { title: 'Duplicate', fields: ['name'] },
+        ],
+      }),
+    ).toThrow('[loom][SURFACE_OPTION_INVALID]')
   })
 })

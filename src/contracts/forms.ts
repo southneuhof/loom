@@ -193,6 +193,12 @@ export interface FormValidatorDescriptor<TInput extends object, TOutput extends 
 
 export type FormValidatorEntry<TInput extends object, TOutput extends object, TContext extends object = Readonly<Record<string, unknown>>> = FormValidatorDescriptor<TInput, TOutput, TContext>
 
+export interface FormSection<TKey extends string = string> {
+  readonly title: string
+  readonly description?: string
+  readonly fields: readonly TKey[]
+}
+
 export interface FormDefinition<
   TInput extends object = Record<string, unknown>,
   TOutput extends object = Record<string, unknown>,
@@ -203,6 +209,7 @@ export interface FormDefinition<
 > {
   readonly schema: RawSchema<TInput, TOutput>
   readonly fields: TFields & FormFields<TInput, TKeys, TContext, TFields>
+  readonly sections?: readonly FormSection<string>[]
   readonly labels?: LabelDictionary
   readonly validators?: readonly FormValidatorEntry<TInput, TOutput, TContext>[]
   readonly submit?: (output: TOutput, scope: FormSubmitContext<TContext>) => MaybePromise<TResult>

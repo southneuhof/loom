@@ -8,7 +8,7 @@ export type { Label, LabelDictionary } from './labels'
 export type { DisplayField, DisplayValueConfiguration } from './display'
 export type { BaseInputControlBindings } from './formControlBindings'
 export type { TableColumn, TableColumnCell, TableColumnContext, TableColumnEntry, TableColumnResolver, TableDefinition, TableColumnsContext } from './tables'
-export type { DetailField, DetailFieldContext, DetailFieldEntry, DetailFieldResolver, DetailDefinition, DetailFieldsContext } from './details'
+export type { DetailField, DetailFieldContext, DetailFieldEntry, DetailFieldResolver, DetailSection, DetailDefinition, DetailFieldsContext } from './details'
 export type {
   FormBehaviorContext,
   FormBehavior,
@@ -33,6 +33,7 @@ export type {
   FormValidatorDescriptor,
   FormValidatorEntry,
   FormValidationTrigger,
+  FormSection,
   FormDefinition,
 } from './forms'
 export type {

@@ -160,6 +160,35 @@ const formIssues = computed(() =>
   })
 )
 
+const fieldGroups = computed(() => {
+  const all = visibleFields.value
+  const sections = props.sections
+  if (!sections || sections.length === 0) {
+    return [{ key: 'default', title: undefined as string | undefined, description: undefined as string | undefined, fields: all }]
+  }
+  const byKey = new Map<string, RuntimeFormField<TInput, TKeys>>(all.map((field) => [field.key, field]))
+  const used = new Set<string>()
+  const groups: Array<{ key: string; title?: string; description?: string; fields: typeof all }> = []
+  for (const [index, section] of sections.entries()) {
+    const groupFields: RuntimeFormField<TInput, TKeys>[] = []
+    for (const fieldKey of section.fields) {
+      const matched = byKey.get(fieldKey)
+      if (matched && !used.has(fieldKey)) {
+        used.add(fieldKey)
+        groupFields.push(matched)
+      }
+    }
+    if (groupFields.length > 0) {
+      groups.push({ key: `section-${index}`, title: section.title, description: section.description, fields: groupFields })
+    }
+  }
+  const remaining = all.filter((field) => !used.has(field.key))
+  if (remaining.length > 0) {
+    groups.push({ key: 'section-remaining', fields: remaining })
+  }
+  return groups
+})
+
 async function submit(options?: Parameters<typeof session.submit>[0]): Promise<void> {
   await session.submit(options)
 }
@@ -195,45 +224,61 @@ function reset(): void {
     <template v-else>
       <BaseInput v-if="formIssues.length > 0" class="rounded-lg bg-error-container px-4 py-3" :error="formIssues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join('; ')" />
 
-      <div class="grid grid-cols-12 gap-x-4 gap-y-5">
-        <div v-for="field in visibleFields" :key="field.key" class="is-form-field flex min-w-0 flex-col gap-2" :style="{ gridColumn: `span ${fieldSpan(field)} / span ${fieldSpan(field)}` }">
-          <label :for="fieldId(field)" class="text-sm font-medium leading-5 text-on-surface">
-            {{ field.label }}
-            <span v-if="field.required" class="text-error" aria-hidden="true">*</span>
-          </label>
+      <component
+        :is="group.title ? 'fieldset' : 'div'"
+        v-for="(group, groupIndex) in fieldGroups"
+        :key="group.key"
+        :class="
+          group.title
+            ? ['is-form-section flex min-w-0 flex-col gap-4', groupIndex > 0 ? 'border-t border-outline-variant pt-5' : '']
+            : groupIndex > 0
+              ? 'border-t border-outline-variant pt-5'
+              : 'contents'
+        "
+      >
+        <legend v-if="group.title" class="w-full text-sm font-semibold leading-5 text-on-surface">{{ group.title }}</legend>
+        <p v-if="group.title && group.description" class="-mt-2 text-sm leading-5 text-on-surface-variant">{{ group.description }}</p>
 
-          <BaseInput
-            v-if="$slots[`input:${field.key}`]"
-            :key="fieldComponentKey(field)"
-            :id="fieldId(field)"
-            :helper-message="helperMessageFor(field)"
-            :error="issueFor(field.key)"
-            :required="field.required"
-            :disabled="fieldDisabled(field)"
-            :ariaInvalid="authoredAriaAttribute(field, 'aria-invalid')"
-            :ariaRequired="authoredAriaAttribute(field, 'aria-required')"
-            :ariaDescribedby="authoredAriaAttribute(field, 'aria-describedby')"
-            v-slot="{ controlBindings }"
-            @validation:touch="session.touch(field.key)"
-          >
-            <slot :name="`input:${field.key}`" v-bind="inputSlotProps(field, controlBindings)" />
-          </BaseInput>
+        <div class="grid grid-cols-12 gap-x-4 gap-y-5">
+          <div v-for="field in group.fields" :key="field.key" class="is-form-field flex min-w-0 flex-col gap-2" :style="{ gridColumn: `span ${fieldSpan(field)} / span ${fieldSpan(field)}` }">
+            <label :for="fieldId(field)" class="text-sm font-medium leading-5 text-on-surface">
+              {{ field.label }}
+              <span v-if="field.required" class="text-error" aria-hidden="true">*</span>
+            </label>
 
-          <component
-            v-else
-            :is="typeof field.renderer === 'string' ? renderers.require(field.renderer) : field.renderer"
-            :key="fieldComponentKey(field)"
-            v-bind="rendererProps(field)"
-            v-model="fieldModel(field.key).value"
-            :id="fieldId(field)"
-            :error="issueFor(field.key)"
-            :required="field.required"
-            :disabled="fieldDisabled(field)"
-            @validation:touch="session.touch(field.key)"
-            @validation:error="session.setControlError(field.key, $event)"
-          />
+            <BaseInput
+              v-if="$slots[`input:${field.key}`]"
+              :key="fieldComponentKey(field)"
+              :id="fieldId(field)"
+              :helper-message="helperMessageFor(field)"
+              :error="issueFor(field.key)"
+              :required="field.required"
+              :disabled="fieldDisabled(field)"
+              :ariaInvalid="authoredAriaAttribute(field, 'aria-invalid')"
+              :ariaRequired="authoredAriaAttribute(field, 'aria-required')"
+              :ariaDescribedby="authoredAriaAttribute(field, 'aria-describedby')"
+              v-slot="{ controlBindings }"
+              @validation:touch="session.touch(field.key)"
+            >
+              <slot :name="`input:${field.key}`" v-bind="inputSlotProps(field, controlBindings)" />
+            </BaseInput>
+
+            <component
+              v-else
+              :is="typeof field.renderer === 'string' ? renderers.require(field.renderer) : field.renderer"
+              :key="fieldComponentKey(field)"
+              v-bind="rendererProps(field)"
+              v-model="fieldModel(field.key).value"
+              :id="fieldId(field)"
+              :error="issueFor(field.key)"
+              :required="field.required"
+              :disabled="fieldDisabled(field)"
+              @validation:touch="session.touch(field.key)"
+              @validation:error="session.setControlError(field.key, $event)"
+            />
+          </div>
         </div>
-      </div>
+      </component>
 
       <slot
         name="actions"

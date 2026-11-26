@@ -7,6 +7,7 @@ import type { FormFieldContext } from '../../../contracts/forms'
 import type { FormPublisher } from '../../../forms/outputs'
 import { useFormInputPending } from '../useFormInputState'
 import { deferred, flush, mountCore } from './harness'
+import { defineForm } from '../../../forms/defineForm'
 import { defineFormOutput } from '../../../forms/outputs'
 import type { FrameworkAdaptersInput } from '../../../adapters/projectAdapters'
 
@@ -746,5 +747,46 @@ describe('Form session', () => {
 
     expect(submitResult).toHaveBeenCalledOnce()
     expect(submitResult).toHaveBeenCalledWith({ shown: 'visible', retained: 'kept', fallback: 'schema default' }, expect.objectContaining({ context: {} }))
+  })
+
+  it('renders sections as fieldsets, collapses sections with all hidden fields, and rejects duplicate keys', async () => {
+    const schema = z.object({
+      title: z.string(),
+      mode: z.string().optional(),
+      dueDate: z.string().optional(),
+    })
+    const defined = defineForm({
+      schema,
+      fields: {
+        title: { renderer: 'text', label: 'Title' },
+        mode: { renderer: 'text', label: 'Mode' },
+        dueDate: ({ draft }) => ({ renderer: 'text', label: 'Due Date', visible: draft.mode === 'scheduled' }),
+      },
+      sections: [
+        { title: 'Basics', description: 'Primary fields', fields: ['title', 'mode'] },
+        { title: 'Scheduling', fields: ['dueDate'] },
+      ],
+    })
+    const view = mount({ ...defined, initialData: { title: 'Pump check', mode: 'manual' }, submit: async () => undefined })
+    await flush()
+
+    expect(view.all('fieldset legend').map((node) => node.textContent)).toEqual(['Basics'])
+    expect(view.text()).toContain('Primary fields')
+
+    setText(view, 'mode', 'scheduled')
+    await flush()
+
+    expect(view.all('fieldset legend').map((node) => node.textContent)).toEqual(['Basics', 'Scheduling'])
+
+    expect(() =>
+      defineForm({
+        schema,
+        fields: { title: { renderer: 'text' }, mode: { renderer: 'text' } },
+        sections: [
+          { title: 'One', fields: ['title'] },
+          { title: 'Two', fields: ['title'] },
+        ],
+      }),
+    ).toThrow('[loom][SURFACE_OPTION_INVALID]')
   })
 })

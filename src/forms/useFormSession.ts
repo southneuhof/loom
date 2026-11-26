@@ -109,6 +109,7 @@ function definitionFromProps<TInput extends object, TOutput extends object, TRes
   return {
     schema: props.schema,
     fields: props.fields,
+    ...(props.sections !== undefined ? { sections: props.sections } : {}),
     ...(props.labels !== undefined ? { labels: props.labels } : {}),
     ...(props.validators !== undefined ? { validators: props.validators } : {}),
     ...(typeof props.submit === 'function' ? { submit: props.submit } : {}),

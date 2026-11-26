@@ -386,7 +386,7 @@ type BoundTable<TRecord extends object, TQuery extends object, TColumns extends 
   namespace: string
 }
 
-type ResourceFormOptionKeys<TForm> = Exclude<keyof TForm, 'schema' | 'fields' | 'labels' | 'validators' | 'submit' | 'load' | 'modelValue' | 'id' | 'resource' | 'namespace' | 'context' | 'initialData' | 'searchParameters'>
+type ResourceFormOptionKeys<TForm> = Exclude<keyof TForm, 'schema' | 'fields' | 'sections' | 'labels' | 'validators' | 'submit' | 'load' | 'modelValue' | 'id' | 'resource' | 'namespace' | 'context' | 'initialData' | 'searchParameters'>
 type ResourceFormOptions<TForm> = Pick<TForm, ResourceFormOptionKeys<TForm>>
 type ResourceFormLoad<TForm, TInput extends object> = TForm extends { load: infer TLoad }
   ? { load: BoundRecordLoad<TLoad> }
@@ -422,7 +422,7 @@ export type BoundUpdateForm<TForm extends FormBagShape, TIdentity extends Record
   id: TIdentity
 }
 
-type DetailPageOptionKeys = Extract<keyof DetailProps, 'searchParameters'>
+type DetailPageOptionKeys = Extract<keyof DetailProps, 'searchParameters' | 'sections'>
 type DetailPageOptions<TDetail> = Pick<TDetail, Extract<keyof TDetail, DetailPageOptionKeys>>
 
 type BoundDetail<TRecord extends object, TFields extends object, TOptions extends object, TLoad, TIdentity extends RecordIdentity, TContext extends object> = Omit<

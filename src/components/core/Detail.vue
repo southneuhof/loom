@@ -53,6 +53,34 @@ const entries = computed(() => {
     : []
 })
 
+const sectionedEntries = computed(() => {
+  const all = entries.value
+  if (!props.sections || props.sections.length === 0) {
+    return all.length > 0 ? [{ key: 'default', title: undefined as string | undefined, description: undefined as string | undefined, entries: all }] : []
+  }
+  const byKey = new Map(all.map((entry) => [entry.field.key, entry]))
+  const used = new Set<string>()
+  const groups: Array<{ key: string; title?: string; description?: string; entries: typeof all }> = []
+  for (const [index, section] of props.sections.entries()) {
+    const groupEntries: typeof all = []
+    for (const fieldKey of section.fields) {
+      const matched = byKey.get(fieldKey)
+      if (matched && !used.has(fieldKey)) {
+        used.add(fieldKey)
+        groupEntries.push(matched)
+      }
+    }
+    if (groupEntries.length > 0) {
+      groups.push({ key: `section-${index}`, title: section.title, description: section.description, entries: groupEntries })
+    }
+  }
+  const remaining = all.filter((entry) => !used.has(entry.field.key))
+  if (remaining.length > 0) {
+    groups.push({ key: 'section-remaining', entries: remaining })
+  }
+  return groups
+})
+
 defineExpose({ refresh: recordReader.refresh })
 </script>
 
@@ -76,23 +104,39 @@ defineExpose({ refresh: recordReader.refresh })
       </slot>
       <table class="w-full border-collapse">
         <tbody>
-          <tr v-for="entry in entries" :key="entry.field.key">
-            <th scope="row" class="w-px whitespace-nowrap py-1 pe-3 text-left align-center text-sm font-normal text-on-surface">
-              {{ entry.field.label }}
-            </th>
-            <td aria-hidden="true" class="w-px whitespace-nowrap py-1 pe-3 align-top text-on-surface-variant">:</td>
-            <td
-              class="min-w-0 break-words py-1 text-sm"
-              :class="{
-                'font-semibold text-on-surface': entry.field.emphasis === 'strong',
-                'text-on-surface-variant': entry.field.emphasis === 'muted',
-                'text-on-surface': !entry.field.emphasis,
-              }"
-            >
-              <slot v-if="entry.hasSlot" :name="`value:${entry.field.key}`" :value="entry.value" :record="record" :field="entry.field" />
-              <DisplayValue v-else :value="entry.value" :record="record" :field="entry.field" />
-            </td>
-          </tr>
+          <template v-for="(group, groupIndex) in sectionedEntries" :key="group.key">
+            <tr v-if="groupIndex > 0 && group.title" aria-hidden="true" class="is-detail-section-spacer">
+              <td colspan="3" class="h-3 p-0" />
+            </tr>
+            <tr v-if="group.title" class="is-detail-section">
+              <th
+                colspan="3"
+                scope="colgroup"
+                class="text-left text-xs font-semibold uppercase tracking-wide text-on-surface-variant"
+                :class="groupIndex === 0 ? 'pb-2 pt-0.5' : 'border-t border-outline-variant pb-2 pt-4'"
+              >
+                <div>{{ group.title }}</div>
+                <p v-if="group.description" class="mt-0.5 text-xs font-normal normal-case tracking-normal text-on-surface-variant">{{ group.description }}</p>
+              </th>
+            </tr>
+            <tr v-for="entry in group.entries" :key="entry.field.key">
+              <th scope="row" class="w-px whitespace-nowrap py-1 pe-3 text-left align-center text-sm font-normal text-on-surface">
+                {{ entry.field.label }}
+              </th>
+              <td aria-hidden="true" class="w-px whitespace-nowrap py-1 pe-3 align-top text-on-surface-variant">:</td>
+              <td
+                class="min-w-0 break-words py-1 text-sm"
+                :class="{
+                  'font-semibold text-on-surface': entry.field.emphasis === 'strong',
+                  'text-on-surface-variant': entry.field.emphasis === 'muted',
+                  'text-on-surface': !entry.field.emphasis,
+                }"
+              >
+                <slot v-if="entry.hasSlot" :name="`value:${entry.field.key}`" :value="entry.value" :record="record" :field="entry.field" />
+                <DisplayValue v-else :value="entry.value" :record="record" :field="entry.field" />
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
     </div>

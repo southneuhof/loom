@@ -1,4 +1,4 @@
-import type { DetailField, DetailFieldContext, DetailFieldsContext, DetailDefinition } from '../contracts/details'
+import type { DetailField, DetailFieldContext, DetailFieldsContext, DetailSection, DetailDefinition } from '../contracts/details'
 import type { CompactDisplayField, DisplayFieldGuard, DisplayFieldValue } from '../display/compatibility'
 import type { LabelDictionary } from '../contracts/labels'
 import type { RawSchema, RawSchemaOutput } from '../contracts/schema'
@@ -35,6 +35,7 @@ type DetailFieldsArgument<TRecord extends object, TFields extends object> = {
 type DetailArgument<TSchema extends RawSchema<object, object>, TFields extends object> = {
   readonly schema: TSchema & DetailSchemaGuard<TSchema>
   readonly fields: TFields & DetailFieldsArgument<RawSchemaOutput<TSchema>, TFields> & NoInfer<DetailFieldsGuard<RawSchemaOutput<TSchema>, TFields>>
+  readonly sections?: readonly DetailSection<Extract<keyof TFields, string>>[]
   readonly labels?: LabelDictionary
 }
 
@@ -63,6 +64,15 @@ export function defineDetail<
   const result = {
     schema: definition.schema,
     fields: snapshotDisplayEntries(definition.fields),
+    ...(definition.sections !== undefined
+      ? {
+          sections: definition.sections.map((section) => ({
+            title: section.title,
+            ...(section.description !== undefined ? { description: section.description } : {}),
+            fields: [...section.fields],
+          })),
+        }
+      : {}),
     ...(definition.labels !== undefined ? { labels: { ...definition.labels } } : {}),
   } as DefinedDetail<TSchema, TFields>
   return result

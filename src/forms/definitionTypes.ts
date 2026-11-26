@@ -1,4 +1,4 @@
-import type { FormInput, FormInputSlotField, FormValidatorEntry } from '../contracts/forms'
+import type { FormInput, FormInputSlotField, FormSection, FormValidatorEntry } from '../contracts/forms'
 import type { LabelDictionary } from '../contracts/labels'
 import type { RawSchema } from '../contracts/schema'
 import type { FormRenderer } from '../renderers/formContracts'
@@ -29,6 +29,7 @@ export type CompactFormDefinition<
 > = {
   readonly schema: RawSchema<TInput, TOutput>
   readonly fields: CompactFormFields<TInput, TFields, TContext>
+  readonly sections?: readonly FormSection<Extract<keyof TFields, string>>[]
   readonly labels?: LabelDictionary
   readonly validators?: readonly FormValidatorEntry<TInput, TOutput, TContext>[]
 }

@@ -26,6 +26,12 @@ export type DetailFieldsContext<TFields extends object> = ContextRequirements<{
   [TKey in keyof TFields]: CallbackScopeContext<Exclude<TFields[TKey], undefined>>
 }[keyof TFields]>
 
+export interface DetailSection<TKey extends string = string> {
+  readonly title: string
+  readonly description?: string
+  readonly fields: readonly TKey[]
+}
+
 export interface DetailDefinition<
   TRecord extends object = Record<string, unknown>,
   TFields extends Readonly<Record<string, unknown>> = Readonly<Record<string, DetailFieldEntry<TRecord>>>,
@@ -33,6 +39,7 @@ export interface DetailDefinition<
 > {
   readonly schema: RawSchema<object, TRecord>
   readonly fields: TFields
+  readonly sections?: readonly DetailSection<Extract<keyof TFields, string>>[]
   readonly labels?: LabelDictionary
   readonly context?: TContext
 }

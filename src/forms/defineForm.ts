@@ -1,5 +1,5 @@
 import { markRaw, toRaw } from 'vue'
-import type { BoundFormInput, BoundFormInputResolver, FormSubmitContext, FormDefinition, FormDraftSnapshot, FormFieldContext, FormInput, FormValidatorEntry } from '../contracts/forms'
+import type { BoundFormInput, BoundFormInputResolver, FormSection, FormSubmitContext, FormDefinition, FormDraftSnapshot, FormFieldContext, FormInput, FormValidatorEntry } from '../contracts/forms'
 import type { LabelDictionary } from '../contracts/labels'
 import type { MaybePromise } from '../contracts/load'
 import type { RawSchema, RawSchemaInput, RawSchemaOutput } from '../contracts/schema'
@@ -287,6 +287,7 @@ type BoundFieldArgument<TInput extends object, TFields extends object> = {
 type FormArgument<TSchema extends RawSchema<object, object>, TFields extends object> = {
   schema: TSchema & FormSchemaGuard<TSchema>
   fields: TFields & FormFieldArgument<RawSchemaInput<TSchema>> & BoundFieldArgument<RawSchemaInput<TSchema>, TFields> & NoInfer<FormFieldsGuard<RawSchemaInput<TSchema>, TFields>>
+  sections?: readonly FormSection<Extract<keyof TFields, string>>[]
   labels?: LabelDictionary
   validators?: readonly FormValidatorEntry<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>, EffectiveFormContext<TFields>>[]
 }
@@ -300,6 +301,7 @@ export function defineForm<TSchema extends RawSchema<object, object>, const TFie
 export function defineForm<TSchema extends RawSchema<object, object>, const TFields extends object>(definition: {
   schema: TSchema & FormSchemaGuard<TSchema>
   fields: TFields
+  sections?: readonly FormSection<Extract<keyof TFields, string>>[]
   labels?: LabelDictionary
   validators?: readonly FormValidatorEntry<RawSchemaInput<TSchema>, RawSchemaOutput<TSchema>, EffectiveFormContext<TFields>>[]
   submit?: SubmitFunction<RawSchemaOutput<TSchema>>
@@ -311,6 +313,13 @@ export function defineForm<TSchema extends RawSchema<object, object>, const TFie
   const result: Record<string, unknown> = {
     schema: definition.schema,
     fields: snapshotMap(definition.fields, snapshotInput),
+  }
+  if (definition.sections !== undefined) {
+    result.sections = definition.sections.map((section) => ({
+      title: section.title,
+      ...(section.description !== undefined ? { description: section.description } : {}),
+      fields: [...section.fields],
+    }))
   }
   if (definition.labels !== undefined) result.labels = { ...definition.labels }
   if (definition.validators !== undefined) result.validators = snapshotValidators(definition.validators)
