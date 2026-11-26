@@ -98,6 +98,7 @@ type FormInputBase<TInput extends object, TValue, TRenderer extends FormRenderer
   readonly label?: Label
   readonly span?: number
   readonly visible?: boolean
+  readonly required?: boolean
   readonly initialValue?: TValue | null | (() => TValue | null | undefined)
   readonly behavior?: FormBehavior<TInput, TValue, TRenderer, TContext>
 }

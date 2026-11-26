@@ -253,7 +253,7 @@ export function useFormSession<TInput extends object, TOutput extends object, TR
         label: resolveLabel(fieldKey, input.label, props.labels),
         props: { ...input.props },
         visible: input.visible !== false,
-        required: fieldKeys(key, input).some((name) => runtime.requiredKeys.has(name)),
+        required: input.required ?? fieldKeys(key, input).some((name) => runtime.requiredKeys.has(name)),
       }
     })
   }

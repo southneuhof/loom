@@ -128,6 +128,22 @@ function unwrapInputSchema(schema: RuntimeSchema): RuntimeSchema {
   return current
 }
 
+function nextRequiredSchema(schema: RuntimeSchema, tag: string): RuntimeSchema | undefined {
+  const definition = definitionOf(schema)
+  if (!definition) return undefined
+  if (tag === 'pipe') {
+    const input = schemaRecord(definition.in)
+    if (input && typeTag(input) === 'transform') return schemaRecord(definition.out)
+    return input
+  }
+  if (tag === 'effects') {
+    const effect = isRecord(definition.effect) ? definition.effect : undefined
+    if (effect?.type === 'preprocess') return schemaRecord(definition.schema)
+    return schemaRecord(definition.schema)
+  }
+  return innerSchema(schema, tag)
+}
+
 function isRequiredInput(schema: RuntimeSchema): boolean {
   const seen = new Set<RuntimeSchema>()
   let current = schema
@@ -136,7 +152,7 @@ function isRequiredInput(schema: RuntimeSchema): boolean {
     seen.add(current)
     const tag = typeTag(current)
     if (tag === 'optional' || tag === 'default' || tag === 'catch' || tag === 'prefault') return false
-    const next = innerSchema(current, tag)
+    const next = nextRequiredSchema(current, tag)
     if (!next) return true
     current = next
   }

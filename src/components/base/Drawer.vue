@@ -47,14 +47,15 @@ function setOpen(value: boolean) {
   isOpen.value = value
 }
 
-watch(isOpen, (val) => {
+watch(isOpen, (val, previous) => {
   emit('update:isOpen', val)
+  if (!val && previous) props.onClose()
 })
 </script>
 
 <template>
-  <DrawerRoot :direction="'right'">
-    <DrawerTrigger>
+  <DrawerRoot v-model:open="isOpen" :direction="'right'">
+    <DrawerTrigger v-if="$slots.trigger">
       <slot name="trigger" v-bind="openDialog"></slot>
     </DrawerTrigger>
     <DrawerPortal>

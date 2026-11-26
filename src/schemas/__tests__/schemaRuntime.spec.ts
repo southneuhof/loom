@@ -27,6 +27,19 @@ describe('schema runtime', () => {
     expect([...runtime4.requiredKeys]).toEqual(['requiredAmount'])
   })
 
+  it('infers optionality through field-level preprocess schemas in Zod v3 and v4', () => {
+    const trimOptional3 = z3.preprocess((value) => (typeof value === 'string' ? value.trim() || null : value), z3.string().max(100).nullable().optional())
+    const trimRequired3 = z3.preprocess((value) => (typeof value === 'string' ? value.trim() : value), z3.string().min(1))
+    const trimOptional4 = z4.preprocess((value) => (typeof value === 'string' ? value.trim() || null : value), z4.string().max(100).nullable().optional())
+    const trimRequired4 = z4.preprocess((value) => (typeof value === 'string' ? value.trim() : value), z4.string().min(1))
+
+    const runtime3 = createSchemaRuntime(z3.object({ note: trimOptional3, code: trimRequired3 }))
+    const runtime4 = createSchemaRuntime(z4.object({ note: trimOptional4, code: trimRequired4 }))
+
+    expect([...runtime3.requiredKeys]).toEqual(['code'])
+    expect([...runtime4.requiredKeys]).toEqual(['code'])
+  })
+
   it('does not execute defaults or transforms during inspection', async () => {
     let defaultCalls = 0
     let transformCalls = 0
