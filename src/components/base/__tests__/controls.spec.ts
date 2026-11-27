@@ -92,7 +92,7 @@ describe('Tabs', () => {
 })
 
 describe('ChipFilter', () => {
-  it('renders accessible toggle buttons with aria-pressed and leading check icon on the selected item', async () => {
+  it('renders Material 3 filter chips with rounded-lg shape, secondary-container selection, aria-pressed, and leading check icon', async () => {
     const changes: Array<string | null | undefined> = []
     const view = mountCore(ChipFilter, {
       label: 'Status filter',
@@ -111,8 +111,12 @@ describe('ChipFilter', () => {
     const buttons = view.all<HTMLButtonElement>('button')
     expect(buttons).toHaveLength(2)
     expect(buttons[0]?.getAttribute('aria-pressed')).toBe('true')
+    expect(buttons[0]?.className).toContain('rounded-lg')
+    expect(buttons[0]?.className).toContain('bg-secondary-container')
     expect(buttons[1]?.getAttribute('aria-pressed')).toBe('false')
+    expect(buttons[1]?.className).toContain('border-outline-variant')
     expect(buttons[0]?.querySelector('i[aria-hidden="true"]')?.className).toContain('ri-check-line')
+    expect(buttons[1]?.querySelector('i')).toBeNull()
 
     buttons[0]?.click()
     buttons[1]?.click()

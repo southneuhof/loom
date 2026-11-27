@@ -198,7 +198,7 @@ const readyProps = computed<DetailViewReadyProps<TRecord, TContext> | undefined>
 const slots = useSlots()
 const detailSlotNames = () => Object.keys(slots).filter((name) => name.startsWith('value:'))
 const hasHeaderControls = computed(() =>
-  Boolean(slots.controls || updateTarget.value || canDelete.value || exportControls.value.available),
+  Boolean(slots['secondary-controls'] || slots.controls || updateTarget.value || canDelete.value || exportControls.value.available),
 )
 </script>
 
@@ -207,7 +207,12 @@ const hasHeaderControls = computed(() =>
     <slot name="header" v-bind="controls" :export-controls="exportControls">
       <PageHeader :title="title ?? ''" :description="description" :back-to="backTo">
         <template v-if="hasHeaderControls" #controls>
-          <slot name="controls" v-bind="controls" />
+          <slot v-if="exportControls.available" name="export-action" :export-controls="exportControls">
+            <Button type="button" kind="icon" variant="standard" :ariaLabel="uiDefaults.exportLabel" :disabled="exportControls.disabled" @click="exportControls.printPdf">
+              <template #icon><Icon name="download" size="base" /></template>
+            </Button>
+          </slot>
+          <slot name="secondary-controls" v-bind="controls" />
           <template v-if="reader.record.value && updateTarget">
             <slot name="edit-action" :record="reader.record.value" :can="props.can" :target="updateTarget">
               <RouterLink v-slot="{ href, navigate }" custom :to="updateTarget as RouteLocationRaw">
@@ -238,11 +243,7 @@ const hasHeaderControls = computed(() =>
               </Dialog>
             </slot>
           </template>
-          <slot v-if="exportControls.available" name="export-action" :export-controls="exportControls">
-            <Button type="button" kind="icon" variant="standard" :ariaLabel="uiDefaults.exportLabel" :disabled="exportControls.disabled" @click="exportControls.printPdf">
-              <template #icon><Icon name="download" size="base" /></template>
-            </Button>
-          </slot>
+          <slot name="controls" v-bind="controls" />
           <p v-if="exportControls.error" role="alert">{{ exportControls.error.message }}</p>
         </template>
       </PageHeader>

@@ -958,6 +958,43 @@ describe('DetailView', () => {
     expect(view.find('[aria-label="Back"]')).toBeNull()
     view.unmount()
   })
+
+  it('orders header controls from secondary triggers through Edit and Delete to primary controls on the far right', async () => {
+    const view = mountCore(
+      DetailView,
+      {
+        title: 'Work Order Detail',
+        backTo: { name: 'test-route' },
+        detail: {
+          schema: z.object({ id: z.string(), name: z.string() }),
+          fields: { name: { label: 'Name' } },
+          data: { id: 'wo-1', name: 'Pump Seal' },
+        },
+        updateRoute: (record: { id: string }) => ({ name: 'test-route', query: { edit: record.id } }),
+        deleteRecord: async () => undefined,
+        recordIdentity: (record: { id: string }) => record.id,
+        can: (operation: string) => operation === 'update' || operation === 'delete',
+      },
+      {
+        slots: {
+          'secondary-controls': () => [
+            h('button', { 'data-action': 'audit' }, 'Audit Details'),
+            h('button', { 'data-action': 'activity' }, 'Activity Log'),
+          ],
+          controls: () => h('button', { 'data-action': 'complete' }, 'Complete Work'),
+        },
+      },
+    )
+    await flush()
+
+    const headerActions = view
+      .all<HTMLElement>('header a, header button')
+      .filter((element) => element.getAttribute('aria-label') !== 'Back')
+      .map((element) => element.textContent?.trim())
+
+    expect(headerActions).toEqual(['Audit Details', 'Activity Log', 'Edit', 'Delete', 'Complete Work'])
+    view.unmount()
+  })
 })
 
 describe('FormView', () => {
