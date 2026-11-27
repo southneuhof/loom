@@ -40,7 +40,7 @@ Generated from source by `node scripts/generate-framework-catalog.mjs`. Do not e
 | `Timeline` | `data` | `node`, `header`, `content` | `packages/loom/src/components/base/Timeline.vue` |
 | `Toast` | `type`, `defaultIcon` | `default` | `packages/loom/src/components/base/Toast.vue` |
 | `Tooltip` | - | `content`, `trigger` | `packages/loom/src/components/base/Tooltip.vue` |
-| `ChipFilter` | `v-model`, `items`, `selection`, `label` | - | `packages/loom/src/components/composites/ChipFilter.vue` |
+| `ChipFilter` | `v-model`, `items`, `selection` | - | `packages/loom/src/components/composites/ChipFilter.vue` |
 | `ConfirmationDialog` | `title`, `message`, `actions`, `onConfirm`, `onCancel`, `onSuccess`, `onError`, `data`, `disabled` | `trigger`, `title`, `icon`, `description` | `packages/loom/src/components/composites/ConfirmationDialog.vue` |
 | `DialogForm` | `schema`, `fields`, `sections`, `labels`, `validators`, `modelValue`, `initialData`, `load`, `id`, `resource`, `namespace`, `searchParameters`, `context`, `normalizeError`, `completeOnSubmit`, `disabled`, `submitLabel`, `submittingLabel`, `submit`, `name`, `target`, `open`, `title`, `description`, `closeOnSubmitted`, `beforeClose`, `cancelLabel` | `trigger`, `title`, `description`, `header`, `[dynamic]`, `actions`, `footer` | `packages/loom/src/components/composites/DialogForm.vue` |
 | `DisclosureGroup` | `config` | `content` | `packages/loom/src/components/composites/DisclosureGroup.vue` |

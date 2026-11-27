@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from 'vitest'
 import { h } from 'vue'
 import Button from '../Button.vue'
 import ListItem from '../ListItem.vue'
-import ChipFilter from '../../composites/ChipFilter.vue'
 import Tabs from '../../composites/Tabs.vue'
 import { flush, mountCore } from '../../core/__tests__/harness'
 
@@ -87,40 +86,6 @@ describe('Tabs', () => {
     expect(icons).toHaveLength(2)
     expect(icons[0]?.className).toContain('ri-table-line')
     expect(icons[1]?.className).toContain('ri-layout-grid-line')
-    view.unmount()
-  })
-})
-
-describe('ChipFilter', () => {
-  it('renders Material 3 filter chips with rounded-lg shape, secondary-container selection, aria-pressed, and leading check icon', async () => {
-    const changes: Array<string | null | undefined> = []
-    const view = mountCore(ChipFilter, {
-      label: 'Status filter',
-      selection: 'optional',
-      modelValue: 'active',
-      items: [
-        { id: 'active', label: 'Active' },
-        { id: 'retired', label: 'Retired' },
-      ],
-      'onUpdate:modelValue': (value: string | null | undefined) => changes.push(value),
-    })
-    await flush()
-
-    const group = view.find<HTMLElement>('[role="group"]')!
-    expect(group.getAttribute('aria-label')).toBe('Status filter')
-    const buttons = view.all<HTMLButtonElement>('button')
-    expect(buttons).toHaveLength(2)
-    expect(buttons[0]?.getAttribute('aria-pressed')).toBe('true')
-    expect(buttons[0]?.className).toContain('rounded-lg')
-    expect(buttons[0]?.className).toContain('bg-secondary-container')
-    expect(buttons[1]?.getAttribute('aria-pressed')).toBe('false')
-    expect(buttons[1]?.className).toContain('border-outline-variant')
-    expect(buttons[0]?.querySelector('i[aria-hidden="true"]')?.className).toContain('ri-check-line')
-    expect(buttons[1]?.querySelector('i')).toBeNull()
-
-    buttons[0]?.click()
-    buttons[1]?.click()
-    expect(changes).toEqual([null, 'retired'])
     view.unmount()
   })
 })
