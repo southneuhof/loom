@@ -110,6 +110,7 @@ export interface ResourceCustomCommand<
   routePermission?: ResourceRoutePermission
   visible?: (context: { record?: TRecord; access: AccessAdapter }) => boolean
   route?: ResourceRoute<TIdentity>
+  invalidates?: readonly string[]
 }
 
 export type ResourceCustomContext<TRecord extends object = Record<string, unknown>> = {
@@ -257,6 +258,7 @@ export type ResourceCreateDeclaration<TForm extends FormBagShape = FormBagShape>
   permission: string | null
   route?: ResourceStaticRoute
   visible?: (context: { access: AccessAdapter }) => boolean
+  invalidates?: readonly string[]
   form: TForm
 }
 
@@ -284,6 +286,7 @@ export type ResourceUpdateDeclaration<
   ResourceVisibility<TIdentityRecord> & {
     permission: string | null
     route?: ResourceRoute<TIdentity>
+    invalidates?: readonly string[]
     form: TFactory
   }
 
@@ -298,6 +301,7 @@ export type ResourceLoadedUpdateDeclaration<TLoad extends ResourceRecordLoad, TI
   permission: string | null
   route?: ResourceRoute<TIdentity>
   visible?: (context: { record?: LoadedResourceRecord<TLoad>; access: AccessAdapter }) => boolean
+  invalidates?: readonly string[]
   load: TLoad
   form: (binding: LoadedUpdateBinding<TLoad, TIdentity, TContext>) => TForm
 }
@@ -305,6 +309,7 @@ export type ResourceLoadedUpdateDeclaration<TLoad extends ResourceRecordLoad, TI
 export type ResourceDeleteDeclaration<TIdentity extends RecordIdentity, TIdentityRecord extends object> = ResourceVisibility<TIdentityRecord> & {
   permission: string | null
   route?: ResourceRoute<TIdentity>
+  invalidates?: readonly string[]
   run: (record: TIdentityRecord) => MaybePromise<unknown>
 }
 

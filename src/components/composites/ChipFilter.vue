@@ -1,17 +1,22 @@
 <script setup lang="ts">
 import type { PropType } from 'vue'
-import Chip from '@southneuhof/loom/components/base/Chip.vue'
+import Button from '../base/Button.vue'
+import Icon from '../base/Icon.vue'
 
-const modelValue = defineModel()
+const modelValue = defineModel<string | null | undefined>()
 
 const props = defineProps({
   items: {
-    type: Array as PropType<Array<{ id: string; label: string }>>,
+    type: Array as PropType<readonly { id: string; label: string }[]>,
     required: true,
   },
   selection: {
     type: String as PropType<'optional' | 'required'>,
     required: true,
+  },
+  label: {
+    type: String,
+    default: undefined,
   },
 })
 
@@ -25,16 +30,19 @@ function select(itemId: string) {
 </script>
 
 <template>
-  <div class="flex flex-row items-center gap-2">
-    <Chip
+  <div class="flex flex-wrap items-center gap-2" role="group" :aria-label="props.label">
+    <Button
       v-for="item in props.items"
       :key="item.id"
-      class="cursor-pointer"
+      type="button"
+      variant="outlined"
+      toggle
+      :selected="modelValue == item.id"
+      class="h-8 gap-1.5 px-3"
       @click="select(item.id)"
-      color="primary"
-      :variant="modelValue == item.id ? 'tonal' : 'outline'"
     >
+      <template #selected-icon><Icon name="check" size="base" /></template>
       {{ item.label }}
-    </Chip>
+    </Button>
   </div>
 </template>

@@ -290,7 +290,7 @@ describe("shared primitive browser behavior", () => {
     apps.push(app);
     await settle();
 
-    const chips = host.querySelectorAll(".cursor-pointer");
+    const chips = host.querySelectorAll("button");
     (chips[0] as HTMLElement).click();
     (chips[1] as HTMLElement).click();
     await settle();

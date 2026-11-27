@@ -65,9 +65,18 @@ function assertPermission(resourceKey: string, operation: string, permission: un
   }
 }
 
+function assertInvalidates(resourceKey: string, operation: string, invalidates: unknown): readonly string[] {
+  if (invalidates === undefined) return []
+  if (!Array.isArray(invalidates) || invalidates.some((key) => typeof key !== 'string' || key.length === 0)) {
+    throw new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" operation "${operation}" invalidates must be an array of nonempty resource keys.`)
+  }
+  return invalidates
+}
+
 function assertOperation(resourceKey: string, operation: string, entry: unknown): asserts entry is Record<string, unknown> {
   if (!isRecord(entry)) throw new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" operation "${operation}" must be an object.`)
   assertPermission(resourceKey, operation, entry.permission)
+  if (operation === 'create' || operation === 'update' || operation === 'delete') assertInvalidates(resourceKey, operation, entry.invalidates)
   if (operation === 'update' && 'load' in entry && typeof entry.load !== 'function') throw new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" update load must be a function.`)
   if (entry.visible !== undefined && typeof entry.visible !== 'function') {
     throw new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" operation "${operation}" visible must be a function.`)
@@ -333,8 +342,15 @@ async function invalidateAfterWrite(
   operation: string,
   id?: RecordIdentity,
   result?: unknown,
+  extraResources: readonly string[] = [],
 ): Promise<void> {
-  const refresh = () => refreshResource(runtime, resourceKey, id, operation === 'delete' ? 'removed' : 'refresh')
+  const related = [...new Set(extraResources)].filter((key) => key !== resourceKey)
+  const refresh = async () => {
+    await refreshResource(runtime, resourceKey, id, operation === 'delete' ? 'removed' : 'refresh')
+    for (const relatedKey of related) {
+      await refreshResource(runtime, relatedKey)
+    }
+  }
   try {
     await refresh()
   } catch (error) {
@@ -359,7 +375,7 @@ async function runDelete<TIdentity extends RecordIdentity, TRecord extends objec
   assertAllowed(resourceKey, runtime.adapters.access, 'delete', declaration.permission, declaration.visible, binding.record)
   if (!binding.record) throw new Error('[loom][RESOURCE_RECORD_REQUIRED] Delete requires its selected record.')
   const result = await declaration.run(binding.record)
-  await invalidateAfterWrite(runtime, resourceKey, 'delete', binding.id, result)
+  await invalidateAfterWrite(runtime, resourceKey, 'delete', binding.id, result, declaration.invalidates)
   return result
 }
 
@@ -409,6 +425,7 @@ function wrapSubmit<TIdentityFunction extends ResourceIdentityFunction, TRecord 
   record: TRecord | undefined,
   submit: (output: TSubmitInput, ...args: never[]) => TSubmitResult,
   context: object = {},
+  invalidates: readonly string[] = [],
 ): (output: TSubmitInput, scope?: { outputs: FormOutputs }) => Promise<Awaited<TSubmitResult>> {
   return async (output, scope?: { outputs: FormOutputs }): Promise<Awaited<TSubmitResult>> => {
     const runtime = useResourceRuntime()
@@ -427,7 +444,7 @@ function wrapSubmit<TIdentityFunction extends ResourceIdentityFunction, TRecord 
           : 'The successful result has no valid resource identity.',
       )
     }
-    await invalidateAfterWrite(runtime, resourceKey, operation, operation === 'update' ? id : undefined, result)
+    await invalidateAfterWrite(runtime, resourceKey, operation, operation === 'update' ? id : undefined, result, invalidates)
     return result
   }
 }
@@ -490,7 +507,7 @@ function customHandle<
         throw new Error(`[loom] Resource "${resourceKey}" action "${actionName}" is not allowed.`)
       }
       const result = await action.run(...args)
-      await invalidateAfterWrite(runtime, resourceKey, actionName, undefined, result)
+      await invalidateAfterWrite(runtime, resourceKey, actionName, undefined, result, action.invalidates)
       return result as Awaited<ReturnType<TRun>>
     },
     ...(route ? { route } : {}),
@@ -634,7 +651,7 @@ export function bindResource<
       }
       const list = withoutMembers(declaration, ['permission', 'route', 'visible', 'table', 'can', 'deleteRecord', 'recordIdentity'])
       list.table = tableBag
-      list.export = definition.exports?.list ?? declaration.export ?? true
+      list.export = (definition.exports?.list as unknown) ?? declaration.export ?? true
       list.exportAccess = () => standardAllowed(useResourceRuntime().adapters.access, 'list', declaration.permission, declaration.visible)
       if (declaration.createRoute === undefined && definition.create?.route) list.createRoute = routeTarget(definition.create.route)
       const detailRoute = bindRowRoute('detail', declaration.detailRoute, definition.detail)
@@ -671,7 +688,7 @@ export function bindResource<
     return {
       completion,
       ...(definition.list?.route ? { backTo: routeTarget(definition.list.route) } : {}),
-      ...withoutMembers(declaration, ['permission', 'route', 'visible', 'form', ...exclude]),
+      ...withoutMembers(declaration, ['permission', 'route', 'visible', 'invalidates', 'form', ...exclude]),
       ...(declaration.defaultTo !== undefined ? { defaultTo: declaration.defaultTo } : {}),
     }
   }
@@ -692,7 +709,7 @@ export function bindResource<
           searchParameters,
           resource: resourceKey,
           namespace: form.namespace ?? `${resourceKey}.create`,
-          submit: wrapSubmit(resourceKey, 'create', declaration.permission, declaration.visible, identity, undefined, undefined, submit, options.context ?? form.context),
+          submit: wrapSubmit(resourceKey, 'create', declaration.permission, declaration.visible, identity, undefined, undefined, submit, options.context ?? form.context, declaration.invalidates),
           ...(load ? { load: wrapUnboundLoad(resourceKey, 'create', declaration.permission, declaration.visible, load, searchParameters) } : {}),
         },
       }
@@ -788,7 +805,7 @@ export function bindResource<
                 id: bound.id,
                 resource: resourceKey,
                 namespace: primitive.namespace ?? namespace,
-                submit: wrapSubmit(resourceKey, 'update', declaration.permission, declaration.visible, identity, bound.id, original, primitive.submit, binding.context ?? primitive.context),
+                submit: wrapSubmit(resourceKey, 'update', declaration.permission, declaration.visible, identity, bound.id, original, primitive.submit, binding.context ?? primitive.context, declaration.invalidates),
               }
             },
           },
@@ -806,7 +823,7 @@ export function bindResource<
         id: bound.id,
         resource: resourceKey,
         namespace: primitive.namespace ?? namespace,
-        submit: wrapSubmit(resourceKey, 'update', declaration.permission, declaration.visible, identity, bound.id, bound.record, submit, binding.context ?? primitive.context),
+        submit: wrapSubmit(resourceKey, 'update', declaration.permission, declaration.visible, identity, bound.id, bound.record, submit, binding.context ?? primitive.context, declaration.invalidates),
         load: wrapRecordLoad(resourceKey, 'update', declaration.permission, declaration.visible, bound.id, bound.record, load, searchParameters),
       }
       return {
@@ -846,10 +863,11 @@ export function bindResource<
       const hasRoutePermission = Object.hasOwn(action, 'routePermission')
       const routePermission = Reflect.get(action, 'routePermission')
       for (const member of Object.keys(action)) {
-        if (!['run', 'permission', 'visible', 'route', 'routePermission'].includes(member)) {
+        if (!['run', 'permission', 'visible', 'route', 'routePermission', 'invalidates'].includes(member)) {
           throw new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" action "${actionName}" member "${member}" is not supported.`)
         }
       }
+      assertInvalidates(resourceKey, actionName, action.invalidates)
       if (typeof permission !== 'string' && !Array.isArray(permission) && typeof permission !== 'function' && permission !== null) {
         throw new Error(`[loom][SURFACE_OPTION_INVALID] Resource "${resourceKey}" action "${actionName}" needs a permission policy.`)
       }

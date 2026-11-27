@@ -739,4 +739,66 @@ describe('bound resource operations', () => {
     expect(records.create().form.submitLabel).toBe('Create record')
     expect(records.detail({ id: 'one' }).backTo).toBe(false)
   })
+
+  it('invalidates related resources declared on create, update, delete, and custom actions', async () => {
+    const queryClient = installRuntime()
+    const invalidated: unknown[] = []
+    const originalInvalidate = queryClient.invalidateQueries.bind(queryClient)
+    vi.spyOn(queryClient, 'invalidateQueries').mockImplementation(async (filters, options) => {
+      invalidated.push(filters?.queryKey)
+      return originalInvalidate(filters, options)
+    })
+
+    const orders = defineResource({
+      key: 'work-orders',
+      identity: (record: Row) => record.id,
+      create: {
+        permission: null,
+        invalidates: ['sites', 'equipment'],
+        form: { schema: draftSchema, fields: { name: { renderer: 'text' } }, submit: async (input: Draft) => ({ id: '1', ...input, status: 'draft' }) },
+      },
+      update: {
+        permission: null,
+        invalidates: ['equipment'],
+        form: ({ id }) => ({
+          schema: draftSchema,
+          fields: { name: { renderer: 'text' } },
+          load: async () => ({ name: 'Draft' }),
+          submit: async (input: Draft) => ({ id, ...input, status: 'draft' }),
+        }),
+      },
+      delete: {
+        permission: null,
+        invalidates: ['sites'],
+        run: async () => undefined,
+      },
+      actions: {
+        approve: {
+          permission: null,
+          invalidates: ['dispatch', 'work-orders'],
+          run: async (id: string) => ({ id, status: 'approved' }),
+        },
+      },
+    })
+
+    await orders.create().form.submit({ name: 'Pump' })
+    expect(invalidated).toContainEqual(['resource', 'work-orders'])
+    expect(invalidated).toContainEqual(['resource', 'sites'])
+    expect(invalidated).toContainEqual(['resource', 'equipment'])
+
+    invalidated.length = 0
+    await orders.update({ id: '1' }).form.submit({ name: 'Pump updated' })
+    expect(invalidated).toContainEqual(['resource', 'work-orders', 'detail', '1'])
+    expect(invalidated).toContainEqual(['resource', 'equipment'])
+
+    invalidated.length = 0
+    await orders.delete({ id: '1', record: { id: '1', name: 'Pump', status: 'draft' } }).run()
+    expect(invalidated).toContainEqual(['resource', 'sites'])
+
+    invalidated.length = 0
+    await orders.actions.approve.run('1')
+    expect(invalidated).toContainEqual(['resource', 'work-orders'])
+    expect(invalidated).toContainEqual(['resource', 'dispatch'])
+    expect(invalidated.filter((key) => Array.isArray(key) && key[1] === 'work-orders')).toHaveLength(1)
+  })
 })

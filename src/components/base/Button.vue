@@ -85,6 +85,7 @@ const rootAttrs = computed(() => {
 
 const hasLeadingIcon = computed(() => !!slots.icon)
 const hasSelectedIcon = computed(() => !!slots['selected-icon'])
+const hasActiveLeadingIcon = computed(() => (props.toggle && props.selected && hasSelectedIcon.value) || hasLeadingIcon.value)
 const hasTrailingIcon = computed(() => props.trailingIcon || !!slots['trailing-icon'])
 const hasMenu = computed(() => !!slots.menu)
 
@@ -149,8 +150,8 @@ const selectedToggleClass: Record<ButtonColor, string> = {
 }
 
 const regularPaddingClass = computed(() => {
-  if (hasLeadingIcon.value && hasTrailingIcon.value) return 'pl-4 pr-4'
-  if (hasLeadingIcon.value) return 'pl-4 pr-6'
+  if (hasActiveLeadingIcon.value && hasTrailingIcon.value) return 'pl-4 pr-4'
+  if (hasActiveLeadingIcon.value) return 'pl-4 pr-6'
   if (hasTrailingIcon.value) return 'pl-6 pr-4'
   return ''
 })
@@ -351,8 +352,9 @@ function closeMenu() {
       </span>
     </template>
     <template v-else>
-      <span v-if="hasLeadingIcon && !trailingIcon" class="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center [&>*]:h-[18px] [&>*]:w-[18px]">
-        <slot name="icon" />
+      <span v-if="hasActiveLeadingIcon && !trailingIcon" class="inline-flex h-[18px] w-[18px] shrink-0 items-center justify-center [&>*]:h-[18px] [&>*]:w-[18px]">
+        <slot v-if="toggle && selected && hasSelectedIcon" name="selected-icon" />
+        <slot v-else name="icon" />
       </span>
       <span class="inline-flex items-center">
         <slot />
