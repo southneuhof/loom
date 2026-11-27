@@ -197,6 +197,10 @@ function moveInline(index: number, direction: -1 | 1): void {
   )
   void focusRow(target)
 }
+
+function createButtonBindings<T extends { id?: string }>(bindings: T): T {
+  return { ...bindings, id: addId.value }
+}
 </script>
 
 <template>
@@ -276,14 +280,14 @@ function moveInline(index: number, direction: -1 | 1): void {
     </div>
   </BaseInput>
   <BaseInput v-else-if="props.mode !== 'inline'" v-bind="baseInputProps" :label="''" v-slot="{ controlBindings }">
-    <div class="flex flex-col gap-4">
+    <div v-bind="controlBindings" role="group" :aria-label="label ?? field" class="flex flex-col gap-4">
       <div class="flex flex-row justify-end">
-        <DialogForm v-if="!disabled && props.form" v-bind="props.form" :context="formContext" :disabled="disabled" :title="uiDefaults.addRowLabel" :cancel-label="uiDefaults.cancelLabel" :submit="createRow">
+        <DialogForm v-if="!disabled && props.form" v-bind="props.form" :context="formContext" :disabled="disabled" :title="addLabel ?? uiDefaults.addRowLabel" :cancel-label="uiDefaults.cancelLabel" :submit="createRow">
           <template #trigger>
-            <slot v-if="$slots['create-button']" name="create-button" :control-bindings="controlBindings" />
-            <Button v-else v-bind="controlBindings" type="button">
+            <slot v-if="$slots['create-button']" name="create-button" :control-bindings="createButtonBindings(controlBindings)" />
+            <Button v-else v-bind="createButtonBindings(controlBindings)" type="button">
               <template #icon><Icon name="add" size="base" /></template>
-              {{ uiDefaults.addLabel }}
+              {{ addLabel ?? uiDefaults.addLabel }}
             </Button>
           </template>
         </DialogForm>

@@ -21,6 +21,8 @@ describe('TableInput surface', () => {
     expect(view.text()).toContain('First')
     expect(view.text()).toContain('Second')
     expect(view.text()).toContain('Add')
+    const addButton = view.all<HTMLButtonElement>('button').find((button) => button.textContent?.includes('Add'))
+    expect(addButton?.hasAttribute('aria-labelledby')).toBe(false)
     expect(view.all('[aria-label="Edit row"]')).toHaveLength(2)
     expect(view.all('[aria-label="Delete row"]')).toHaveLength(2)
     expect(view.all('[aria-label="Row actions"]')).toHaveLength(2)
@@ -28,6 +30,13 @@ describe('TableInput surface', () => {
     expect(view.all('[aria-label="Row actions"]')[0].className).toContain('gap-1')
     expect(view.text()).not.toContain('DataCloneError')
     view.unmount()
+
+    const labeled = mountCore(TableInput, { id: 'checklist-field', table, form, toDraft, addLabel: 'Add checklist item', modelValue: [] })
+    const customAdd = labeled.all<HTMLButtonElement>('button').find((button) => button.textContent?.includes('Add checklist item'))
+    expect(customAdd).not.toBeUndefined()
+    expect(customAdd?.id).not.toBe('checklist-field')
+    expect(labeled.find('[role="group"]')?.id).toBe('checklist-field')
+    labeled.unmount()
   })
 
   it('uses the row form input factory for a new row', async () => {

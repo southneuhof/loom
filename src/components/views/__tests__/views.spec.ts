@@ -1004,7 +1004,7 @@ describe('DetailView', () => {
     await flush()
 
     expect(deleteRecord).toHaveBeenCalledWith({ id: 'r1', name: 'Admin' })
-    expect(view.router.currentRoute.value.name).toBe('test-route')
+    await vi.waitFor(() => expect(view.router.currentRoute.value.name).toBe('test-route'))
     view.unmount()
   })
 
@@ -1085,6 +1085,73 @@ describe('DetailView', () => {
       .map((element) => element.textContent?.trim())
     expect(headerActions).toEqual(['Edit', 'Certify closure'])
     view.unmount()
+  })
+
+  it('completes delete navigation even when deleteRecord rebinds mid-flight and uses router.back for history backTo', async () => {
+    const pendingDelete = deferred<void>()
+    const tick = ref(0)
+    const Host = defineComponent({
+      setup: () => () => h(DetailView, {
+        title: 'Zone',
+        backTo: { name: 'test-route' },
+        detail: {
+          schema: z.object({ id: z.string(), name: z.string() }),
+          fields: { name: { label: 'Name' } },
+          id: 'z-1',
+          resource: 'zones',
+          data: { id: 'z-1', name: 'North' },
+        },
+        deleteRecord: async () => {
+          tick.value += 1
+          await pendingDelete.promise
+        },
+        recordIdentity: (record: { id: string }) => record.id,
+        can: (operation: string) => operation === 'delete',
+      }),
+    })
+    const view = mountCore(Host, {})
+    const replaceSpy = vi.spyOn(view.router, 'replace')
+    await flush()
+
+    const deleteTrigger = view.all<HTMLButtonElement>('header button').find((node) => node.textContent?.includes('Delete'))!
+    deleteTrigger.click()
+    await flush()
+    const confirmButton = Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find((node) => node.textContent?.trim() === 'Delete')!
+    confirmButton.click()
+    await flush()
+
+    pendingDelete.resolve(undefined)
+    await flush()
+
+    expect(replaceSpy).toHaveBeenCalledWith({ name: 'test-route' })
+    replaceSpy.mockRestore()
+    view.unmount()
+
+    const historyView = mountCore(DetailView, {
+      title: 'Zone',
+      backTo: 'history',
+      detail: {
+        schema: z.object({ id: z.string(), name: z.string() }),
+        fields: { name: { label: 'Name' } },
+        id: 'z-2',
+        resource: 'zones',
+        data: { id: 'z-2', name: 'South' },
+      },
+      deleteRecord: async () => undefined,
+      recordIdentity: (record: { id: string }) => record.id,
+      can: (operation: string) => operation === 'delete',
+    })
+    const backSpy = vi.spyOn(historyView.router, 'back').mockImplementation(() => undefined)
+    await flush()
+
+    historyView.all<HTMLButtonElement>('header button').find((node) => node.textContent?.includes('Delete'))!.click()
+    await flush(5)
+    Array.from(document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')).find((node) => node.textContent?.trim() === 'Delete')!.click()
+    await flush(5)
+
+    expect(backSpy).toHaveBeenCalledOnce()
+    backSpy.mockRestore()
+    historyView.unmount()
   })
 })
 

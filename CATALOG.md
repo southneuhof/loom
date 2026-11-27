@@ -94,6 +94,21 @@ Generated from source by `node scripts/generate-framework-catalog.mjs`. Do not e
 - Default parser formatters (`@southneuhof/utilities/parse`, configured in `apps/web/src/main.ts`): `number`, `largeNumber`, `currency`, `month`, `date`, `time`, `datetime`, `hour`, `delta`
 - Plain multi-line strings in `Detail` and `Table` preserve newlines automatically via `DisplayValue.vue` (`whitespace-pre-line`).
 
+## Core factories, composables, and utilities (`@southneuhof/loom`)
+
+| Export | Signature | Source |
+|---|---|---|
+| `defineForm` | `defineForm<TSchema, TFields>(definition: { schema, fields, sections, labels, validators, submit })` | `packages/loom/src/forms/defineForm.ts` |
+| `defineTable` | `defineTable<TSchema, TColumns, TLabels?>(definition: TableArgument<TSchema, TColumns> & { readonly labels?: TLabels })` | `packages/loom/src/tables/defineTable.ts` |
+| `defineDetail` | `defineDetail<TSchema, TFields, TLabels?>(definition: DetailArgument<TSchema, TFields> & { readonly labels?: TLabels })` | `packages/loom/src/details/defineDetail.ts` |
+| `defineResource` | `defineResource<TIdentityFunction, TDefinition>(definition: TDefinition | LoadedResourceDefinition<TIdentityFunction, ResourceRec...)` | `packages/loom/src/resources/defineResource.ts` |
+| `useCollection` | `useCollection<TRecord, TQuery>(sourceGetter: () => CollectionProps<TRecord, TQuery>, options?: UseCollectionOptions)` | `packages/loom/src/components/core/useCollection.ts` |
+| `useRecord` | `useRecord<TRecord, TContext?>(sourceGetter: () => DetailProps<TRecord, TContext>)` | `packages/loom/src/components/core/useRecord.ts` |
+| `useLoader` | `useLoader<TContext, TResult>(options: LoaderOptions<TContext, TResult>)` | `packages/loom/src/query/loader.ts` |
+| `useNamespacedQuery` | `useNamespacedQuery(options: NamespacedQueryOptions)` | `packages/loom/src/query/namespace.ts` |
+| `downloadBlob` | `downloadBlob(response: Response, fallbackFilename: string)` | `packages/loom/src/services/download.ts` |
+| `parseFilenameFromContentDisposition` | `parseFilenameFromContentDisposition(header: string | null)` | `packages/loom/src/services/download.ts` |
+
 ## Resource and web transport helpers
 
 - `@southneuhof/loom` resource API: `defineResource(definition)`

@@ -27,21 +27,23 @@ import { withCurrentQuery } from './routeQuery'
 type TRecord = RawSchemaOutput<TSchema>
 type DeleteOutcome = { pending: boolean; refreshing?: boolean; error?: Readonly<SubmitError> }
 
-const props = defineProps<DetailViewProps<TRecord, TContext> & { detail: { schema: TSchema } }>()
+const props = withDefaults(
+  defineProps<DetailViewProps<TRecord, TContext> & { detail: { schema: TSchema } }>(),
+  { backTo: undefined, afterDeleteTo: undefined, updateRoute: undefined },
+)
 const router = useRouter()
 const adapters = useFrameworkAdapters()
 const uiDefaults = useFrameworkUiDefaults()
 const detail = computed(() => props.detail)
 const reader = useRecord<TRecord, TContext>(() => detail.value)
-const defaultBackTo: RouteTarget = { name: 'dashboard' }
-const backTo = computed(() => (props.backTo === false ? undefined : (props.backTo ?? defaultBackTo)))
+const backTo = computed(() => (props.backTo === false ? undefined : props.backTo))
 
 let mounted = true
 let deleteRun = 0
 const deleteOutcome = shallowRef<DeleteOutcome>()
 
 watch(
-  () => [JSON.stringify(stableValue(detail.value.id)), detail.value.resource, props.deleteRecord],
+  () => [JSON.stringify(stableValue(detail.value.id)), detail.value.resource],
   () => {
     deleteRun += 1
     deleteOutcome.value = undefined
@@ -125,7 +127,9 @@ async function removeRecord(record: TRecord, close: (value: boolean) => void): P
     close(false)
     toast.success('Record deleted.')
     const destination = props.afterDeleteTo === false ? undefined : (props.afterDeleteTo ?? backTo.value)
-    if (destination) {
+    if (destination === 'history') {
+      router.back()
+    } else if (destination) {
       await router.replace(withCurrentQuery(destination, router.currentRoute.value.query, router) as RouteLocationRaw)
     }
   } catch (error) {
