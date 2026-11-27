@@ -1,47 +1,51 @@
 <script setup lang="ts">
+import { computed, normalizeClass } from 'vue'
+import { twMerge } from 'tailwind-merge'
 import { GoogleMap, Marker } from 'vue3-google-map'
-import { computed, type PropType, ref } from 'vue'
+import OpenStreetMap from './OpenStreetMap.vue'
 
-const GOOGLE_MAP_API_KEY = import.meta.env.GOOGLE_MAP_API_KEY as string
+const props = withDefaults(defineProps<{
+  mapProvider?: 'openstreetmap' | 'google'
+  location?: { lat: number | string; lng: number | string; address?: string } | null
+  center?: { lat: number | string; lng: number | string }
+  lat?: number | string
+  lng?: number | string
+  zoom?: number
+}>(), { mapProvider: 'openstreetmap', zoom: 13 })
 
-const props = defineProps({
-  location: {
-    type: Object as PropType<{ lat: string | number; lng: string | number; address?: string }>,
-    required: false,
-  },
-  center: {
-    type: Object as PropType<{ lat: string | number; lng: string | number }>,
-    required: false,
-  },
-  lat: {
-    type: [String, Number] as PropType<string | number>,
-    required: false,
-  },
-  lng: {
-    type: [String, Number] as PropType<string | number>,
-    required: false,
-  },
-  zoom: {
-    type: Number,
-    default: 10,
-  },
+defineOptions({ inheritAttrs: false })
+
+const apiKey = import.meta.env.GOOGLE_MAP_API_KEY
+const point = computed(() => {
+  if (props.location) return { lat: Number(props.location.lat), lng: Number(props.location.lng) }
+  if (props.lat != null && props.lng != null) return { lat: Number(props.lat), lng: Number(props.lng) }
+  return null
 })
-
-const location = ref({ lat: 0, lng: 0 })
-if (props.location) location.value = { lat: Number(props.location.lat), lng: Number(props.location.lng) }
-else if (props.lat && props.lng) location.value = { lat: Number(props.lat), lng: Number(props.lng) }
-
 const mapCenter = computed(() =>
-  props.center ? { lat: Number(props.center.lat), lng: Number(props.center.lng) } : location.value,
+  props.center ? { lat: Number(props.center.lat), lng: Number(props.center.lng) } : point.value ?? { lat: 0, lng: 0 },
 )
 </script>
 
 <template>
-  <div class="flex flex-col gap-4 rounded-xl">
-    <GoogleMap :class="`h-[250px] w-full ${$attrs.class}`" :api-key="GOOGLE_MAP_API_KEY" :center="mapCenter" :zoom="zoom">
-      <Marker v-if="props.location" :options="{ position: location }" />
-      <slot name="markers"></slot>
+  <div class="flex flex-col gap-4 rounded-xl" v-bind="{ ...$attrs, class: undefined }">
+    <GoogleMap
+      v-if="props.mapProvider === 'google' && apiKey"
+      :class="twMerge('h-[250px] w-full', normalizeClass($attrs.class))"
+      :api-key="apiKey"
+      :center="mapCenter"
+      :zoom="props.zoom"
+    >
+      <Marker v-if="point" :options="{ position: point }" />
+      <slot name="markers" />
     </GoogleMap>
+    <OpenStreetMap
+      v-else
+      :class="twMerge('h-[250px] w-full', normalizeClass($attrs.class))"
+      :center="mapCenter"
+      :location="point"
+      :zoom="props.zoom"
+      disabled
+    />
     <div v-if="props.location?.address" class="italic">{{ props.location.address }}</div>
   </div>
 </template>

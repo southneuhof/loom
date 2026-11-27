@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, normalizeClass, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { twMerge } from 'tailwind-merge'
 import { map, tileLayer, marker, icon, type Map, type Marker } from 'leaflet'
 import 'leaflet/dist/leaflet.css'
 import markerIcon from 'leaflet/dist/images/marker-icon.png'
@@ -11,7 +12,11 @@ const props = defineProps<{
   center: Coordinate
   location?: Coordinate | null
   disabled?: boolean
+  zoom?: number
 }>()
+defineOptions({ inheritAttrs: false })
+
+const zoom = computed(() => props.zoom ?? (props.location ? 13 : 5))
 const emit = defineEmits<{ select: [value: Coordinate] }>()
 const container = ref<HTMLDivElement>()
 let view: Map | undefined
@@ -45,7 +50,7 @@ function sync() {
 
 onMounted(() => {
   if (!container.value) return
-  view = map(container.value).setView(props.center, 5)
+  view = map(container.value).setView(props.center, zoom.value)
   tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
     maxZoom: 19,
@@ -58,6 +63,7 @@ onMounted(() => {
   sync()
 })
 watch(() => [props.center, props.location, props.disabled], sync)
+watch(zoom, (value) => view?.setView(props.center, value))
 onBeforeUnmount(() => {
   observer?.disconnect()
   view?.remove()
@@ -65,5 +71,9 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div ref="container" class="relative z-0 h-[450px] w-full" aria-label="Location map" />
+  <div
+    ref="container"
+    aria-label="Location map"
+    v-bind="{ ...$attrs, class: twMerge('relative z-0 h-[450px] w-full', normalizeClass($attrs.class)) }"
+  />
 </template>

@@ -92,6 +92,37 @@ describe('Tabs', () => {
 })
 
 describe('Drawer', () => {
+  it('keeps the drawer open for portaled options and dismisses it for other outside clicks', async () => {
+    const changes: boolean[] = []
+    const view = mountCore(Drawer, {
+      modelValue: true,
+      title: 'Quick triage',
+      'onUpdate:modelValue': (value: boolean) => changes.push(value),
+    })
+    const portal = document.createElement('div')
+    portal.setAttribute('data-reka-popper-content-wrapper', '')
+    const option = document.createElement('button')
+    option.textContent = 'High priority'
+    portal.append(option)
+    document.body.append(portal)
+    try {
+      await flush()
+      await new Promise((done) => setTimeout(done, 0))
+      expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('Quick triage')
+
+      option.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }))
+      await flush()
+      expect(changes).toEqual([])
+
+      document.body.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, cancelable: true }))
+      await flush()
+      expect(changes).toEqual([false])
+    } finally {
+      view.unmount()
+      portal.remove()
+    }
+  })
+
   it('renders title, description, scrollable content, footer, and closes via the close control', async () => {
     const originalMatchMedia = window.matchMedia
     Object.defineProperty(window, 'matchMedia', {

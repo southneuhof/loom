@@ -51,6 +51,60 @@ Generated from source by `node scripts/generate-framework-catalog.mjs`. Do not e
 | `LocationInput` | `v-model`, `mapProvider`, `operations`, `...commonProps` | - | `packages/loom/src/components/composites/form-inputs/LocationInput.vue` |
 | `MultiLocationInput` | `v-model`, `mapProvider`, `operations`, `...commonProps` | - | `packages/loom/src/components/composites/form-inputs/MultiLocationInput.vue` |
 
+## High-traffic component contracts
+
+See each declaration for constraints on combinations of props.
+
+### [ListView](src/components/views/ListView.vue)
+
+- Props (`ListViewProps<TRecord, TQuery, TFilterInput, TContext>`) `title?: string`, `description?: string`, `actionLabels?: Partial<Record<'create' | 'view' | 'edit' | 'delete', string>>`, `filters?: ListFilters<TQuery, TFilterInput, TContext>`, `filterControls?: ListViewFilterControls`, `bodyVariant?: ListViewBodyVariant`, `exportAccess?: (record?: TRecord) => boolean`, `export?: ListExportConfiguration<TRecord, TQuery, TContext> | boolean`, `table: TableProps<TRecord, TQuery, TContext>`, `createRoute?: RouteTarget | false`, `detailRoute?: ((record: TRecord) => RouteTarget | undefined) | false`, `updateRoute?: ((record: TRecord) => RouteTarget | undefined) | false`, `can?: (operation: ResourceOperation, record?: TRecord) => boolean`, `deleteRecord?: (record: TRecord) => Promise<unknown>`, `recordIdentity?: (record: TRecord) => RecordIdentity`, `deleteRecord: (record: TRecord) => Promise<unknown>`, `recordIdentity: (record: TRecord) => RecordIdentity`, `deleteRecord?: undefined`, `recordIdentity?: never`
+- Slots `cell:${string}: { value: unknown; record: TRecord; field: unknown; index: number }`, `collection: CollectionSlotProps<TRecord, TQuery> & { actions?: ListViewSlotActions<TRecord>; rowActions: typeof RowActions; exportControls: ExportControls }`, `row-actions-view: { record: TRecord; can?: ListViewActions<TRecord>["can"]; target: RouteTarget }`, `row-actions-edit: { record: TRecord; can?: ListViewActions<TRecord>["can"]; target: RouteTarget }`, `row-actions-delete: { record: TRecord; can?: ListViewActions<TRecord>["can"]; deleteRecord?: ListViewSlotActions<TRecord>["deleteRecord"]; deleteState: ListViewDeleteState }`, `create-action: { can?: ListViewActions<TRecord>["can"]; target: RouteTarget }`, `resource-action: { exportControls: ExportControls }`, `export-action: { exportControls: ExportControls }`, `header: { exportControls: ExportControls }`, `empty`, `filters: FilterSlotProps { draft, issues, validating, setValue, validate, reset, setError, errorFor, touched, touch, field }`, `context: ListViewContextSlotProps { draft, issues, validating, setValue, validate, reset, setError, errorFor, touched, touch, field, context, loading, error, query }`, `toolbar: { exportControls: ExportControls } & FilterSlotProps`, `body: { table: TableProps<TRecord, TQuery, TContext>; exportControls: ExportControls }`, `footer: { exportControls: ExportControls }`, `row-actions: { record: TRecord }`, `column-dialog: { columns, reset }`
+
+### [DetailView](src/components/views/DetailView.vue)
+
+- Props (`DetailViewProps<TRecord, TContext> & { detail: { schema: TSchema } }`) `detail: DetailProps<TRecord, TContext>`, `exportAccess?: (record?: TRecord) => boolean`, `export?: DetailExportConfiguration<TRecord, TContext> | boolean`, `title?: string`, `description?: string`, `actionLabels?: Partial<Record<'edit' | 'delete', string>>`, `backTo?: RouteTarget | false`, `updateRoute?: ((record: TRecord) => RouteTarget | undefined) | false`, `can?: (operation: ResourceOperation, record?: TRecord) => boolean`, `deleteRecord?: (record: TRecord) => Promise<unknown>`, `recordIdentity?: (record: TRecord) => RecordIdentity`, `afterDeleteTo?: RouteTarget | false`, `detail: { schema: TSchema }`
+- Slots `header: { record, loading, error, refresh, exportControls, updateTarget, can, deleteRecord, deleteState }`, `title: { record, loading, error, refresh, exportControls, updateTarget, can, deleteRecord, deleteState }`, `description: { record, loading, error, refresh, exportControls, updateTarget, can, deleteRecord, deleteState }`, `export-action: { exportControls }`, `secondary-controls: { record, loading, error, refresh, exportControls, updateTarget, can, deleteRecord, deleteState }`, `edit-action: { record, can, target }`, `delete-action: { record, can, deleteRecord, deleteState }`, `controls: { record, loading, error, refresh, exportControls, updateTarget, can, deleteRecord, deleteState }`, `loading`, `error: { error, refresh }`, `empty`, `read-error: { error, refresh }`, `body: { record, exportControls, detail }`, `[dynamic]: { ...slotProps ?? {} }`
+
+### [Form](src/components/core/Form.vue)
+
+- Props (`FormProps<TInput, TOutput, TResult, TKeys, TContext, TFields>`) `schema: RawSchema<TInput, TOutput>`, `fields: TFields & FormFields<TInput, TKeys, TContext, TFields>`, `sections?: readonly FormSection<string>[]`, `labels?: LabelDictionary`, `validators?: readonly FormValidatorEntry<TInput, TOutput, TContext>[]`, `modelValue?: FormDraft<TInput> | undefined`, `initialData?: FormDraft<TInput>`, `load?: (context: RecordLoadContext) => MaybePromise<FormDraft<TInput> | undefined>`, `id?: RecordIdentity`, `resource?: string`, `namespace?: QueryNamespace`, `searchParameters?: Record<string, unknown>`, `context?: TContext`, `normalizeError?: (error: unknown) => SubmitError`, `completeOnSubmit?: boolean`, `disabled?: boolean`, `submitLabel?: string`, `submittingLabel?: string`, `submit: FormSubmit<TOutput, TResult, TContext>`, `submit?: never`, `modelValue: FormDraft<TInput> | undefined`, `name?: string`, `target?: string`
+- Slots `input:${TKey}: FormInputSlotProps<TInput, TKey> { value, draft, field, setValue, setError, error, controlBindings, touched, disabled, validating, formValidating }`, `loading`, `load-error: { readonly error: SubmitError; readonly refresh: () => Promise<void> }`, `actions: FormActionSlotProps<TInput, TOutput, TResult, TContext> { submit, reset, refresh, submitting, submitPending, postWriteError, validating, dirty, inputPending }`
+
+### [TableInput](src/components/composites/form-inputs/TableInput.vue)
+
+- Props (`TableInputCoreProps<TInput, TRow, TContext>`) `mode?: 'dialog'`, `fields?: never`, `createRow?: never`, `addLabel?: never`, `table: TableInputTable<TRow, TContext>`, `disabled?: boolean`, `field?: string`, `label?: string`, `helperMessage?: string`, `error?: string`, `required?: boolean`, `context?: TContext`, `form?: never`, `toDraft?: never`, `reorderable?: false`, `rowKey?: never`, `form: TableInputForm<TInput, TRow, TContext>`, `toDraft: (row: TRow) => FormDraft<TInput>`, `reorderable: true`, `rowKey: NonNullable<TableProps<TRow>['rowKey']>`, `rowKey?: TableProps<TRow>['rowKey']`, `reorderable?: boolean`, `mode: 'inline'`, `fields: InlineArrayFields<TRow> | ((row: TRow, index: number) => InlineArrayFields<TRow>)`, `createRow: () => TRow`, `addLabel?: string`, `table?: never`, `v-model: TRow[]`
+- Slots `cell:{key}: { row, index, value, touch, setError, setRow, setValue, error, disabled, id }`, `create-button: { controlBindings }`, `table: { data }`
+
+### [DateInput](src/components/inputs/DateInput.vue)
+
+- Props `placeholder?: string`, `locale?: string`, `inline?: boolean`, `withTimePicker?: boolean`, `defaultToCurrent?: boolean`, `minDate?: Date`, `teleport?: DatepickerTeleportTarget`, `field?: string`, `label?: string`, `helperMessage?: string`, `disabled?: boolean`, `error?: string`, `required?: boolean`, `v-model: string | null | undefined`
+- Slots None
+
+### [DateRangeInput](src/components/inputs/DateRangeInput.vue)
+
+- Props `placeholder?: string`, `locale?: string`, `unit?: 'arbitrary' | 'week'`, `inline?: boolean`, `teleport?: DatepickerTeleportTarget`, `field?: string`, `label?: string`, `helperMessage?: string`, `disabled?: boolean`, `error?: string`, `required?: boolean`, `v-model: string[]`
+- Slots None
+
+### [SelectInput](src/components/inputs/SelectInput.vue)
+
+- Props `placeholder?: string`, `data?: readonly Option[]`, `load?: OptionLoad<Option>`, `resource?: string`, `namespace?: QueryNamespace`, `searchParameters?: Record<string, unknown>`, `defaultToFirst?: boolean`, `pick?: string`, `view?: string`, `multi?: boolean`, `searchable?: boolean`, `asWhole?: boolean`, `transform?: Record<string, string>`, `onSelect?: (selection: Option | Option[] | null) => void`, `clearable?: boolean`, `field?: string`, `label?: string`, `helperMessage?: string`, `disabled?: boolean`, `error?: string`, `required?: boolean`, `v-model: SelectModelValue`
+- Slots None
+
+### [DrawingCanvas](src/components/inputs/DrawingCanvas.vue)
+
+- Props (`DrawingCanvasProps<TMode>`) `mode?: TMode`, `maxSize?: number`, `transform?: FileTransform`, `destination?: TMode extends 'file' ? never : string`, `upload?: TMode extends 'file' ? never : UploadOperation<AssetValue>`, `disabled?: boolean`, `error?: string`, `field?: string`, `label?: string`, `helperMessage?: string`, `required?: boolean`, `width?: number`, `height?: number`, `v-model: FileInputModelValue<TMode, false>`
+- Slots None
+
+### [Drawer](src/components/base/Drawer.vue)
+
+- Props `title?: string`, `description?: string`, `side?: 'left' | 'right'`, `closeOnOutsideClick?: boolean`, `closeOnEscape?: boolean`, `disabled?: boolean`, `v-model: boolean`
+- Slots `trigger: { setOpen, disabled }`, `title: { setOpen }`, `description: { setOpen }`, `content: { setOpen }`, `footer: { setOpen }`
+
+### [MapView](src/components/utils/MapView.vue)
+
+- Props `mapProvider?: 'openstreetmap' | 'google'`, `location?: { lat: number | string; lng: number | string; address?: string } | null`, `center?: { lat: number | string; lng: number | string }`, `lat?: number | string`, `lng?: number | string`, `zoom?: number`
+- Slots `markers`
+
 ## Form renderers (`defineForm`)
 
 | Form renderer | Component | Unique props | Source |
@@ -109,11 +163,17 @@ Generated from source by `node scripts/generate-framework-catalog.mjs`. Do not e
 | `downloadBlob` | `downloadBlob(response: Response, fallbackFilename: string)` | `packages/loom/src/services/download.ts` |
 | `parseFilenameFromContentDisposition` | `parseFilenameFromContentDisposition(header: string | null)` | `packages/loom/src/services/download.ts` |
 
+## Resource custom commands and exports
+
+- Declare custom commands in `defineResource({ actions: { name: { permission, run } } })`. Use a function in the same map for a read action.
+- Command options `run`, `permission`, `routePermission`, `visible`, `route`, `invalidates`. Use the bound command at `resource.actions.name`.
+- Bound command members `can`, `run`, `route`, `withContext`. Call `withContext({ record })` for record access checks. Pass the same operation arguments to `can(...args)` and `run(...args)`. `run` checks access and invalidates queries after success.
+- Set `exports.list.downloads` for custom downloads in the list export menu. Type `downloads?: readonly ExportDownloadOption<TQuery>[]`. Each entry has `label: string`, `run(context: { query: TQuery; signal: AbortSignal }): MaybePromise<void>`.
+
 ## Resource and web transport helpers
 
 - `@southneuhof/loom` resource API: `defineResource(definition)`
   - `defineResource` keys: `key`, `identity`, `list`, `create`, `detail`, `update`, `delete`, `exports`, `actions`
   - `create` / `update` / `delete` write options include: `successMessage`, `backTo`, `defaultTo`, `permission`, `route`, `visible`, `invalidates`
-  - custom command options (`actions.<name>`): `run`, `permission`, `routePermission`, `visible`, `route`, `invalidates`
 - `@/framework/hono`: `runHonoMutation(operation, request)`, `createHonoResourceActions(route, options?)`, `parseHonoResponse(response)`
 - `@/framework/schema`: `checkedHonoRecordSchema(_route, schema)`, `checkedHonoResponseRecordSchema(_endpoint, schema)`, `checkedHonoCreateSchema(_route, schema)`, `checkedHonoUpdateSchema(_route, schema)`
