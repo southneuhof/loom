@@ -54,12 +54,13 @@ function validateBindings() {
 validateBindings()
 onBeforeUpdate(validateBindings)
 
-const modelValue = defineModel<TRow[]>({ required: true })
+const modelValue = defineModel<TRow[]>()
+const rows = computed(() => Array.isArray(modelValue.value) ? modelValue.value : [])
 let rowSequence = 0
 const rowKeys = ref<string[]>([])
 const newRowKey = () => `${standaloneId}-${++rowSequence}`
 watch(
-  () => modelValue.value.length,
+  () => rows.value.length,
   (length) => {
     rowKeys.value = Array.from({ length }, (_, index) => rowKeys.value[index] ?? newRowKey())
   },
@@ -84,17 +85,17 @@ function updateRows(rows: TRow[]) {
 }
 
 function createRow(row: TRow) {
-  updateRows([...modelValue.value, row])
+  updateRows([...rows.value, row])
   return row
 }
 
 function replaceRow(index: number, row: TRow) {
-  updateRows(modelValue.value.map((current, currentIndex) => (currentIndex === index ? row : current)))
+  updateRows(rows.value.map((current, currentIndex) => (currentIndex === index ? row : current)))
   return row
 }
 
 function deleteRow(index: number) {
-  updateRows(modelValue.value.filter((_, currentIndex) => currentIndex !== index))
+  updateRows(rows.value.filter((_, currentIndex) => currentIndex !== index))
 }
 
 function reorderRows(payload: RowReorderPayload<TRow>) {
@@ -140,7 +141,8 @@ function cellError(index: number, key: string): string | undefined {
 
 async function focusRow(index: number): Promise<void> {
   await nextTick()
-  const field = modelValue.value[index] && inlineFields(modelValue.value[index], index).find(([, cell]) => !isDisplayCell(cell))?.[0]
+  const row = rows.value[index]
+  const field = row && inlineFields(row, index).find(([, cell]) => !isDisplayCell(cell))?.[0]
   const element = field ? document.getElementById(cellId(index, field)) : document.getElementById(addId.value)
   const control = element?.matches('input,textarea,button,[role="combobox"]') ? element : element?.querySelector<HTMLElement>('input,textarea,button,[role="combobox"]')
   ;(control ?? element)?.focus()
@@ -154,10 +156,10 @@ function replaceInline(rows: TRow[], indices: readonly (number | null)[], change
 }
 
 function changeInlineRow(index: number, key: string, update: (row: TRow) => TRow): void {
-  const rows = modelValue.value
+  const current = rows.value
   replaceInline(
-    rows.map((row, position) => (position === index ? update(row) : row)),
-    rows.map((_row, position) => position),
+    current.map((row, position) => (position === index ? update(row) : row)),
+    current.map((_row, position) => position),
     [index, key]
   )
 }
@@ -170,16 +172,16 @@ const addId = computed(() => `${arrayForm?.id([props.field ?? '']) ?? standalone
 
 function addInline(): void {
   if (props.mode !== 'inline' || locked.value) return
-  const index = modelValue.value.length
-  replaceInline([...modelValue.value, props.createRow()], [...modelValue.value.map((_row, index) => index), null])
+  const index = rows.value.length
+  replaceInline([...rows.value, props.createRow()], [...rows.value.map((_row, index) => index), null])
   void focusRow(index)
 }
 
 function removeInline(index: number): void {
   if (locked.value) return
-  const indices = modelValue.value.map((_row, position) => position).filter((position) => position !== index)
+  const indices = rows.value.map((_row, position) => position).filter((position) => position !== index)
   replaceInline(
-    indices.map((position) => modelValue.value[position]!),
+    indices.map((position) => rows.value[position]!),
     indices
   )
   void focusRow(Math.min(index, indices.length - 1))
@@ -188,11 +190,11 @@ function removeInline(index: number): void {
 function moveInline(index: number, direction: -1 | 1): void {
   if (locked.value) return
   const target = index + direction
-  if (target < 0 || target >= modelValue.value.length) return
-  const indices = modelValue.value.map((_row, position) => position)
+  if (target < 0 || target >= rows.value.length) return
+  const indices = rows.value.map((_row, position) => position)
   indices.splice(target, 0, indices.splice(index, 1)[0]!)
   replaceInline(
-    indices.map((position) => modelValue.value[position]!),
+    indices.map((position) => rows.value[position]!),
     indices
   )
   void focusRow(target)
@@ -207,7 +209,7 @@ function createButtonBindings<T extends { id?: string }>(bindings: T): T {
   <BaseInput v-if="mode === 'inline'" :id="inlineRootId" v-bind="baseInputProps" :label="''" :disabled="locked" v-slot="{ controlBindings }">
     <div v-bind="controlBindings" role="group" :aria-label="label ?? field" :aria-disabled="locked ? 'true' : undefined" tabindex="-1" class="flex flex-col gap-3" @focus.self="focusRow(0)">
       <article
-        v-for="(row, index) in modelValue"
+        v-for="(row, index) in rows"
         :key="rowKey ? (typeof rowKey === 'function' ? rowKey(row) : String(read(row, rowKey))) : rowKeys[index]"
         :aria-label="`${label ?? field ?? 'Row'} ${index + 1}`"
         role="group"
@@ -265,7 +267,7 @@ function createButtonBindings<T extends { id?: string }>(bindings: T): T {
           <Button v-if="reorderable" type="button" kind="icon" variant="standard" ariaLabel="Move row up" :disabled="locked || index === 0" @click="moveInline(index, -1)">
             <template #icon><Icon name="arrow-up" size="base" /></template>
           </Button>
-          <Button v-if="reorderable" type="button" kind="icon" variant="standard" ariaLabel="Move row down" :disabled="locked || index === modelValue.length - 1" @click="moveInline(index, 1)">
+          <Button v-if="reorderable" type="button" kind="icon" variant="standard" ariaLabel="Move row down" :disabled="locked || index === rows.length - 1" @click="moveInline(index, 1)">
             <template #icon><Icon name="arrow-down" size="base" /></template>
           </Button>
           <Button type="button" kind="icon" variant="standard" color="error" ariaLabel="Delete row" :disabled="locked" @click="removeInline(index)">
@@ -293,7 +295,7 @@ function createButtonBindings<T extends { id?: string }>(bindings: T): T {
         </DialogForm>
       </div>
 
-      <Table v-if="!$slots.table" v-bind="props.table" :context="tableContext" :data="modelValue" :reorderable="reorderable && !disabled" :row-key="rowKey" @row-reorder="reorderRows">
+      <Table v-if="!$slots.table" v-bind="props.table" :context="tableContext" :data="rows" :reorderable="reorderable && !disabled" :row-key="rowKey" @row-reorder="reorderRows">
         <template v-if="!disabled && props.form" #row-actions="{ record, index }">
           <div class="flex items-center justify-end gap-1" aria-label="Row actions">
             <DialogForm
@@ -325,7 +327,7 @@ function createButtonBindings<T extends { id?: string }>(bindings: T): T {
           </div>
         </template>
       </Table>
-      <slot v-else name="table" :data="modelValue" />
+      <slot v-else name="table" :data="rows" />
     </div>
   </BaseInput>
 </template>

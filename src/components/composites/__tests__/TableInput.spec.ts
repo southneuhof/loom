@@ -50,6 +50,27 @@ describe('TableInput surface', () => {
     view.unmount()
   })
 
+  it('adds a row when the initial model is undefined', async () => {
+    let emittedRows: unknown
+    const view = mountCore(TableInput, {
+      table,
+      form,
+      toDraft,
+      modelValue: undefined,
+      'onUpdate:modelValue': (rows: unknown) => { emittedRows = rows },
+    })
+    try {
+      view.all('button').find((button) => button.textContent?.includes('Add'))?.click()
+      await flush()
+      document.body.querySelector<HTMLButtonElement>('[role="dialog"] button[type="submit"]')?.click()
+      await flush(10)
+
+      expect(emittedRows).toEqual([{ id: 'generated', name: 'Draft row' }])
+    } finally {
+      view.unmount()
+    }
+  })
+
   it('maps stored rows to form input and replaces rows with parsed output', async () => {
     let emittedRows: unknown
     const view = mountCore(TableInput, {

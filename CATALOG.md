@@ -163,9 +163,12 @@ See each declaration for constraints on combinations of props.
 | `downloadBlob` | `downloadBlob(response: Response, fallbackFilename: string)` | `packages/loom/src/services/download.ts` |
 | `parseFilenameFromContentDisposition` | `parseFilenameFromContentDisposition(header: string | null)` | `packages/loom/src/services/download.ts` |
 
+- In `defineTable` and `defineDetail`, put display titles in top-level `labels`. Use entry `label` for an override. Table columns accept `sortable` and `read`. When a column sets `cell`, put `read` and `format` inside `cell`.
+- Use `apps/web/src/manifest/navigation.ts` as the reference for `VisibleNavigationModule`. Use `kind`, `name`, `title`, `icon`, and `routes`. The navigation declaration also accepts `description`.
+
 ## Resource custom commands and exports
 
-- Declare custom commands in `defineResource({ actions: { name: { permission, run } } })`. Use a function in the same map for a read action.
+- In `defineResource`, declare writes as command objects (`{ permission, run }`) and read-only loaders as functions in `actions`.
 - Command options `run`, `permission`, `routePermission`, `visible`, `route`, `invalidates`. Use the bound command at `resource.actions.name`.
 - Bound command members `can`, `run`, `route`, `withContext`. Call `withContext({ record })` for record access checks. Pass the same operation arguments to `can(...args)` and `run(...args)`. `run` checks access and invalidates queries after success.
 - Set `exports.list.downloads` for custom downloads in the list export menu. Type `downloads?: readonly ExportDownloadOption<TQuery>[]`. Each entry has `label: string`, `run(context: { query: TQuery; signal: AbortSignal }): MaybePromise<void>`.

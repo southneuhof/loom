@@ -107,5 +107,5 @@ export type TableInputCoreProps<TInput extends object, TRow extends object, TCon
   | TableInputInline<TRow, TContext>
 
 export type TableInputProps<TInput extends object, TRow extends object, TContext extends object = Readonly<Record<string, unknown>>> = TableInputCoreProps<TInput, TRow, TContext> & {
-  modelValue: TRow[]
+  modelValue?: TRow[]
 }

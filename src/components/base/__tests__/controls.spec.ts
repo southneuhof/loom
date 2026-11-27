@@ -6,7 +6,19 @@ import ListItem from '../ListItem.vue'
 import Tabs from '../../composites/Tabs.vue'
 import { flush, mountCore } from '../../core/__tests__/harness'
 
-describe('Button selected state on label buttons', () => {
+describe('Button', () => {
+  it('sets the accessible label on the native control', () => {
+    const button = mountCore(Button, { 'aria-label': 'Open checklist' })
+    const link = mountCore(Button, { kind: 'split', href: '/orders', ariaLabel: 'Open orders' })
+    try {
+      expect(button.find('button')?.getAttribute('aria-label')).toBe('Open checklist')
+      expect(link.find('a')?.getAttribute('aria-label')).toBe('Open orders')
+    } finally {
+      button.unmount()
+      link.unmount()
+    }
+  })
+
   it('applies selected styling and aria-pressed on toggle label buttons', async () => {
     const toggled = vi.fn()
     const view = mountCore(

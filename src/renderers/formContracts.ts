@@ -118,7 +118,7 @@ type MatchingModelValue<TComponent> = [Exclude<FormComponentModelInput<TComponen
   : never
 
 export type FormRendererModelValue<TRenderer extends FormRenderer> = TRenderer extends 'table'
-  ? TableInputProps<object, object>['modelValue']
+  ? Exclude<TableInputProps<object, object>['modelValue'], undefined>
   : TRenderer extends 'file' | 'image'
     ? FileInputModelValue<FileInputMode, boolean>
     : TRenderer extends 'canvas'

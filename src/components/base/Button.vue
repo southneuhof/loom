@@ -35,6 +35,7 @@ const props = withDefaults(
     toggle?: boolean
     selected?: boolean
     ariaLabel?: string
+    'aria-label'?: string
     ariaLabelSelected?: string
 
     menuAriaLabel?: string
@@ -262,6 +263,7 @@ function closeMenu() {
       :form="isLink ? undefined : form"
       :disabled="!isLink && disabled ? true : undefined"
       :aria-disabled="softDisabled || (isLink && disabled) ? 'true' : undefined"
+      :aria-label="currentAriaLabel"
       :tabindex="softDisabled ? 0 : undefined"
       :class="splitPrimaryClasses"
       @click="handleClick"
@@ -340,7 +342,7 @@ function closeMenu() {
     :disabled="!isLink && disabled ? true : undefined"
     :aria-disabled="softDisabled || (isLink && disabled) ? 'true' : undefined"
     :tabindex="softDisabled ? 0 : undefined"
-    :aria-label="isIcon ? currentAriaLabel : undefined"
+    :aria-label="currentAriaLabel"
     :aria-pressed="toggle ? String(selected) : undefined"
     :class="isIcon ? iconClasses : regularClasses"
     @click="handleClick"
