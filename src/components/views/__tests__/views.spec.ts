@@ -754,6 +754,62 @@ describe('ListView', () => {
     expect(view.text()).toContain('WO-1')
     view.unmount()
   })
+
+  it('runs server-side export downloads with the active query, omits pagination, and surfaces download failures', async () => {
+    const receivedQueries: Array<Record<string, unknown>> = []
+    let fail = false
+    const run = vi.fn(async ({ query, signal }: { query: Record<string, unknown>; signal: AbortSignal }) => {
+      expect(signal).toBeInstanceOf(AbortSignal)
+      receivedQueries.push(query)
+      if (fail) throw new Error('CSV export failed.')
+    })
+
+    const view = mountCore(ListView, {
+      title: 'Incidents',
+      table: {
+        schema: z.object({ name: z.string() }),
+        columns: { name: { label: 'Name' } },
+        query: { status: 'reported', search: 'valve', page: 3, limit: 20 },
+        data: [{ name: 'Leak' }],
+      },
+      export: {
+        formats: [],
+        downloads: [{ label: 'Export CSV', run }],
+      },
+    })
+    await flush()
+
+    const button = view.find<HTMLButtonElement>('button[aria-label="Export CSV"]')
+    expect(button).not.toBeNull()
+    button!.click()
+    await flush()
+
+    expect(run).toHaveBeenCalledTimes(1)
+    expect(receivedQueries[0]).toEqual({ status: 'reported', search: 'valve' })
+
+    fail = true
+    button!.click()
+    await flush()
+    expect(view.find('[role="alert"]')?.textContent).toContain('CSV export failed.')
+    view.unmount()
+
+    const denied = mountCore(ListView, {
+      title: 'Incidents',
+      exportAccess: () => false,
+      table: {
+        schema: z.object({ name: z.string() }),
+        columns: { name: { label: 'Name' } },
+        data: [{ name: 'Leak' }],
+      },
+      export: {
+        formats: [],
+        downloads: [{ label: 'Export CSV', run }],
+      },
+    })
+    await flush()
+    expect(denied.find('button[aria-label="Export CSV"]')).toBeNull()
+    denied.unmount()
+  })
 })
 
 describe('PageHeader', () => {

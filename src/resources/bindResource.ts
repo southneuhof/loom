@@ -651,8 +651,12 @@ export function bindResource<
       }
       const list = withoutMembers(declaration, ['permission', 'route', 'visible', 'table', 'can', 'deleteRecord', 'recordIdentity'])
       list.table = tableBag
-      list.export = (definition.exports?.list as unknown) ?? declaration.export ?? true
-      list.exportAccess = () => standardAllowed(useResourceRuntime().adapters.access, 'list', declaration.permission, declaration.visible)
+      const exportConfig = (definition.exports?.list as unknown) ?? declaration.export ?? true
+      const exportPermission = isRecord(exportConfig) && 'permission' in exportConfig ? (exportConfig.permission as string | null | undefined) : undefined
+      list.export = exportConfig
+      list.exportAccess = () =>
+        standardAllowed(useResourceRuntime().adapters.access, 'list', declaration.permission, declaration.visible)
+        && (exportPermission === undefined || standardAllowed(useResourceRuntime().adapters.access, 'list', exportPermission, undefined))
       if (declaration.createRoute === undefined && definition.create?.route) list.createRoute = routeTarget(definition.create.route)
       const detailRoute = bindRowRoute('detail', declaration.detailRoute, definition.detail)
       if (detailRoute !== undefined) list.detailRoute = detailRoute
@@ -736,14 +740,20 @@ export function bindResource<
       }
       const updateRoute = bindRowRoute('update', declaration.updateRoute, definition.update)
       const deleteAction = bindDeleteAction()
+      const detailExportConfig = definition.exports?.detail
+      const detailExportPermission = isRecord(detailExportConfig) && 'permission' in detailExportConfig
+        ? (detailExportConfig.permission as string | null | undefined)
+        : undefined
       return {
         ...withoutMembers(declaration, ['permission', 'route', 'visible', 'detail', 'can', 'deleteRecord', 'recordIdentity']),
         ...(updateRoute !== undefined ? { updateRoute } : {}),
         can: canOperation,
         ...(deleteAction ?? {}),
-        exportAccess: (record?: IdentityRecord<TIdentityFunction>) => standardAllowed(useResourceRuntime().adapters.access, 'detail', declaration.permission, declaration.visible, record ?? bound.record),
+        exportAccess: (record?: IdentityRecord<TIdentityFunction>) =>
+          standardAllowed(useResourceRuntime().adapters.access, 'detail', declaration.permission, declaration.visible, record ?? bound.record)
+          && (detailExportPermission === undefined || standardAllowed(useResourceRuntime().adapters.access, 'detail', detailExportPermission, undefined, record ?? bound.record)),
         export: (() => {
-          const configuration = definition.exports?.detail
+          const configuration = detailExportConfig
           if (!configuration || configuration === true) return configuration ?? false
           return { ...configuration, detail: configuration.detail?.(bound) }
         })(),

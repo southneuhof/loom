@@ -8,6 +8,10 @@ import type { DetailProps, TableProps } from '../contracts/components'
 import type { DetailViewProps, ListViewProps } from '../contracts/views'
 
 export type ExportFormat = 'xlsx' | 'pdf'
+export interface ExportDownloadOption<TQuery extends object = Record<string, unknown>> {
+  label: string
+  run(context: { query: TQuery; signal: AbortSignal }): MaybePromise<void>
+}
 export interface ExportOptions {
   component?: Component
   formats?: readonly ExportFormat[]
@@ -27,14 +31,17 @@ export type ExportDetailFieldEntry<TRecord extends object, TContext extends obje
   | (DetailField<TRecord> & { xlsx?: ExportValueConfiguration<TRecord, TContext> })
   | ((scope: DetailFieldContext<TRecord, TContext>) => DetailField<TRecord> & { xlsx?: ExportValueConfiguration<TRecord, TContext> })
 export type ListExportConfiguration<TRecord extends object = Record<string, unknown>, TQuery extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>> = Omit<ExportOptions, 'filename'> & Partial<Omit<ListViewProps<TRecord, TQuery, Partial<TQuery>, TContext>, 'export' | 'table'>> & {
+  permission?: string | null
   filename?: string | ((context: { query: TQuery }) => string)
   sheetName?: string
   pageSize?: number
   load?: (context: CollectionLoadContext<TQuery>) => MaybePromise<TRecord[] | CollectionResult<TRecord>>
+  downloads?: readonly ExportDownloadOption<TQuery>[]
   mapValue?: (scope: { record: TRecord; field: ResolvedDisplayField<TRecord, TContext>; value: unknown }) => unknown
   table?: Omit<Partial<TableProps<TRecord, TQuery, TContext>>, 'columns'> & { columns?: Readonly<Record<string, ExportTableColumnEntry<TRecord, TContext>>> }
 }
 export type DetailExportConfiguration<TRecord extends object = Record<string, unknown>, TContext extends object = Readonly<Record<string, unknown>>> = Omit<ExportOptions, 'formats'> & { formats?: readonly 'pdf'[] } & Partial<Omit<DetailViewProps<TRecord, TContext>, 'export' | 'detail'>> & {
+  permission?: string | null
   detail?: Omit<Partial<DetailProps<TRecord, TContext>>, 'fields'> & { fields?: Readonly<Record<string, ExportDetailFieldEntry<TRecord, TContext>>> }
 }
 export interface ExportControls {
@@ -46,4 +53,5 @@ export interface ExportControls {
   openPreview(): Promise<void>
   printPdf(): Promise<void>
   downloadXlsx(): Promise<void>
+  runDownload(operation: (signal: AbortSignal) => MaybePromise<void>): Promise<void>
 }

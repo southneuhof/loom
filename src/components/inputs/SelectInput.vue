@@ -8,8 +8,10 @@ import type { SelectModelValue } from './selectInput.types'
 import BaseInput from './BaseInput.vue'
 import Popover from '@southneuhof/loom/components/base/Popover.vue'
 import SearchBox from '@southneuhof/loom/components/inputs/SearchBox.vue'
+import Button from '@southneuhof/loom/components/base/Button.vue'
 import Card from '@southneuhof/loom/components/base/Card.vue'
 import Icon from '@southneuhof/loom/components/base/Icon.vue'
+import { useFrameworkUiDefaults } from '../views/uiDefaults'
 
 type Option = Record<string, unknown>
 type SelectionContext = ReturnType<typeof readContext>
@@ -20,7 +22,7 @@ type ModelIdentity =
   | { kind: 'multiple'; values: readonly SelectedIdentity[] }
 
 const props = defineProps({
-  placeholder: { type: String, default: 'Pilih' },
+  placeholder: String,
   data: Array as PropType<readonly Option[]>,
   load: Function as PropType<OptionLoad<Option>>,
   resource: String as PropType<string>,
@@ -39,6 +41,8 @@ const props = defineProps({
 })
 const modelValue = defineModel<SelectModelValue>()
 const emit = defineEmits<{ (event: 'validation:touch'): void }>()
+const uiDefaults = useFrameworkUiDefaults()
+const resolvedPlaceholder = computed(() => props.placeholder ?? uiDefaults.selectPlaceholder)
 const source = useOptionSource(props, (options) => transformedOptions(options).map((item) => (
   normalizedIdentity(item[props.pick]) ?? 'null'
 )))
@@ -163,7 +167,7 @@ const currentPicked = computed(() => props.multi ? null : identity(modelValue.va
 const displayValue = computed(() => {
   if (Array.isArray(selected.value)) {
     const labels = selected.value.slice(0, 2).map((item) => String(item[props.view] ?? ''))
-    return labels.join(', ') + (selected.value.length > 2 ? `, dan ${selected.value.length - 2} lainnya` : '')
+    return labels.join(', ') + (selected.value.length > 2 ? `, +${selected.value.length - 2} more` : '')
   }
   return selected.value ? String(selected.value[props.view] ?? '') : ''
 })
@@ -313,9 +317,15 @@ onMounted(() => {
             } ${$attrs.class || ''}`"
           >
             <p v-if="displayValue" class="min-w-0 max-w-full flex-1 truncate text-start">{{ displayValue }}</p>
-            <p v-else class="text-muted">{{ placeholder }}</p>
-            <Icon v-if="disabled || !modelValue || !clearable" name="arrow-down-s" />
-            <button v-else-if="clearable" @click="() => handleItemClick(null, () => {})" class="flex items-center justify-center">
+            <p v-else class="text-muted">{{ resolvedPlaceholder }}</p>
+            <Icon v-if="disabled || !hasSelection(modelValue) || !clearable" name="arrow-down-s" />
+            <button
+              v-else-if="clearable"
+              type="button"
+              :aria-label="uiDefaults.clearSelectionLabel"
+              @click.stop="() => handleItemClick(null, () => {})"
+              class="flex items-center justify-center"
+            >
               <Icon name="close" />
             </button>
           </div>
@@ -323,12 +333,12 @@ onMounted(() => {
         <template #content="{ setOpen }">
           <Card variant="outlined" color="surfaceContainerHigh" class="p-0 max-h-80 max-w-screen-sm gap-1 shadow-sm">
             <div v-if="props.searchable" class="sticky top-0 z-10 border-b border-outline-variant bg-surface-container-high p-4">
-              <SearchBox v-model="query" :debounced="false" placeholder="Cari..." />
+              <SearchBox v-model="query" :debounced="false" :placeholder="uiDefaults.searchPlaceholder" />
             </div>
-            <p v-if="loading" class="p-2 text-xs text-muted">Memuat data...</p>
-            <div v-else-if="sourceError" class="flex items-center gap-2 p-2 text-xs text-error">
+            <p v-if="loading" role="status" class="p-3 text-xs text-muted">{{ uiDefaults.loadingLabel }}</p>
+            <div v-else-if="sourceError" role="alert" class="flex items-center justify-between gap-2 p-3 text-xs text-error">
               <span>{{ sourceError.message }}</span>
-              <button type="button" @click="source.refresh">Coba lagi</button>
+              <Button type="button" variant="text" @click="source.refresh">{{ uiDefaults.retryLabel }}</Button>
             </div>
             <div v-else-if="filteredData.length" class="h-full overflow-y-auto">
               <Card
@@ -343,7 +353,7 @@ onMounted(() => {
                 <Icon v-else :class="String(currentPicked) === String(item[pick]) ? 'opacity-100' : 'opacity-0'" name="check"></Icon>
               </Card>
             </div>
-            <p v-else class="p-2 text-xs text-muted">Tidak ada data</p>
+            <p v-else class="p-3 text-xs text-muted">{{ uiDefaults.emptyOptionsLabel }}</p>
           </Card>
         </template>
       </Popover>

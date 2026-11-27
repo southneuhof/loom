@@ -585,8 +585,10 @@ const exportConfiguration = computed(() => {
   const filename = typeof configuration.filename === 'function' ? configuration.filename({ query: query as TQuery }) : configuration.filename;
   return { ...configuration, filename: filename ?? `${surface.value.table.namespace ?? 'export'}-${Date.now()}`.replace(/[^a-zA-Z0-9._-]/g, '-'), orientation: configuration.orientation ?? 'landscape' as const, styles: configuration.styles ?? (configuration.component ? undefined : defaultExportStyles) };
 });
+const downloadOptions = computed(() => exportConfiguration.value.downloads ?? []);
 const exportState = useExport({
-  available: () => props.export !== false && (props.exportAccess?.() ?? true) && Boolean(surface.value.table.data || surface.value.table.load),
+  available: () => props.export !== false && (props.exportAccess?.() ?? true) && Boolean(surface.value.table.data || surface.value.table.load || downloadOptions.value.length > 0),
+  hasDownloads: () => downloadOptions.value.length > 0,
   source: () => [surface.value.table, currentQuery.value, props.export, columnPreferences.visibleKeys.value],
   configuration: exportConfiguration,
   async prepare(signal) {
@@ -618,10 +620,21 @@ const exportState = useExport({
 });
 const exportControls = exportState.controls;
 watch(() => exportControls.value.error, error => { if (error) emit("export-error", error); });
+function activeExportQuery(): TQuery {
+  const { page: _page, limit: _limit, ...query } = currentQuery.value;
+  return query as TQuery;
+}
 const exportMenuItems = computed(() => [
   ...(exportControls.value.formats.includes('pdf') ? [{ name: uiDefaults.exportPdfLabel, action: exportControls.value.printPdf }] : []),
   ...(exportControls.value.formats.includes('xlsx') ? [{ name: uiDefaults.exportXlsxLabel, action: exportControls.value.openPreview }] : []),
+  ...downloadOptions.value.map((option) => ({
+    name: option.label,
+    action: () => exportControls.value.runDownload((signal) => option.run({ query: activeExportQuery(), signal })),
+  })),
 ]);
+const singleDownloadOption = computed(() =>
+  exportControls.value.formats.length === 0 && downloadOptions.value.length === 1 ? downloadOptions.value[0] : undefined,
+);
 
 const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
   createRoute: surface.value.createRoute,
@@ -810,7 +823,18 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
           </template>
         </Dialog>
         <slot v-if="exportControls.available" name="export-action" :export-controls="exportControls">
-          <Menu :items="exportMenuItems" :disabled="exportControls.disabled">
+          <Button
+            v-if="singleDownloadOption"
+            type="button"
+            kind="icon"
+            variant="standard"
+            :ariaLabel="singleDownloadOption.label"
+            :disabled="exportControls.disabled"
+            @click="exportControls.runDownload((signal) => singleDownloadOption!.run({ query: activeExportQuery(), signal }))"
+          >
+            <template #icon><Icon name="download" size="base" /></template>
+          </Button>
+          <Menu v-else :items="exportMenuItems" :disabled="exportControls.disabled">
             <template #trigger>
               <Button type="button" kind="icon" variant="standard" :ariaLabel="uiDefaults.exportLabel" :disabled="exportControls.disabled">
                 <template #icon><Icon name="download" size="base" /></template>

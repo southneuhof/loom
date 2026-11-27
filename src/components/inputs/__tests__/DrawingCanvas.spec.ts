@@ -54,6 +54,10 @@ describe('DrawingCanvas file mode', () => {
     await nextTick()
 
     expect(submit).not.toHaveBeenCalled()
+    expect(host.querySelector('[aria-label="Draw mode"] i')?.className).toContain('ri-edit-line')
+    expect(host.querySelector('[aria-label="Erase mode"] i')?.className).toContain('ri-eraser-line')
+    expect(host.querySelector('[aria-label="Clear drawing"] i')?.className).toContain('ri-delete-bin-line')
+    expect(host.querySelector('[aria-label="Save drawing"] i')?.className).toContain('ri-save-line')
     app.unmount()
     host.remove()
   })

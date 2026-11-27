@@ -4,6 +4,7 @@ import type { ExportControls, ExportOptions, ExportFormat } from './contracts'
 
 export function useExport<TSnapshot>(options: {
   available: MaybeRefOrGetter<boolean>
+  hasDownloads?: MaybeRefOrGetter<boolean>
   source?: MaybeRefOrGetter<unknown>
   configuration: MaybeRefOrGetter<ExportOptions>
   prepare(signal: AbortSignal): Promise<TSnapshot>
@@ -20,6 +21,7 @@ export function useExport<TSnapshot>(options: {
   let abort: AbortController | undefined
   let active: Promise<void> | undefined
   const formats = computed<readonly ExportFormat[]>(() => toValue(options.configuration).formats ?? ['xlsx', 'pdf'])
+  const canExport = computed(() => toValue(options.available) && (formats.value.length > 0 || Boolean(toValue(options.hasDownloads))))
   async function prepare() {
     if (!toValue(options.available)) return false
     documentReady = false
@@ -42,7 +44,7 @@ export function useExport<TSnapshot>(options: {
   }
   function run(operation: () => Promise<void>) {
     if (active) return active
-    if (!toValue(options.available) || !formats.value.length) return Promise.resolve()
+    if (!canExport.value) return Promise.resolve()
     pending.value = true
     error.value = undefined
     active = operation().catch((cause: unknown) => {
@@ -58,15 +60,23 @@ export function useExport<TSnapshot>(options: {
     if (format === 'pdf') await print({ target: element, orientation: configuration.value.orientation, title: configuration.value.filename, styles: configuration.value.styles })
     else await downloadXlsx(element, { orientation: configuration.value.orientation, filename: configuration.value.filename, styles: configuration.value.styles })
   }
+  function runDownload(operation: (signal: AbortSignal) => Promise<void> | void) {
+    return run(async () => {
+      abort?.abort()
+      abort = new AbortController()
+      await operation(abort.signal)
+    })
+  }
   const controls = computed<ExportControls>(() => ({
-    available: toValue(options.available) && formats.value.length > 0,
-    disabled: pending.value || !toValue(options.available),
+    available: canExport.value,
+    disabled: pending.value || !canExport.value,
     pending: pending.value,
     error: error.value,
     formats: formats.value,
     openPreview: () => run(async () => { if (await prepare()) open.value = true }),
     printPdf: () => run(() => output('pdf')),
     downloadXlsx: () => run(() => output('xlsx')),
+    runDownload,
   }))
   if (options.source) watch(() => toValue(options.source), () => {
     abort?.abort()

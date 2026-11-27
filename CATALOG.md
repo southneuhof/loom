@@ -27,7 +27,7 @@ Generated from source by `node scripts/generate-framework-catalog.mjs`. Do not e
 | `Chip` | `color`, `variant`, `interactive` | `default` | `packages/loom/src/components/base/Chip.vue` |
 | `Dialog` | `v-model`, `closeOnOutsideClick`, `closeOnEscape`, `disabled` | `trigger`, `title`, `description`, `content`, `footer` | `packages/loom/src/components/base/Dialog.vue` |
 | `Disclosure` | `title`, `description`, `open` | `default` | `packages/loom/src/components/base/Disclosure.vue` |
-| `Drawer` | `isOpen`, `title`, `onClose`, `onOpen`, `disabled` | `trigger`, `content` | `packages/loom/src/components/base/Drawer.vue` |
+| `Drawer` | `v-model`, `title`, `description`, `side`, `closeOnOutsideClick`, `closeOnEscape`, `disabled` | `trigger`, `title`, `description`, `content`, `footer` | `packages/loom/src/components/base/Drawer.vue` |
 | `Icon` | `fill`, `size`, `name` | - | `packages/loom/src/components/base/Icon.vue` |
 | `ImagePreview` | `imageURL`, `thumbnailURL`, `asset`, `isOpen`, `square`, `disableControls` | `actions`, `image-thumbnail`, `no-image`, `trigger`, `image-detail`, `image-description` | `packages/loom/src/components/base/ImagePreview.vue` |
 | `ImagePreviewMulti` | `images`, `assets`, `isOpen`, `disableControls` | `actions`, `no-image` | `packages/loom/src/components/base/ImagePreviewMulti.vue` |

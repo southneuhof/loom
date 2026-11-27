@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { h } from 'vue'
 import Button from '../Button.vue'
+import Drawer from '../Drawer.vue'
 import ListItem from '../ListItem.vue'
 import Tabs from '../../composites/Tabs.vue'
 import { flush, mountCore } from '../../core/__tests__/harness'
@@ -87,5 +88,63 @@ describe('Tabs', () => {
     expect(icons[0]?.className).toContain('ri-table-line')
     expect(icons[1]?.className).toContain('ri-layout-grid-line')
     view.unmount()
+  })
+})
+
+describe('Drawer', () => {
+  it('renders title, description, scrollable content, footer, and closes via the close control', async () => {
+    const originalMatchMedia = window.matchMedia
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: () => ({
+        matches: false,
+        media: '',
+        onchange: null,
+        addListener: () => {},
+        removeListener: () => {},
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    })
+    const updates: boolean[] = []
+    const view = mountCore(
+      Drawer,
+      {
+        modelValue: true,
+        title: 'Quick triage',
+        description: 'Review and assign field work.',
+        'onUpdate:modelValue': (value: boolean) => updates.push(value),
+      },
+      {
+        slots: {
+          content: () => h('p', { 'data-drawer-body': '' }, 'Body content'),
+          footer: () => h('span', { 'data-drawer-footer': '' }, 'Footer actions'),
+        },
+      },
+    )
+    try {
+      await flush()
+
+      const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]')
+      expect(dialog).not.toBeNull()
+      expect(dialog?.textContent).toContain('Quick triage')
+      expect(dialog?.textContent).toContain('Review and assign field work.')
+      expect(dialog?.querySelector('[data-drawer-body]')?.textContent).toBe('Body content')
+      expect(dialog?.querySelector('[data-drawer-footer]')?.textContent).toBe('Footer actions')
+
+      const closeButton = Array.from(dialog?.querySelectorAll<HTMLButtonElement>('button') ?? []).find(
+        (button) => button.textContent?.trim() === 'Close',
+      )
+      expect(closeButton).not.toBeUndefined()
+      closeButton!.click()
+      await flush()
+
+      expect(updates).toEqual([false])
+    } finally {
+      view.unmount()
+      Object.defineProperty(window, 'matchMedia', { configurable: true, writable: true, value: originalMatchMedia })
+    }
   })
 })

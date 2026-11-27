@@ -4,7 +4,6 @@ import type { DrawingCanvasProps, FileInputMode, FileInputModelValue } from './f
 import { useFileInputController } from './useFileInputController'
 import BaseInput from './BaseInput.vue'
 import Button from '@southneuhof/loom/components/base/Button.vue'
-import Card from '@southneuhof/loom/components/base/Card.vue'
 import Icon from '@southneuhof/loom/components/base/Icon.vue'
 import Tooltip from '@southneuhof/loom/components/base/Tooltip.vue'
 import Spinner from '@southneuhof/loom/components/base/Spinner.vue'
@@ -241,31 +240,32 @@ onBeforeUnmount(() => {
 
 <template>
   <BaseInput v-bind="props" :error="props.error || inputError || ''" v-slot="{ controlBindings }">
-    <Card v-if="!hasSavedValue && !hasUnsavedChanges" class="flex flex-row items-center gap-4" color="surfaceContainerHigh">
-      <Icon name="information" />
-      <div class="flex flex-col">
-        <p class="font-semibold">Draw a signature</p>
-        <p>Use the pointer on the canvas to draw.</p>
+    <div class="flex max-w-fit flex-col gap-3 p-0.5">
+      <div
+        v-if="!hasSavedValue && !hasUnsavedChanges"
+        class="flex items-center gap-2 rounded-lg bg-surface-container-high px-3 py-2 text-sm text-on-surface-variant"
+      >
+        <Icon name="information" size="base" />
+        <span>Draw on the canvas, then save.</span>
       </div>
-    </Card>
-    <Card v-else-if="hasUnsavedChanges" class="flex flex-row items-center gap-4" color="errorContainer">
-      <Icon name="information" />
-      <div class="flex flex-col">
-        <p class="font-semibold">Drawing not saved</p>
-        <p>Save the drawing to add it to the form.</p>
+      <div
+        v-else-if="hasUnsavedChanges"
+        class="flex items-center gap-2 rounded-lg bg-warning-container px-3 py-2 text-sm text-on-warning-container"
+      >
+        <Icon name="information" size="base" />
+        <span>Unsaved drawing. Save to attach it.</span>
       </div>
-    </Card>
-    <Card v-else class="flex flex-row items-center gap-4" color="secondaryContainer">
-      <Icon name="check" />
-      <div class="flex flex-col">
-        <p class="font-semibold">Drawing saved</p>
-        <p>The form contains the drawing file.</p>
+      <div
+        v-else
+        class="flex items-center gap-2 rounded-lg bg-secondary-container px-3 py-2 text-sm text-on-secondary-container"
+      >
+        <Icon name="check" size="base" />
+        <span>Drawing saved.</span>
       </div>
-    </Card>
-    <div class="flex max-w-fit flex-col gap-4 p-0.5">
+
       <canvas
         v-bind="controlBindings"
-        class="canvas-container outline outline-1 outline-outline"
+        class="canvas-container rounded-lg border border-outline-variant"
         ref="canvas"
         :width="width"
         :height="height"
@@ -276,23 +276,53 @@ onBeforeUnmount(() => {
         @pointercancel="stopDrawing"
         @pointerleave="stopDrawing"
       />
-      <div class="flex flex-row items-center justify-between">
-        <div class="flex flex-row items-center gap-2">
+      <div class="flex flex-row items-center justify-between gap-3">
+        <div class="flex flex-row items-center gap-1.5">
           <Tooltip>
             <template #trigger>
-              <Button type="button" kind="icon" ariaLabel="Draw mode" :disabled="props.disabled || pending" :variant="currentDrawingMode === 'draw' ? 'filled' : 'outlined'" color="primary" @click="setToDraw"><Icon name="edit" /></Button>
+              <Button
+                type="button"
+                kind="icon"
+                ariaLabel="Draw mode"
+                :disabled="props.disabled || pending"
+                :variant="currentDrawingMode === 'draw' ? 'filled' : 'outlined'"
+                color="primary"
+                @click="setToDraw"
+              >
+                <template #icon><Icon name="edit" size="base" /></template>
+              </Button>
             </template>
             <template #content>Draw</template>
           </Tooltip>
           <Tooltip>
             <template #trigger>
-              <Button type="button" kind="icon" ariaLabel="Erase mode" :disabled="props.disabled || pending" :variant="currentDrawingMode === 'erase' ? 'filled' : 'outlined'" color="warning" @click="setToErase"><Icon name="eraser" /></Button>
+              <Button
+                type="button"
+                kind="icon"
+                ariaLabel="Erase mode"
+                :disabled="props.disabled || pending"
+                :variant="currentDrawingMode === 'erase' ? 'filled' : 'outlined'"
+                color="primary"
+                @click="setToErase"
+              >
+                <template #icon><Icon name="eraser" size="base" /></template>
+              </Button>
             </template>
             <template #content>Erase</template>
           </Tooltip>
           <Tooltip>
             <template #trigger>
-              <Button type="button" kind="icon" ariaLabel="Clear drawing" :disabled="props.disabled || pending" color="error" @click="clearCanvas"><Icon name="close-circle" /></Button>
+              <Button
+                type="button"
+                kind="icon"
+                variant="standard"
+                ariaLabel="Clear drawing"
+                :disabled="props.disabled || pending"
+                color="error"
+                @click="clearCanvas"
+              >
+                <template #icon><Icon name="delete-bin" size="base" /></template>
+              </Button>
             </template>
             <template #content>Clear</template>
           </Tooltip>
@@ -300,10 +330,35 @@ onBeforeUnmount(() => {
         <div class="flex flex-row items-center gap-2">
           <div v-for="row in pendingRows" :key="row.id" class="flex items-center gap-2">
             <Spinner />
-            <p role="status" aria-live="polite">Processing drawing</p>
-            <Button type="button" kind="icon" ariaLabel="Cancel pending drawing" :disabled="props.disabled" color="error" @click="controller.remove(row.id)"><Icon name="close" /></Button>
+            <p role="status" aria-live="polite" class="text-sm text-on-surface-variant">Processing drawing</p>
+            <Button
+              type="button"
+              kind="icon"
+              variant="standard"
+              ariaLabel="Cancel pending drawing"
+              :disabled="props.disabled"
+              color="error"
+              @click="controller.remove(row.id)"
+            >
+              <template #icon><Icon name="close" size="base" /></template>
+            </Button>
           </div>
-          <Button type="button" kind="icon" ariaLabel="Save drawing" :disabled="props.disabled || invalidModel || pending" color="info" @click="saveImage"><Icon name="save" /></Button>
+          <Tooltip>
+            <template #trigger>
+              <Button
+                type="button"
+                kind="icon"
+                ariaLabel="Save drawing"
+                :disabled="props.disabled || invalidModel || pending"
+                :variant="hasUnsavedChanges || !hasSavedValue ? 'filled' : 'outlined'"
+                color="primary"
+                @click="saveImage"
+              >
+                <template #icon><Icon name="save" size="base" /></template>
+              </Button>
+            </template>
+            <template #content>Save drawing</template>
+          </Tooltip>
         </div>
       </div>
     </div>

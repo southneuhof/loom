@@ -19,6 +19,10 @@ export interface FrameworkUiDefaultsInput {
   removeLabel?: string
   expandLabel?: string
   collapseLabel?: string
+  selectPlaceholder?: string
+  searchPlaceholder?: string
+  emptyOptionsLabel?: string
+  clearSelectionLabel?: string
 }
 
 export interface ResolvedFrameworkUiDefaults {
@@ -40,6 +44,10 @@ export interface ResolvedFrameworkUiDefaults {
   removeLabel: string
   expandLabel: string
   collapseLabel: string
+  selectPlaceholder: string
+  searchPlaceholder: string
+  emptyOptionsLabel: string
+  clearSelectionLabel: string
 }
 
 export const frameworkUiDefaultsKey: InjectionKey<ResolvedFrameworkUiDefaults> =
@@ -67,6 +75,10 @@ export function resolveFrameworkUiDefaults(
     removeLabel: input.removeLabel ?? 'Remove',
     expandLabel: input.expandLabel ?? 'Expand',
     collapseLabel: input.collapseLabel ?? 'Collapse',
+    selectPlaceholder: input.selectPlaceholder ?? 'Select an option',
+    searchPlaceholder: input.searchPlaceholder ?? 'Search…',
+    emptyOptionsLabel: input.emptyOptionsLabel ?? 'No options available.',
+    clearSelectionLabel: input.clearSelectionLabel ?? 'Clear selection',
   }
 }
 
