@@ -1051,6 +1051,41 @@ describe('DetailView', () => {
     expect(headerActions).toEqual(['Audit Details', 'Activity Log', 'Edit', 'Delete', 'Complete Work'])
     view.unmount()
   })
+
+  it('supports record-scoped title and description slots while preserving PageHeader chrome and controls', async () => {
+    const view = mountCore(
+      DetailView,
+      {
+        title: 'Fallback Title',
+        backTo: { name: 'test-route' },
+        detail: {
+          schema: z.object({ id: z.string(), code: z.string(), title: z.string() }),
+          fields: { title: { label: 'Title' } },
+          data: { id: 'inc-1', code: 'INC-2026-0001', title: 'Cooling pipe leak' },
+        },
+        updateRoute: (record: { id: string }) => ({ name: 'test-route', query: { edit: record.id } }),
+        can: () => true,
+      },
+      {
+        slots: {
+          title: ({ record }: DetailViewControls<{ id: string; code: string; title: string }>) => record?.title ?? 'Incident',
+          description: ({ record }: DetailViewControls<{ id: string; code: string; title: string }>) => record?.code ?? '',
+          controls: () => h('button', 'Certify closure'),
+        },
+      },
+    )
+    await flush()
+
+    expect(view.find('h1')?.textContent?.trim()).toBe('Cooling pipe leak')
+    expect(view.find('header p')?.textContent?.trim()).toBe('INC-2026-0001')
+    expect(view.find<HTMLAnchorElement>('a[aria-label="Back"]')).not.toBeNull()
+    const headerActions = view
+      .all<HTMLElement>('header a, header button')
+      .filter((element) => element.getAttribute('aria-label') !== 'Back')
+      .map((element) => element.textContent?.trim())
+    expect(headerActions).toEqual(['Edit', 'Certify closure'])
+    view.unmount()
+  })
 })
 
 describe('FormView', () => {

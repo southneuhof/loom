@@ -206,6 +206,12 @@ const hasHeaderControls = computed(() =>
   <section class="is-detail-view flex flex-col gap-2">
     <slot name="header" v-bind="controls" :export-controls="exportControls">
       <PageHeader :title="title ?? ''" :description="description" :back-to="backTo">
+        <template v-if="$slots.title" #title>
+          <slot name="title" v-bind="controls" />
+        </template>
+        <template v-if="$slots.description" #description>
+          <slot name="description" v-bind="controls" />
+        </template>
         <template v-if="hasHeaderControls" #controls>
           <slot v-if="exportControls.available" name="export-action" :export-controls="exportControls">
             <Button type="button" kind="icon" variant="standard" :ariaLabel="uiDefaults.exportLabel" :disabled="exportControls.disabled" @click="exportControls.printPdf">

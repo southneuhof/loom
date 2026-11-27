@@ -41,8 +41,12 @@ const resolvedBackLabel = computed(() => props.backLabel ?? defaultBackLabel ?? 
 
           <slot name="header">
             <div class="min-w-0">
-              <h1 v-if="title" class="text-lg font-semibold leading-6 tracking-tight text-on-surface">{{ title }}</h1>
-              <p v-if="description" class="mt-1 text-sm leading-5 text-on-surface-variant">{{ description }}</p>
+              <h1 v-if="$slots.title || title" class="text-lg font-semibold leading-6 tracking-tight text-on-surface">
+                <slot name="title">{{ title }}</slot>
+              </h1>
+              <p v-if="$slots.description || description" class="mt-1 text-sm leading-5 text-on-surface-variant">
+                <slot name="description">{{ description }}</slot>
+              </p>
             </div>
           </slot>
         </div>
