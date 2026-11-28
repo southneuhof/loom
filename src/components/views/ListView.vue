@@ -868,7 +868,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
 
     <component
       :is="props.bodyVariant === 'plain' ? 'div' : Card"
-      v-bind="props.bodyVariant === 'plain' ? { class: 'is-list-view-body flex flex-col gap-3' } : { variant: 'outlined', color: 'surfaceContainer', class: 'gap-0 p-0' }"
+      v-bind="props.bodyVariant === 'plain' ? { class: 'is-list-view-body flex flex-col gap-2' } : { variant: 'outlined', color: 'surfaceContainer', class: 'gap-0 p-0' }"
     >
       <slot name="body" v-bind="{ table: surface.table, exportControls }">
         <div :class="props.bodyVariant === 'plain' ? '' : 'p-3 sm:p-4'">
