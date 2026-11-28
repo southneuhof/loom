@@ -234,11 +234,11 @@ function createButtonBindings<T extends { id?: string }>(bindings: T): T {
             :disabled="locked"
             :id="cellId(index, key)"
           >
-            <div v-if="isDisplayCell(cell)" class="flex flex-col gap-2">
-              <span class="text-sm font-medium leading-5 text-on-surface">{{ cell.label }}</span>
+            <div v-if="isDisplayCell(cell)" class="flex flex-col gap-1">
+              <span class="text-sm font-medium leading-5 text-on-surface-variant">{{ cell.label }}</span>
               <output
                 :id="cellId(index, key)"
-                class="flex min-h-10 items-center rounded-md bg-surface-container-low px-3 text-sm font-medium tabular-nums text-on-surface"
+                class="flex min-h-10 items-center text-sm font-medium tabular-nums text-on-surface"
                 :class="{
                   'justify-end text-right': cell.align === 'end',
                   'justify-center text-center': cell.align === 'center',
