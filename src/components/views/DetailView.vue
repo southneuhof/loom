@@ -202,7 +202,7 @@ const readyProps = computed<DetailViewReadyProps<TRecord, TContext> | undefined>
 const slots = useSlots()
 const detailSlotNames = () => Object.keys(slots).filter((name) => name.startsWith('value:'))
 const hasHeaderControls = computed(() =>
-  Boolean(slots['secondary-controls'] || slots.controls || updateTarget.value || canDelete.value || exportControls.value.available),
+  Boolean(slots.controls || updateTarget.value || canDelete.value || exportControls.value.available),
 )
 </script>
 
@@ -222,7 +222,6 @@ const hasHeaderControls = computed(() =>
               <template #icon><Icon name="download" size="base" /></template>
             </Button>
           </slot>
-          <slot name="secondary-controls" v-bind="controls" />
           <template v-if="reader.record.value && updateTarget">
             <slot name="edit-action" :record="reader.record.value" :can="props.can" :target="updateTarget">
               <RouterLink v-slot="{ href, navigate }" custom :to="updateTarget as RouteLocationRaw">

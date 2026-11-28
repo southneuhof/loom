@@ -1033,10 +1033,6 @@ describe('DetailView', () => {
       },
       {
         slots: {
-          'secondary-controls': () => [
-            h('button', { 'data-action': 'audit' }, 'Audit Details'),
-            h('button', { 'data-action': 'activity' }, 'Activity Log'),
-          ],
           controls: () => h('button', { 'data-action': 'complete' }, 'Complete Work'),
         },
       },
@@ -1048,7 +1044,7 @@ describe('DetailView', () => {
       .filter((element) => element.getAttribute('aria-label') !== 'Back')
       .map((element) => element.textContent?.trim())
 
-    expect(headerActions).toEqual(['Audit Details', 'Activity Log', 'Edit', 'Delete', 'Complete Work'])
+    expect(headerActions).toEqual(['Edit', 'Delete', 'Complete Work'])
     view.unmount()
   })
 
