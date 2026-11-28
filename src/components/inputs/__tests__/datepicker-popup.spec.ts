@@ -28,6 +28,7 @@ vi.mock('@vuepic/vue-datepicker', async () => {
         weekPicker: Boolean,
         monthPicker: Boolean,
         yearPicker: Boolean,
+        format: Function,
       },
       setup(props, { attrs, emit }) {
         return () => {
@@ -157,6 +158,20 @@ describe('datepicker popup safety', () => {
 
     view = await mountInput(YearInput)
     expect(picker.latest.yearPicker).toBe(true)
+    view.unmount()
+  })
+
+  it('parses DateRangeInput date-only values at local midnight and formats using default UI locale', async () => {
+    const view = await mountInput(DateRangeInput, { modelValue: ['2026-11-10', '2026-11-12'] })
+    const internal = picker.latest.modelValue as Date[]
+    expect(internal).toHaveLength(2)
+    expect([internal[0].getFullYear(), internal[0].getMonth(), internal[0].getDate(), internal[0].getHours()]).toEqual([2026, 10, 10, 0])
+    expect([internal[1].getFullYear(), internal[1].getMonth(), internal[1].getDate(), internal[1].getHours()]).toEqual([2026, 10, 12, 0])
+
+    const formatter = picker.latest.format as (value: Date[]) => string
+    const formatted = formatter(internal)
+    expect(formatted).toContain('November 10, 2026')
+    expect(formatted).toContain('November 12, 2026')
     view.unmount()
   })
 })

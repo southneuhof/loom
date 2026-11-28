@@ -847,6 +847,7 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
       </template>
 
       <template v-if="hasCreateAction || $slots['resource-action']" #controls>
+        <slot v-if="$slots['resource-action']" name="resource-action" :export-controls="exportControls" />
         <template v-if="hasCreateAction">
           <slot name="create-action" v-bind="{ can: surface.can, target: surface.createRoute! }">
             <RouterLink :to="surface.createRoute as RouteLocationRaw">
@@ -856,7 +857,6 @@ const customActions = computed<ListViewSlotActions<TRecord>>(() => ({
             </RouterLink>
           </slot>
         </template>
-        <slot v-if="$slots['resource-action']" name="resource-action" :export-controls="exportControls" />
       </template>
 
       <template v-if="$slots.filters && filterQueryReady" #subbar>

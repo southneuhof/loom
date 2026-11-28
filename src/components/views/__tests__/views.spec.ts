@@ -1957,6 +1957,28 @@ describe('ListView standard action overrides', () => {
     view.unmount()
   })
 
+  it('renders resource actions before Create so Create stays rightmost', async () => {
+    const view = mountCore(
+      ListView,
+      {
+        ...baseProps,
+        table: { ...baseProps.table, load: () => ({ data: [{ id: '1', name: 'Admin' }], meta: { totalPage: 1 } }) },
+        createRoute: { name: 'test-route' },
+        can: () => true,
+      },
+      {
+        slots: {
+          'resource-action': () => h('button', { type: 'button', class: 'ov-resource' }, 'Import'),
+        },
+      },
+    )
+    await flush()
+    const resourceAction = view.find('.ov-resource')!
+    const createLink = view.find('a[href="/"]')!
+    expect(resourceAction.compareDocumentPosition(createLink) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    view.unmount()
+  })
+
   it('does not render the default Create control when create access is denied', async () => {
     const view = mountWith({}, { can: () => false })
     await flush()
