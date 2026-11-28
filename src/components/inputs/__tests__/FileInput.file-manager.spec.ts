@@ -115,7 +115,7 @@ describe('FileManager asset selection', () => {
     await flush()
 
     expect(host.querySelector('[role="alert"]')?.textContent).toBe('Invalid asset value.')
-    expect(host.querySelector('button')?.textContent).toContain('Pilih berkas')
+    expect(host.querySelector('button')?.textContent).toContain('Choose file')
   })
 
   it('keeps direct asset provider failures visible', async () => {
@@ -136,7 +136,7 @@ describe('FileManager asset selection', () => {
     await flush()
 
     expect(host.querySelector('[role="alert"]')?.textContent).toBe('Asset lookup failed.')
-    expect(host.querySelector('button')?.textContent).toContain('Pilih berkas')
+    expect(host.querySelector('button')?.textContent).toContain('Choose file')
   })
 
   it('reads selected stored assets through the app service before updating FileInput', async () => {
@@ -210,7 +210,7 @@ describe('FileManager asset selection', () => {
     apps.push(app)
     await flush()
 
-    const trigger = findButton('Pilih berkas')
+    const trigger = findButton('Choose file')
     expect(trigger).toBeDefined()
     trigger?.click()
     await vi.waitFor(() => expect(findButton(stored.name)).toBeDefined())
@@ -244,7 +244,7 @@ describe('FileManager asset selection', () => {
     apps.push(app)
     await flush()
 
-    const trigger = findButton('Pilih berkas')
+    const trigger = findButton('Choose file')
     expect(trigger).toBeDefined()
     trigger?.click()
     await vi.waitFor(() => expect(findButton(stored.name)).toBeDefined())
@@ -417,7 +417,7 @@ describe('FileManager asset selection', () => {
     apps.push(app)
     await flush()
 
-    findButton('Pilih berkas')?.click()
+    findButton('Choose file')?.click()
     await vi.waitFor(() => expect(findButton(stored.name)).toBeDefined())
     findButton(stored.name)?.click()
     expect([...pending.keys()]).toEqual([stored.id])

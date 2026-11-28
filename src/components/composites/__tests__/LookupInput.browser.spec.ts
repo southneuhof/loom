@@ -84,7 +84,7 @@ function rowNamed(name: string) {
 }
 
 function saveButton() {
-  return [...dialog().querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('Simpan'))!
+  return [...dialog().querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('Save'))!
 }
 
 afterEach(() => {
@@ -96,13 +96,13 @@ describe('LookupInput real dialog', () => {
   it('selects a named record through the dialog and commits its scalar ID', async () => {
     const view = mountLookup({})
     await frame()
-    expect(trigger(view.host).textContent).toBe('Pilih')
+    expect(trigger(view.host).textContent).toBe('Select')
 
     trigger(view.host).click()
     await frame()
     expect(dialog().querySelector('table')).not.toBeNull()
-    expect(dialog().textContent).toContain('Pilih data')
-    expect(dialog().textContent).toContain('Pilih data dari daftar untuk mengisi nilai ini.')
+    expect(dialog().textContent).toContain('Select record')
+    expect(dialog().textContent).toContain('Choose a record from the list to fill this field.')
 
     rowNamed('Option two').click()
     await frame()

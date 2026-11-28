@@ -87,18 +87,18 @@ onMounted(() => {
               <input
                 v-model="query"
                 type="text"
-                placeholder="Cari icon..."
+                placeholder="Search icons..."
                 class="w-full rounded-lg bg-surface-container px-3 py-2 text-sm outline outline-1 outline-outline/[24%]"
               />
               <Button type="button" variant="outlined" @click="clearSelection" :disabled="disabled || !selectedClass">Clear</Button>
             </div>
 
             <div v-if="loadingIcons" class="flex h-full items-center justify-center text-sm text-muted">
-              Memuat icon...
+              Loading icons...
             </div>
 
             <div v-else-if="!filteredIcons.length" class="flex h-full items-center justify-center text-sm text-muted">
-              Icon tidak ditemukan.
+              No icons found.
             </div>
 
             <div

@@ -29,7 +29,7 @@ const props = withDefaults(defineProps<LookupInputProps<TRecord, TContext>>(), {
   searchParameters: () => ({}),
   multi: false,
   pick: 'id',
-  placeholder: 'Pilih',
+  placeholder: 'Select',
 })
 
 const attrs = getCurrentInstance()?.attrs ?? {}
@@ -545,16 +545,16 @@ const displayValue = computed(() => {
             <Icon name="arrow-right-up" />
           </div>
         </template>
-        <template #title>Pilih data</template>
-        <template #description>Pilih data dari daftar untuk mengisi nilai ini.</template>
+        <template #title>Select record</template>
+        <template #description>Choose a record from the list to fill this field.</template>
         <template #content="{ setOpen }">
           <div class="flex flex-col gap-4">
             <SearchBox v-model="search" class="w-full" />
             <p v-if="hydrationError" role="alert" class="text-sm text-error">{{ hydrationError }}</p>
-            <p v-if="loadPending" role="status" class="text-sm text-muted">Memuat data...</p>
+            <p v-if="loadPending" role="status" class="text-sm text-muted">Loading records...</p>
             <div v-else-if="loadError" class="flex items-center gap-2 text-sm text-error">
               <p role="alert">{{ loadError }}</p>
-              <Button type="button" variant="text" @click="loadOptions">Coba lagi</Button>
+              <Button type="button" variant="text" @click="loadOptions">Try again</Button>
             </div>
             <div v-if="multi" class="flex flex-row flex-wrap items-center gap-2">
               <Chip v-for="(item, index) in staged" :key="String(pickValue(item))" class="flex items-center gap-2">
@@ -583,8 +583,9 @@ const displayValue = computed(() => {
               </template>
             </Table>
             <div class="flex flex-row items-center justify-end gap-2">
-              <Button :disabled="loadPending" @click="() => { commit(); setOpen(false) }">
-                <Icon name="save" />Simpan
+              <Button type="button" :disabled="loadPending" @click="() => { commit(); setOpen(false) }">
+                <template #icon><Icon name="save" /></template>
+                Save
               </Button>
             </div>
           </div>

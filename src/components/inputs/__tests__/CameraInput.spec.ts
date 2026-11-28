@@ -68,7 +68,7 @@ async function startUpload() {
   const mounted = mountInput(CameraInput, { model: initial, adapters: { assets: adapter } })
   cleanup.push(mounted.cleanup)
 
-  findButton(mounted.host, 'Ambil Ulang Foto')?.click()
+  findButton(mounted.host, 'Retake photo')?.click()
   await mounted.flush()
   document.querySelector<HTMLButtonElement>('[role="dialog"] button.aspect-square')?.click()
   await mounted.flush()
@@ -105,7 +105,7 @@ describe('CameraInput async ownership', () => {
     })
     cleanup.push(mounted.cleanup)
 
-    findButton(mounted.host, 'Buka Kamera')?.click()
+    findButton(mounted.host, 'Open camera')?.click()
     await mounted.flush()
     document.querySelector<HTMLButtonElement>('[role="dialog"] button[aria-label="Take photo"]')?.click()
     await mounted.flush()
@@ -129,7 +129,7 @@ describe('CameraInput async ownership', () => {
     const mounted = mountInput(CameraInput, { model: stored })
     cleanup.push(mounted.cleanup)
 
-    findButton(mounted.host, 'Ambil Ulang Foto')?.click()
+    findButton(mounted.host, 'Retake photo')?.click()
     await mounted.flush()
     const video = document.querySelector<HTMLVideoElement>('[role="dialog"] video')
     expect(video?.srcObject).toBe(current.stream)
@@ -161,7 +161,7 @@ describe('CameraInput async ownership', () => {
     const mounted = mountInput(CameraInput, { model: stored })
     cleanup.push(mounted.cleanup)
 
-    findButton(mounted.host, 'Ambil Ulang Foto')?.click()
+    findButton(mounted.host, 'Retake photo')?.click()
     await mounted.flush()
     document.querySelector<HTMLButtonElement>('[role="dialog"] button.aspect-square')?.click()
     await mounted.flush()
@@ -194,7 +194,7 @@ describe('CameraInput async ownership', () => {
     })
     cleanup.push(mounted.cleanup)
 
-    findButton(mounted.host, 'Buka Kamera')?.click()
+    findButton(mounted.host, 'Open camera')?.click()
     await mounted.flush()
     expect(getUserMedia).toHaveBeenCalledOnce()
     expect(document.querySelector('[role="dialog"]')).not.toBeNull()
@@ -214,7 +214,7 @@ describe('CameraInput async ownership', () => {
     const mounted = mountInput(CameraInput, { model: stored })
     cleanup.push(mounted.cleanup)
 
-    findButton(mounted.host, 'Ambil Ulang Foto')?.click()
+    findButton(mounted.host, 'Retake photo')?.click()
     await mounted.flush()
     const video = document.querySelector<HTMLVideoElement>('[role="dialog"] video')
     expect(video?.srcObject).toBe(current.stream)
@@ -232,7 +232,7 @@ describe('CameraInput async ownership', () => {
     const mounted = mountInput(CameraInput, { model: stored })
     const disposeIndex = cleanup.push(mounted.cleanup) - 1
 
-    findButton(mounted.host, 'Ambil Ulang Foto')?.click()
+    findButton(mounted.host, 'Retake photo')?.click()
     await mounted.flush()
     const video = document.querySelector<HTMLVideoElement>('[role="dialog"] video')
     expect(video?.srcObject).toBe(current.stream)
@@ -252,7 +252,7 @@ describe('CameraInput async ownership', () => {
     const mounted = mountInput(CameraInput, { model: initial })
     cleanup.push(mounted.cleanup)
 
-    findButton(mounted.host, 'Ambil Ulang Foto')?.click()
+    findButton(mounted.host, 'Retake photo')?.click()
     await mounted.flush()
     expect(getUserMedia).toHaveBeenCalledOnce()
     if (change.startsWith('disable')) {
@@ -262,7 +262,7 @@ describe('CameraInput async ownership', () => {
         mounted.setProps({ disabled: false })
       }
     }
-    if (change === 'reset') findButton(mounted.host, 'Hapus Foto')?.click()
+    if (change === 'reset') findButton(mounted.host, 'Remove photo')?.click()
     if (change === 'replacement') mounted.model.value = replacement
     await mounted.flush()
     request.reject(new Error('Camera permission was denied.'))
@@ -280,7 +280,7 @@ describe('CameraInput async ownership', () => {
         mounted.setProps({ disabled: false })
       }
     }
-    if (change === 'reset') findButton(mounted.host, 'Hapus Foto')?.click()
+    if (change === 'reset') findButton(mounted.host, 'Remove photo')?.click()
     if (change === 'replacement') mounted.model.value = replacement
     await mounted.flush()
     request.reject(new Error('Upload was rejected.'))

@@ -178,7 +178,8 @@ onBeforeUnmount(() => {
           <template #title>Camera</template>
           <template #trigger>
             <Button v-bind="controlBindings" type="button" :disabled="props.disabled || invalidModel || pending" @click="openCamera">
-              {{ image ? 'Ambil Ulang Foto' : 'Buka Kamera' }} <Icon :name="image ? 'refresh' : 'camera'" />
+              <template #icon><Icon :name="image ? 'refresh' : 'camera'" /></template>
+              {{ image ? 'Retake photo' : 'Open camera' }}
             </Button>
           </template>
           <template #content="{ setOpen }">
@@ -197,7 +198,8 @@ onBeforeUnmount(() => {
           </template>
         </Dialog>
         <Button v-if="image || inputError || invalidModel" type="button" :disabled="props.disabled" @click="clearValue" class="w-full" variant="tonal">
-          Hapus Foto <Icon name="delete-bin" />
+          <template #icon><Icon name="delete-bin" /></template>
+          Remove photo
         </Button>
       </div>
       <div v-if="pending" class="flex flex-col items-center justify-center gap-2">

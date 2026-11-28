@@ -78,11 +78,11 @@ watch(
             >{{ item }} <Icon name="close" size="sm"></Icon
           ></Chip>
         </template>
-        <div v-else class="h-[25px] max-h-[25px] min-h-[25px] text-muted">Belum ada data yang dimasukkan</div>
+        <div v-else class="h-[25px] max-h-[25px] min-h-[25px] text-muted">No items added yet</div>
       </div>
       <TextInput
         v-bind="{ prefix, suffix, icon, constraint, ...controlBindings }"
-        placeholder="Tekan tombol koma (,) untuk memisahkan"
+        placeholder="Press comma (,) to separate items"
         :model-value="inputValue"
         @update:model-value="(value) => (inputValue = String(value))"
       />

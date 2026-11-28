@@ -120,7 +120,7 @@ function mountLookup(mountOptions: {
     setSearchParameters: (value: Record<string, unknown>) => { searchParameters.value = value },
     display: () => host.querySelector('.dialog-trigger p')?.textContent,
     row: (index: number) => host.querySelectorAll<HTMLButtonElement>('.lookup-row')[index]!,
-    save: () => [...host.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('Simpan'))!,
+    save: () => [...host.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.includes('Save'))!,
   }
 }
 
@@ -192,7 +192,7 @@ describe('LookupInput selection labels', () => {
       searchParameters: { parentId: 'parent' },
       signal: expect.any(AbortSignal),
     })
-    expect(view.display()).toBe('Pilih')
+    expect(view.display()).toBe('Select')
     expect(view.host.querySelector('.lookup-options')?.getAttribute('data-total')).toBe('2')
   })
 
@@ -343,7 +343,7 @@ describe('LookupInput selection labels', () => {
     await flush()
 
     expect(view.model.value).toBeNull()
-    expect(view.display()).toBe('Pilih')
+    expect(view.display()).toBe('Select')
   })
 
 })

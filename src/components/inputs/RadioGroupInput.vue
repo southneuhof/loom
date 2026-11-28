@@ -89,8 +89,8 @@ watch(loading, applyDefault, { immediate: true })
 
 <template>
   <BaseInput v-bind="props" v-slot="{ controlBindings }">
-    <p v-if="loading" class="text-muted">Memuat data...</p>
-    <p v-else-if="error" class="text-error">{{ error.message }} <button type="button" @click="refresh">Coba lagi</button></p>
+    <p v-if="loading" class="text-muted">Loading options...</p>
+    <p v-else-if="error" class="text-error">{{ error.message }} <button type="button" @click="refresh">Try again</button></p>
     <div v-else-if="data.length" role="radiogroup" :aria-required="controlBindings['aria-required']" :aria-invalid="controlBindings['aria-invalid']" :class="`${directionClass[direction]} ${$attrs.class as string} flex-wrap`">
       <Radio
         v-for="(item, index) in data"

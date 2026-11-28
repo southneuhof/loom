@@ -84,7 +84,7 @@ watch(() => props.multi, () => {
   selectionGeneration += 1
   void resolveModel(modelValue.value)
 }, { flush: 'sync' })
-const label = computed(() => selected.value.map((asset) => asset.name).join(', ') || 'Pilih berkas')
+const label = computed(() => selected.value.map((asset) => asset.name).join(', ') || 'Choose file')
 </script>
 
 <template>
