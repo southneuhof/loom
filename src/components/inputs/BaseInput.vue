@@ -62,7 +62,13 @@ const errorId = `${inputId}-error`
 
 function wrapperAttributes(): Record<string, unknown> {
   return Object.fromEntries(
-    Object.entries(attrs).filter(([key]) => key !== 'id' && key !== 'aria-describedby' && key !== 'aria-invalid' && key !== 'aria-required'),
+    Object.entries(attrs).filter(([key]) =>
+      key === 'style'
+      || key === 'role'
+      || key === 'tabindex'
+      || key.startsWith('data-')
+      || (key.startsWith('aria-') && key !== 'aria-describedby' && key !== 'aria-invalid' && key !== 'aria-required'),
+    ),
   )
 }
 

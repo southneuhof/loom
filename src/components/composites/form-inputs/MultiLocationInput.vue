@@ -1,59 +1,118 @@
 <script setup lang="ts">
-import { ref, type PropType } from 'vue'
+import { computed, ref, type PropType } from 'vue'
 import type { Coordinate, LocationOperations } from '../../../contracts/location'
 import LocationInput from './LocationInput.vue'
 import BaseInput from '../../inputs/BaseInput.vue'
 import { commonProps } from '../../inputs/commonprops'
 import Dialog from '../../base/Dialog.vue'
-import Button from '@southneuhof/loom/components/base/Button.vue'
-import Card from '@southneuhof/loom/components/base/Card.vue'
-import Icon from '@southneuhof/loom/components/base/Icon.vue'
+import Button from '../../base/Button.vue'
+import Card from '../../base/Card.vue'
+import Icon from '../../base/Icon.vue'
 
 const props = defineProps({
   ...commonProps,
-  mapProvider: { type: String as PropType<"google" | "openstreetmap">, default: "google" },
+  mapProvider: { type: String as PropType<'google' | 'openstreetmap'>, default: 'openstreetmap' },
   operations: { type: Object as PropType<LocationOperations>, required: true },
+  addLabel: { type: String, default: 'Add location' },
+  emptyLabel: { type: String, default: 'No locations added yet' },
 })
 
-const modelValue = defineModel<Coordinate[]>()
+const modelValue = defineModel<Coordinate[] | undefined>()
+const emit = defineEmits<{ (event: 'validation:touch'): void }>()
 
-if (!modelValue.value) modelValue.value = []
+const locations = computed(() => (Array.isArray(modelValue.value) ? modelValue.value : []))
+const tempLocation = ref<Coordinate | null | undefined>(undefined)
 
-const tempLocation = ref()
+function openAdd() {
+  tempLocation.value = undefined
+}
+
+function saveAdded(setOpen: (open: boolean) => void) {
+  if (!tempLocation.value) return
+  modelValue.value = [...locations.value, { ...tempLocation.value }]
+  tempLocation.value = undefined
+  emit('validation:touch')
+  setOpen(false)
+}
+
+function openEdit(item: Coordinate) {
+  tempLocation.value = { ...item }
+}
+
+function saveEdited(index: number, setOpen: (open: boolean) => void) {
+  if (!tempLocation.value) return
+  modelValue.value = locations.value.map((item, current) => (current === index ? { ...tempLocation.value! } : item))
+  tempLocation.value = undefined
+  emit('validation:touch')
+  setOpen(false)
+}
+
+function removeAt(index: number) {
+  if (props.disabled) return
+  modelValue.value = locations.value.filter((_, current) => current !== index)
+  emit('validation:touch')
+}
 </script>
 
 <template>
   <BaseInput v-bind="props" v-slot="{ controlBindings }">
-    <div class="flex flex-col gap-4">
-      <Dialog @close="() => (tempLocation = null)">
-        <template #trigger>
-          <Button v-bind="controlBindings"><Icon name="add" />Tambah Lokasi</Button>
-        </template>
-        <template #content="{ setOpen }">
-          <LocationInput v-model="tempLocation" :operations="operations" :map-provider="mapProvider" />
-          <Button @click="() => [modelValue?.push(tempLocation), setOpen(false)]">Simpan</Button>
-        </template>
-      </Dialog>
-      <div class="grid grid-cols-12 gap-4">
-        <div class="col-span-8 flex flex-row flex-wrap gap-4">
-          <template v-if="modelValue?.length">
-            <Dialog v-for="item in modelValue" @open="() => (tempLocation = item)" @close="() => (tempLocation = null)">
-              <template #trigger>
-                <Card color="surfaceContainerHigh" class="flex h-full max-w-fit flex-row items-center">
-                  <Icon name="map-pin" />
-                  <div>{{ item.lat }}, {{ item.lng }}</div>
-                </Card>
-              </template>
-              <template #content="{ setOpen }">
-                <LocationInput v-model="tempLocation" :operations="operations" :map-provider="mapProvider" />
-                <Button @click="() => setOpen(false)">Simpan</Button>
-              </template>
-            </Dialog>
+    <div :id="controlBindings.id" role="group" class="flex flex-col gap-3">
+      <div v-if="!props.disabled">
+        <Dialog @open="openAdd" @close="tempLocation = undefined">
+          <template #trigger>
+            <Button type="button" variant="outlined">
+              <template #icon><Icon name="add" /></template>
+              {{ props.addLabel }}
+            </Button>
           </template>
-          <div v-else class="text-muted">Belum ada lokasi yang ditambahkan</div>
-        </div>
-        <div class="col-span-4"></div>
+          <template #title>{{ props.addLabel }}</template>
+          <template #description>Select a location on the map and save.</template>
+          <template #content>
+            <LocationInput v-model="tempLocation" :operations="operations" :map-provider="mapProvider" />
+          </template>
+          <template #footer="{ setOpen }">
+            <div class="flex w-full justify-end gap-2">
+              <Button type="button" variant="text" @click="setOpen(false)">Cancel</Button>
+              <Button type="button" :disabled="!tempLocation" @click="saveAdded(setOpen)">Save</Button>
+            </div>
+          </template>
+        </Dialog>
       </div>
+      <div v-if="locations.length" class="flex flex-wrap gap-3">
+        <div v-for="(item, index) in locations" :key="`${index}-${item.lat}-${item.lng}`" class="flex items-center gap-1">
+          <Dialog :disabled="props.disabled" @open="openEdit(item)" @close="tempLocation = undefined">
+            <template #trigger>
+              <Card color="surfaceContainerHigh" class="flex max-w-fit cursor-pointer flex-row items-center gap-2 px-3 py-2 text-sm tabular-nums">
+                <Icon name="map-pin" />
+                <span>{{ item.lat }}, {{ item.lng }}</span>
+              </Card>
+            </template>
+            <template #title>Edit location</template>
+            <template #description>Update the selected coordinates and save.</template>
+            <template #content>
+              <LocationInput v-model="tempLocation" :operations="operations" :map-provider="mapProvider" />
+            </template>
+            <template #footer="{ setOpen }">
+              <div class="flex w-full justify-end gap-2">
+                <Button type="button" variant="text" @click="setOpen(false)">Cancel</Button>
+                <Button type="button" :disabled="!tempLocation" @click="saveEdited(index, setOpen)">Save</Button>
+              </div>
+            </template>
+          </Dialog>
+          <Button
+            v-if="!props.disabled"
+            type="button"
+            kind="icon"
+            variant="standard"
+            color="error"
+            :ariaLabel="`Remove location ${index + 1}`"
+            @click="removeAt(index)"
+          >
+            <template #icon><Icon name="close" /></template>
+          </Button>
+        </div>
+      </div>
+      <p v-else class="text-sm text-on-surface-variant">{{ props.emptyLabel }}</p>
     </div>
   </BaseInput>
 </template>

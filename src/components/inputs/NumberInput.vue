@@ -19,7 +19,7 @@ const props = defineProps({
     default: '',
   },
   placeholder: {
-    type: Number,
+    type: [String, Number],
     default: '',
   },
   defaultValue: {

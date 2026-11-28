@@ -49,7 +49,7 @@ Generated from source by `node scripts/generate-framework-catalog.mjs`. Do not e
 | `LookupInput` | `v-model`, `table`, `context`, `loadDetail`, `searchParameters`, `namespace`, `view`, `multi`, `pick`, `placeholder`, `field`, `label`, `helperMessage`, `error`, `disabled`, `required`, `data`, `load` | `trigger` | `packages/loom/src/components/composites/form-inputs/LookupInput.vue` |
 | `TableInput` | `v-model`, `mode`, `fields`, `createRow`, `addLabel`, `table`, `disabled`, `field`, `label`, `helperMessage`, `error`, `required`, `context`, `form`, `toDraft`, `reorderable`, `rowKey` | `[dynamic]`, `create-button`, `table` | `packages/loom/src/components/composites/form-inputs/TableInput.vue` |
 | `LocationInput` | `v-model`, `mapProvider`, `operations`, `...commonProps` | - | `packages/loom/src/components/composites/form-inputs/LocationInput.vue` |
-| `MultiLocationInput` | `v-model`, `mapProvider`, `operations`, `...commonProps` | - | `packages/loom/src/components/composites/form-inputs/MultiLocationInput.vue` |
+| `MultiLocationInput` | `v-model`, `mapProvider`, `operations`, `addLabel`, `emptyLabel`, `...commonProps` | - | `packages/loom/src/components/composites/form-inputs/MultiLocationInput.vue` |
 
 ## High-traffic component contracts
 
@@ -129,7 +129,7 @@ See each declaration for constraints on combinations of props.
 | `color` | `ColorInput` | `v-model`, `presetColors`, `placeholder`, `...commonProps` | `packages/loom/src/components/inputs/ColorInput.vue` |
 | `lookup` | `LookupInput` | `v-model`, `table`, `context`, `loadDetail`, `searchParameters`, `namespace`, `view`, `multi`, `pick`, `placeholder`, `field`, `label`, `helperMessage`, `error`, `disabled`, `required`, `data`, `load` | `packages/loom/src/components/composites/form-inputs/LookupInput.vue` |
 | `location` | `LocationInput` | `v-model`, `mapProvider`, `operations`, `...commonProps` | `packages/loom/src/components/composites/form-inputs/LocationInput.vue` |
-| `multi-location` | `MultiLocationInput` | `v-model`, `mapProvider`, `operations`, `...commonProps` | `packages/loom/src/components/composites/form-inputs/MultiLocationInput.vue` |
+| `multi-location` | `MultiLocationInput` | `v-model`, `mapProvider`, `operations`, `addLabel`, `emptyLabel`, `...commonProps` | `packages/loom/src/components/composites/form-inputs/MultiLocationInput.vue` |
 | `rich-text` | `RichTextInput` | `v-model`, `contentType`, `height`, `...commonProps` | `packages/loom/src/components/inputs/RichTextInput.vue` |
 | `icon-select` | `IconSelectInput` | `v-model`, `...commonProps` | `packages/loom/src/components/inputs/IconSelectInput.vue` |
 | `table` | `TableInput` | `v-model`, `mode`, `fields`, `createRow`, `addLabel`, `table`, `disabled`, `field`, `label`, `helperMessage`, `error`, `required`, `context`, `form`, `toDraft`, `reorderable`, `rowKey` | `packages/loom/src/components/composites/form-inputs/TableInput.vue` |

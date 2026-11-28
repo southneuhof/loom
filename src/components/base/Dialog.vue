@@ -50,6 +50,7 @@ watch(open, () => {
         </DialogDescription>
       </DialogHeader>
       <DialogClose v-else class="absolute right-4 top-4 rounded-sm"><Icon name="close" /><span class="sr-only">Close</span></DialogClose>
+      <DialogDescription v-if="!$slots['description']" class="sr-only" />
       <div v-if="$slots['content']" class="flex flex-col gap-4 overflow-auto p-6">
         <slot name="content" v-bind="{ setOpen }" />
       </div>
